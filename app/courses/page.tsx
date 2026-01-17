@@ -5,6 +5,8 @@ import { useSession } from 'next-auth/react'
 import Link from 'next/link'
 import CourseForm from '@/components/CourseForm'
 
+export const dynamic = 'force-dynamic'
+
 interface Course {
   id: string
   name: string

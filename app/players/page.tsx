@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import { useSession } from 'next-auth/react'
 import Link from 'next/link'
 
+export const dynamic = 'force-dynamic'
+
 interface Player {
   id: string
   fullName: string
