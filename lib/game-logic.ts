@@ -192,7 +192,9 @@ function resolveFinalCarryoverByHandicap(
 
   // Find the first hole with a clear winner
   for (const hole of sortedByHandicap) {
-    const maxScore = Math.max(...Array.from(hole.scores.values()))
+    const scores = Array.from(hole.scores.values()).filter((s): s is number => s !== null)
+    if (scores.length === 0) continue
+    const maxScore = Math.max(...scores)
     const winners = Array.from(hole.scores.entries())
       .filter(([_, score]) => score === maxScore)
       .map(([teamId]) => teamId)
