@@ -13,7 +13,7 @@ interface Player {
 }
 
 export default function PlayersPage() {
-  const { data: session } = useSession()
+  const { data: session, status } = useSession()
   const [players, setPlayers] = useState<Player[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -26,7 +26,7 @@ export default function PlayersPage() {
     isActive: true,
   })
 
-  const isAdmin = session?.user?.role === 'ADMIN'
+  const isAdmin = status === 'authenticated' && session?.user?.role === 'ADMIN'
 
   useEffect(() => {
     loadPlayers()

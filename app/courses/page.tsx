@@ -17,13 +17,13 @@ interface Course {
 }
 
 export default function CoursesPage() {
-  const { data: session } = useSession()
+  const { data: session, status } = useSession()
   const [courses, setCourses] = useState<Course[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null)
   const [showForm, setShowForm] = useState(false)
 
-  const isAdmin = session?.user?.role === 'ADMIN'
+  const isAdmin = status === 'authenticated' && session?.user?.role === 'ADMIN'
 
   useEffect(() => {
     loadCourses()
