@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx create-next-app@latest . --typescript --tailwind --app --no-src-dir --import-alias \"@/*\" --use-npm)",
+      "Bash(chmod:*)",
+      "mcp__Neon__load_resource",
+      "mcp__Neon__list_organizations",
+      "mcp__Neon__list_projects",
+      "mcp__Neon__get_connection_string",
+      "Bash(npx prisma migrate:*)",
+      "mcp__Neon__run_sql_transaction",
+      "mcp__Neon__get_database_tables",
+      "Bash(openssl rand:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nInitial commit: Sunday Church Golf App\n\n- Next.js app with NextAuth authentication\n- Prisma ORM with Neon PostgreSQL database\n- Golf scoring system with seasons, rounds, teams\n- Email magic link authentication configured\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
+    ]
+  }
+}

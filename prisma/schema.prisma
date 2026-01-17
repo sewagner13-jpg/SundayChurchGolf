@@ -1,0 +1,170 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Auth models
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  accounts      Account[]
+  sessions      Session[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// Core golf app models
+model Season {
+  id        String   @id @default(cuid())
+  year      Int      @unique
+  rounds    Round[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([year])
+}
+
+model Player {
+  id            String   @id @default(cuid())
+  fullName      String
+  nickname      String?
+  handicapIndex Float?
+  isActive      Boolean  @default(true)
+  teamPlayers   TeamPlayer[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([isActive])
+}
+
+model Course {
+  id             String   @id @default(cuid())
+  name           String
+  scorecardImage String?
+  holes          Hole[]
+  rounds         Round[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model Hole {
+  id              String @id @default(cuid())
+  courseId        String
+  holeNumber      Int
+  par             Int
+  handicapRank    Int
+  course          Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  holeScores      HoleScore[]
+
+  @@unique([courseId, holeNumber])
+  @@unique([courseId, handicapRank])
+}
+
+model Format {
+  id              String   @id @default(cuid())
+  name            String
+  description     String
+  defaultTeamSize Int
+  rounds          Round[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Round {
+  id              String      @id @default(cuid())
+  seasonId        String
+  courseId        String
+  formatId        String
+  date            DateTime
+  buyInPerPlayer  Float       @default(30)
+  isLocked        Boolean     @default(false)
+  season          Season      @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  course          Course      @relation(fields: [courseId], references: [id])
+  format          Format      @relation(fields: [formatId], references: [id])
+  teams           Team[]
+  holeScores      HoleScore[]
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([seasonId, date])
+}
+
+model Team {
+  id         String       @id @default(cuid())
+  roundId    String
+  name       String
+  round      Round        @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  players    TeamPlayer[]
+  holeScores HoleScore[]
+}
+
+model TeamPlayer {
+  id       String @id @default(cuid())
+  teamId   String
+  playerId String
+  team     Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  player   Player @relation(fields: [playerId], references: [id])
+
+  @@unique([teamId, playerId])
+}
+
+model HoleScore {
+  id             String  @id @default(cuid())
+  roundId        String
+  teamId         String
+  holeId         String
+  underParStrokes Int?   // null represents "X" (no score), 0+ represents total under-par makes
+  skinValue      Float   @default(0)  // calculated payout for this hole
+  carriedSkins   Int     @default(1)  // number of skins riding on this hole
+  round          Round   @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  team           Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  hole           Hole    @relation(fields: [holeId], references: [id])
+
+  @@unique([roundId, teamId, holeId])
+  @@index([roundId, holeId])
+}
