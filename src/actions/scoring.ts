@@ -1,0 +1,447 @@
+"use server";
+
+import { prisma } from "@/lib/db";
+import { revalidatePath } from "next/cache";
+import { Decimal } from "@prisma/client/runtime/library";
+import { HoleEntryType, RoundStatus } from "@prisma/client";
+import {
+  calculateRoundResults,
+  getScoringOrder,
+  areAllHolesComplete,
+  resolveCarryoverTiebreaker,
+  calculatePlayerPayouts,
+  findTopPayingTeams,
+  TeamScore,
+} from "@/lib/scoring-engine";
+
+export interface ScoreEntry {
+  entryType: HoleEntryType;
+  value?: number | null;
+}
+
+export async function upsertHoleScore(
+  roundId: string,
+  teamId: string,
+  holeNumber: number,
+  entry: ScoreEntry
+) {
+  const round = await prisma.round.findUnique({
+    where: { id: roundId },
+  });
+
+  if (!round) throw new Error("Round not found");
+  if (round.status !== "LIVE") {
+    throw new Error("Can only enter scores while round is LIVE");
+  }
+
+  // Validate entry
+  if (entry.entryType === "VALUE") {
+    if (!entry.value || entry.value <= 0) {
+      throw new Error("Value must be a positive integer");
+    }
+  }
+
+  // Check for existing score
+  const existingScore = await prisma.holeScore.findUnique({
+    where: {
+      roundId_teamId_holeNumber: {
+        roundId,
+        teamId,
+        holeNumber,
+      },
+    },
+  });
+
+  const isEdit =
+    existingScore &&
+    existingScore.entryType !== "BLANK" &&
+    (existingScore.entryType !== entry.entryType ||
+      existingScore.value !== entry.value);
+
+  // Upsert the score
+  await prisma.holeScore.upsert({
+    where: {
+      roundId_teamId_holeNumber: {
+        roundId,
+        teamId,
+        holeNumber,
+      },
+    },
+    update: {
+      entryType: entry.entryType,
+      value: entry.entryType === "VALUE" ? entry.value : null,
+      wasEdited: existingScore?.wasEdited || isEdit || false,
+    },
+    create: {
+      roundId,
+      teamId,
+      holeNumber,
+      entryType: entry.entryType,
+      value: entry.entryType === "VALUE" ? entry.value : null,
+      wasEdited: false,
+    },
+  });
+
+  // Trigger recalculation
+  await recalculateRound(roundId);
+
+  revalidatePath(`/rounds/${roundId}/scoring`);
+}
+
+export async function recalculateRound(roundId: string) {
+  const round = await prisma.round.findUnique({
+    where: { id: roundId },
+    include: {
+      course: { include: { holes: true } },
+      teams: { include: { roundPlayers: true } },
+      holeScores: true,
+    },
+  });
+
+  if (!round) throw new Error("Round not found");
+  if (!round.startingHole || !round.pot || !round.baseSkinValue) {
+    return; // Not ready for calculation
+  }
+
+  // Prepare data for scoring engine
+  const allScores: TeamScore[] = round.holeScores.map((hs) => ({
+    teamId: hs.teamId,
+    holeNumber: hs.holeNumber,
+    entryType: hs.entryType,
+    value: hs.value,
+  }));
+
+  const teams = round.teams.map((t) => ({
+    id: t.id,
+    teamNumber: t.teamNumber,
+  }));
+
+  const courseHoles = round.course.holes.map((h) => ({
+    holeNumber: h.holeNumber,
+    par: h.par,
+    handicapRank: h.handicapRank,
+  }));
+
+  // Calculate results
+  const { holeResults, teamPayouts, unresolvedCarryover } =
+    calculateRoundResults(
+      allScores,
+      teams,
+      round.startingHole,
+      round.pot,
+      courseHoles
+    );
+
+  // Update hole results in database
+  for (const result of holeResults) {
+    await prisma.holeResult.upsert({
+      where: {
+        roundId_holeNumber: {
+          roundId,
+          holeNumber: result.holeNumber,
+        },
+      },
+      update: {
+        winnerTeamId: result.winnerTeamId,
+        isTie: result.isTie,
+        carrySkinsUsed: result.carrySkinsUsed,
+        holePayout: result.holePayout,
+      },
+      create: {
+        roundId,
+        holeNumber: result.holeNumber,
+        winnerTeamId: result.winnerTeamId,
+        isTie: result.isTie,
+        carrySkinsUsed: result.carrySkinsUsed,
+        holePayout: result.holePayout,
+      },
+    });
+  }
+
+  // Update team totals (for intermediate display, final set on finish)
+  for (const [teamId, payout] of teamPayouts) {
+    await prisma.team.update({
+      where: { id: teamId },
+      data: { totalPayout: payout },
+    });
+  }
+}
+
+export async function finishRound(roundId: string) {
+  const round = await prisma.round.findUnique({
+    where: { id: roundId },
+    include: {
+      course: { include: { holes: true } },
+      teams: { include: { roundPlayers: { include: { player: true } } } },
+      holeScores: true,
+      holeResults: true,
+    },
+  });
+
+  if (!round) throw new Error("Round not found");
+  if (round.status !== "LIVE") {
+    throw new Error("Can only finish rounds in LIVE status");
+  }
+  if (!round.startingHole || !round.pot || !round.baseSkinValue) {
+    throw new Error("Round is missing required data");
+  }
+
+  // Verify all holes are complete
+  const allScores: TeamScore[] = round.holeScores.map((hs) => ({
+    teamId: hs.teamId,
+    holeNumber: hs.holeNumber,
+    entryType: hs.entryType,
+    value: hs.value,
+  }));
+
+  const teams = round.teams.map((t) => ({
+    id: t.id,
+    teamNumber: t.teamNumber,
+  }));
+
+  if (!areAllHolesComplete(allScores, teams, round.startingHole)) {
+    throw new Error("All holes must be scored before finishing");
+  }
+
+  const courseHoles = round.course.holes.map((h) => ({
+    holeNumber: h.holeNumber,
+    par: h.par,
+    handicapRank: h.handicapRank,
+  }));
+
+  // Calculate final results
+  const { holeResults, teamPayouts, unresolvedCarryover } =
+    calculateRoundResults(
+      allScores,
+      teams,
+      round.startingHole,
+      round.pot,
+      courseHoles
+    );
+
+  // Handle end-of-round carryover tiebreaker if needed
+  let finalTeamPayouts = teamPayouts;
+
+  if (unresolvedCarryover > 1) {
+    const additionalPayouts = resolveCarryoverTiebreaker(
+      allScores,
+      teams,
+      courseHoles,
+      unresolvedCarryover,
+      round.baseSkinValue
+    );
+
+    // Merge additional payouts
+    for (const [teamId, additional] of additionalPayouts) {
+      const current = finalTeamPayouts.get(teamId) ?? new Decimal(0);
+      finalTeamPayouts.set(teamId, current.add(additional));
+    }
+  }
+
+  // Find top-paying teams
+  const topTeamIds = findTopPayingTeams(finalTeamPayouts);
+
+  // Calculate player payouts
+  const teamMembers = new Map<string, string[]>();
+  for (const team of round.teams) {
+    teamMembers.set(
+      team.id,
+      team.roundPlayers.map((rp) => rp.playerId)
+    );
+  }
+  const playerPayouts = calculatePlayerPayouts(finalTeamPayouts, teamMembers);
+
+  // Update database in transaction
+  await prisma.$transaction(async (tx) => {
+    // Update hole results
+    for (const result of holeResults) {
+      await tx.holeResult.upsert({
+        where: {
+          roundId_holeNumber: {
+            roundId,
+            holeNumber: result.holeNumber,
+          },
+        },
+        update: {
+          winnerTeamId: result.winnerTeamId,
+          isTie: result.isTie,
+          carrySkinsUsed: result.carrySkinsUsed,
+          holePayout: result.holePayout,
+        },
+        create: {
+          roundId,
+          holeNumber: result.holeNumber,
+          winnerTeamId: result.winnerTeamId,
+          isTie: result.isTie,
+          carrySkinsUsed: result.carrySkinsUsed,
+          holePayout: result.holePayout,
+        },
+      });
+    }
+
+    // Update teams
+    for (const team of round.teams) {
+      const payout = finalTeamPayouts.get(team.id) ?? new Decimal(0);
+      const isTop = topTeamIds.includes(team.id);
+
+      await tx.team.update({
+        where: { id: team.id },
+        data: {
+          totalPayout: payout,
+          isTopPayingTeam: isTop,
+        },
+      });
+    }
+
+    // Update round players
+    for (const team of round.teams) {
+      const isTop = topTeamIds.includes(team.id);
+
+      for (const rp of team.roundPlayers) {
+        const payout = playerPayouts.get(rp.playerId) ?? new Decimal(0);
+
+        await tx.roundPlayer.update({
+          where: { id: rp.id },
+          data: {
+            payoutAmount: payout,
+            wasOnTopPayingTeam: isTop,
+          },
+        });
+      }
+    }
+
+    // Set round to FINISHED
+    await tx.round.update({
+      where: { id: roundId },
+      data: { status: "FINISHED" },
+    });
+
+    // Update season stats
+    const year = round.date.getFullYear();
+
+    for (const team of round.teams) {
+      const isTop = topTeamIds.includes(team.id);
+
+      for (const rp of team.roundPlayers) {
+        const payout = playerPayouts.get(rp.playerId) ?? new Decimal(0);
+
+        await tx.seasonPlayerStat.upsert({
+          where: {
+            year_playerId: {
+              year,
+              playerId: rp.playerId,
+            },
+          },
+          update: {
+            totalWinnings: { increment: payout },
+            roundsPlayed: { increment: 1 },
+            topTeamAppearances: isTop ? { increment: 1 } : undefined,
+          },
+          create: {
+            year,
+            playerId: rp.playerId,
+            totalWinnings: payout,
+            roundsPlayed: 1,
+            topTeamAppearances: isTop ? 1 : 0,
+          },
+        });
+      }
+    }
+  });
+
+  revalidatePath("/");
+  revalidatePath(`/rounds/${roundId}`);
+  revalidatePath("/leaderboard");
+}
+
+export async function getHoleView(
+  roundId: string,
+  holeNumber: number,
+  teamIdContext?: string | null
+) {
+  const round = await prisma.round.findUnique({
+    where: { id: roundId },
+    include: {
+      course: { include: { holes: true } },
+      teams: {
+        orderBy: { teamNumber: "asc" },
+        include: {
+          roundPlayers: { include: { player: true } },
+        },
+      },
+      holeScores: {
+        where: { holeNumber },
+      },
+      holeResults: {
+        where: { holeNumber },
+      },
+    },
+  });
+
+  if (!round) throw new Error("Round not found");
+
+  const hole = round.course.holes.find((h) => h.holeNumber === holeNumber);
+  if (!hole) throw new Error("Hole not found");
+
+  const holeResult = round.holeResults[0] ?? null;
+  const isBlind = round.visibility === "BLIND";
+  const isLive = round.status === "LIVE";
+
+  // Check if hole is complete
+  const isHoleComplete = round.teams.every((team) => {
+    const score = round.holeScores.find((hs) => hs.teamId === team.id);
+    return score && score.entryType !== "BLANK";
+  });
+
+  // Shape response based on visibility rules
+  const teamScores = round.teams.map((team) => {
+    const score = round.holeScores.find((hs) => hs.teamId === team.id);
+    const isOwnTeam = teamIdContext === team.id;
+
+    // Determine what to show
+    let showValue = true;
+    let showResult = true;
+
+    if (isBlind && isLive) {
+      if (round.blindRevealMode === "REVEAL_AFTER_ROUND") {
+        // Show only own team, placeholders for others
+        showValue = isOwnTeam;
+        showResult = false;
+      } else if (round.blindRevealMode === "REVEAL_AFTER_HOLE") {
+        // Show values only after hole complete
+        showValue = isOwnTeam || isHoleComplete;
+        showResult = isHoleComplete;
+      }
+    }
+
+    return {
+      teamId: team.id,
+      teamNumber: team.teamNumber,
+      players: team.roundPlayers.map((rp) => ({
+        id: rp.player.id,
+        name: rp.player.nickname || rp.player.fullName,
+      })),
+      entryType: showValue ? score?.entryType ?? "BLANK" : null,
+      value: showValue ? score?.value ?? null : null,
+      wasEdited: showValue ? score?.wasEdited ?? false : false,
+      hasEntry: score ? score.entryType !== "BLANK" : false,
+    };
+  });
+
+  return {
+    holeNumber,
+    par: hole.par,
+    handicapRank: hole.handicapRank,
+    isComplete: isHoleComplete,
+    teamScores,
+    result:
+      !isBlind || !isLive || (round.blindRevealMode === "REVEAL_AFTER_HOLE" && isHoleComplete)
+        ? {
+            winnerTeamId: holeResult?.winnerTeamId ?? null,
+            isTie: holeResult?.isTie ?? false,
+          }
+        : null,
+    // Never show payouts during LIVE
+    payout: !isLive && holeResult ? holeResult.holePayout : null,
+  };
+}
