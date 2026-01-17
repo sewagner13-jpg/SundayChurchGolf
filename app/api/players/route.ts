@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireAdmin } from '@/lib/auth-helpers'
 
 export async function GET() {
   try {
@@ -17,6 +18,8 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    await requireAdmin()
+
     const body = await request.json()
     const { fullName, nickname, handicapIndex, isActive } = body
 
@@ -38,6 +41,12 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(player, { status: 201 })
   } catch (error) {
+    if ((error as Error).message === 'Unauthorized') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    if ((error as Error).message?.startsWith('Forbidden')) {
+      return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
+    }
     return NextResponse.json(
       { error: 'Failed to create player' },
       { status: 500 }

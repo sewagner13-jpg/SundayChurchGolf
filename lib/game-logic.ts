@@ -108,7 +108,8 @@ export async function computeSkins(roundId: string): Promise<HoleResult[]> {
     0
   )
   const totalPot = totalPlayers * round.buyInPerPlayer
-  const skinValue = totalPot / 18
+  const holeCount = round.course.holeCount
+  const skinValue = totalPot / holeCount
 
   // Group scores by hole
   const scoresByHole = new Map<string, HoleScoreData[]>()

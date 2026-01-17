@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { format } from 'date-fns'
+import MoneyLeaderboard from '@/components/MoneyLeaderboard'
 
 interface Round {
   id: string
@@ -76,6 +77,11 @@ export default function Dashboard() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 py-8">
+        {/* Money Leaderboard */}
+        <div className="mb-8">
+          <MoneyLeaderboard seasonId={currentYear.toString()} />
+        </div>
+
         {/* Quick Actions */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           <Link

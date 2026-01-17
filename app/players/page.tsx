@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useSession } from 'next-auth/react'
 import Link from 'next/link'
 
 interface Player {
@@ -12,15 +13,20 @@ interface Player {
 }
 
 export default function PlayersPage() {
+  const { data: session } = useSession()
   const [players, setPlayers] = useState<Player[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
+  const [syncing, setSyncing] = useState(false)
   const [formData, setFormData] = useState({
     fullName: '',
     nickname: '',
     handicapIndex: '',
+    ghinNumber: '',
     isActive: true,
   })
+
+  const isAdmin = session?.user?.role === 'ADMIN'
 
   useEffect(() => {
     loadPlayers()
@@ -50,7 +56,7 @@ export default function PlayersPage() {
       })
 
       if (response.ok) {
-        setFormData({ fullName: '', nickname: '', handicapIndex: '', isActive: true })
+        setFormData({ fullName: '', nickname: '', handicapIndex: '', ghinNumber: '', isActive: true })
         setShowForm(false)
         loadPlayers()
       }
@@ -75,6 +81,27 @@ export default function PlayersPage() {
     }
   }
 
+  async function handleSyncHandicaps() {
+    if (!confirm('Sync all player handicaps from GHIN?')) return
+
+    setSyncing(true)
+    try {
+      const response = await fetch('/api/players/sync-handicaps', {
+        method: 'POST',
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        alert(`Synced ${data.playersUpdated} players successfully`)
+        loadPlayers()
+      }
+    } catch (error) {
+      alert('Failed to sync handicaps')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-primary-600 text-white shadow-lg">
@@ -85,12 +112,23 @@ export default function PlayersPage() {
             </Link>
             <h1 className="text-3xl font-bold">Players</h1>
           </div>
-          <button
-            onClick={() => setShowForm(!showForm)}
-            className="px-4 py-2 bg-white text-primary-600 rounded-lg font-semibold hover:bg-primary-50"
-          >
-            {showForm ? 'Cancel' : '+ Add Player'}
-          </button>
+          {isAdmin && (
+            <div className="flex gap-2">
+              <button
+                onClick={handleSyncHandicaps}
+                disabled={syncing}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50"
+              >
+                {syncing ? 'Syncing...' : 'Sync Handicaps'}
+              </button>
+              <button
+                onClick={() => setShowForm(!showForm)}
+                className="px-4 py-2 bg-white text-primary-600 rounded-lg font-semibold hover:bg-primary-50"
+              >
+                {showForm ? 'Cancel' : '+ Add Player'}
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
@@ -138,6 +176,20 @@ export default function PlayersPage() {
                     setFormData({ ...formData, handicapIndex: e.target.value })
                   }
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  GHIN Number
+                </label>
+                <input
+                  type="text"
+                  value={formData.ghinNumber}
+                  onChange={(e) =>
+                    setFormData({ ...formData, ghinNumber: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  placeholder="e.g. 1234567"
                 />
               </div>
               <button

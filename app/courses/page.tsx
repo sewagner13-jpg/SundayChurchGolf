@@ -1,7 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useSession } from 'next-auth/react'
 import Link from 'next/link'
+import CourseForm from '@/components/CourseForm'
 
 interface Course {
   id: string
@@ -15,9 +17,13 @@ interface Course {
 }
 
 export default function CoursesPage() {
+  const { data: session } = useSession()
   const [courses, setCourses] = useState<Course[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null)
+  const [showForm, setShowForm] = useState(false)
+
+  const isAdmin = session?.user?.role === 'ADMIN'
 
   useEffect(() => {
     loadCourses()
@@ -40,15 +46,37 @@ export default function CoursesPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-primary-600 text-white shadow-lg">
-        <div className="max-w-7xl mx-auto px-4 py-6">
-          <Link href="/" className="text-primary-100 hover:text-white mb-2 inline-block">
-            ← Back to Dashboard
-          </Link>
-          <h1 className="text-3xl font-bold">Courses</h1>
+        <div className="max-w-7xl mx-auto px-4 py-6 flex items-center justify-between">
+          <div>
+            <Link href="/" className="text-primary-100 hover:text-white mb-2 inline-block">
+              ← Back to Dashboard
+            </Link>
+            <h1 className="text-3xl font-bold">Courses</h1>
+          </div>
+          {isAdmin && (
+            <button
+              onClick={() => setShowForm(!showForm)}
+              className="px-4 py-2 bg-white text-primary-600 rounded-lg font-semibold hover:bg-primary-50"
+            >
+              {showForm ? 'Cancel' : '+ Add Course'}
+            </button>
+          )}
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8">
+        {showForm && isAdmin && (
+          <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+            <h2 className="text-xl font-bold mb-4">Add New Course</h2>
+            <CourseForm
+              onSuccess={() => {
+                setShowForm(false)
+                loadCourses()
+              }}
+              onCancel={() => setShowForm(false)}
+            />
+          </div>
+        )}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Courses List */}
           <div className="bg-white rounded-lg shadow">

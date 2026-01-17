@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireAdmin } from '@/lib/auth-helpers'
 
 export async function GET() {
   try {
@@ -22,6 +23,8 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    await requireAdmin()
+
     const body = await request.json()
     const { name, scorecardImage, holes } = body
 
@@ -29,19 +32,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 })
     }
 
-    if (!holes || holes.length !== 18) {
+    if (!holes || holes.length < 1) {
       return NextResponse.json(
-        { error: 'Exactly 18 holes are required' },
+        { error: 'At least 1 hole is required' },
         { status: 400 }
       )
     }
 
-    // Validate handicap ranks are unique 1-18
+    const holeCount = holes.length
+
+    // Validate handicap ranks are unique 1-N
     const handicapRanks = holes.map((h: any) => h.handicapRank)
     const uniqueRanks = new Set(handicapRanks)
-    if (uniqueRanks.size !== 18) {
+    if (uniqueRanks.size !== holeCount) {
       return NextResponse.json(
-        { error: 'Handicap ranks must be unique 1-18' },
+        { error: `Handicap ranks must be unique 1-${holeCount}` },
         { status: 400 }
       )
     }
@@ -49,6 +54,7 @@ export async function POST(request: NextRequest) {
     const course = await prisma.course.create({
       data: {
         name,
+        holeCount,
         scorecardImage: scorecardImage || null,
         holes: {
           create: holes.map((hole: any) => ({
@@ -67,6 +73,12 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(course, { status: 201 })
   } catch (error) {
+    if ((error as Error).message === 'Unauthorized') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    if ((error as Error).message?.startsWith('Forbidden')) {
+      return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
+    }
     return NextResponse.json(
       { error: 'Failed to create course' },
       { status: 500 }
