@@ -8,6 +8,7 @@ interface Player {
   id: string
   fullName: string
   nickname?: string | null
+  isActive: boolean
 }
 
 interface Course {
