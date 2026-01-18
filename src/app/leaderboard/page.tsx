@@ -6,13 +6,12 @@ import { Button } from "@/components/button";
 import { Card, CardHeader, CardContent } from "@/components/card";
 import { Select } from "@/components/select";
 import { getLeaderboard, getAvailableYears } from "@/actions/season-stats";
-import { Decimal } from "@prisma/client/runtime/library";
 
 interface LeaderboardEntry {
   playerId: string;
   playerName: string;
-  handicapIndex: Decimal | null;
-  totalWinnings: Decimal;
+  handicapIndex: number | null;
+  totalWinnings: number;
   roundsPlayed: number;
   topTeamAppearances: number;
 }
@@ -95,14 +94,14 @@ export default function LeaderboardPage() {
                   </div>
                   <div className="flex-1">
                     <p className="font-medium">{entry.playerName}</p>
-                    {entry.handicapIndex && (
+                    {entry.handicapIndex != null && (
                       <p className="text-xs text-gray-500">
-                        {entry.handicapIndex.toString()} HCP
+                        {entry.handicapIndex} HCP
                       </p>
                     )}
                   </div>
                   <div className="w-20 text-right font-bold text-green-600">
-                    ${Math.round(entry.totalWinnings.toNumber())}
+                    ${Math.round(entry.totalWinnings)}
                   </div>
                   <div className="w-12 text-center text-sm text-gray-600">
                     {entry.roundsPlayed}

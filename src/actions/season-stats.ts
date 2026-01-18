@@ -35,11 +35,12 @@ export async function getLeaderboard(year: number) {
     return nameA.localeCompare(nameB);
   });
 
+  // Convert Decimal to number for client serialization
   return stats.map((s) => ({
     playerId: s.playerId,
     playerName: s.player.nickname || s.player.fullName,
-    handicapIndex: s.player.handicapIndex,
-    totalWinnings: s.totalWinnings,
+    handicapIndex: s.player.handicapIndex ? Number(s.player.handicapIndex) : null,
+    totalWinnings: Number(s.totalWinnings),
     roundsPlayed: s.roundsPlayed,
     topTeamAppearances: s.topTeamAppearances,
   }));

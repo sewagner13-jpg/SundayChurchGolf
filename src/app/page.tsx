@@ -1,13 +1,19 @@
 import Link from "next/link";
 import { getActiveRound, getFinishedRounds } from "@/actions/rounds";
+import { getLeaderboard } from "@/actions/season-stats";
 import { Button } from "@/components/button";
 import { Card, CardHeader, CardContent } from "@/components/card";
+import { MastersLeaderboard } from "@/components/masters-leaderboard";
 
 export const dynamic = "force-dynamic";
 
 export default async function Dashboard() {
-  const activeRound = await getActiveRound();
-  const finishedRounds = await getFinishedRounds();
+  const currentYear = new Date().getFullYear();
+  const [activeRound, finishedRounds, leaderboard] = await Promise.all([
+    getActiveRound(),
+    getFinishedRounds(),
+    getLeaderboard(currentYear),
+  ]);
 
   const formatDate = (date: Date) => {
     return new Date(date).toLocaleDateString("en-US", {
@@ -21,6 +27,9 @@ export default async function Dashboard() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-center">Sunday Church</h1>
+
+      {/* Masters-Style Leaderboard */}
+      <MastersLeaderboard entries={leaderboard} year={currentYear} />
 
       {/* Active Round Section */}
       <Card>
@@ -103,7 +112,7 @@ export default async function Dashboard() {
                           {round.roundPlayers.length} players
                         </p>
                         <p className="text-sm text-green-600 font-medium">
-                          ${round.pot?.toNumber().toFixed(0) ?? 0} pot
+                          ${round.pot ? Number(round.pot).toFixed(0) : 0} pot
                         </p>
                       </div>
                     </div>
