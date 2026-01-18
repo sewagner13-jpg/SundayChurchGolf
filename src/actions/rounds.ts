@@ -129,6 +129,7 @@ export async function deleteRound(id: string) {
 
       if (stat) {
         const newWinnings = stat.totalWinnings.sub(rp.payoutAmount);
+        const newBuyIns = stat.totalBuyInsPaid.sub(round.buyInPerPlayer);
         const newRounds = Math.max(0, stat.roundsPlayed - 1);
         const newTopTeam = rp.wasOnTopPayingTeam
           ? Math.max(0, stat.topTeamAppearances - 1)
@@ -144,6 +145,7 @@ export async function deleteRound(id: string) {
             where: { year_playerId: { year, playerId: rp.playerId } },
             data: {
               totalWinnings: newWinnings,
+              totalBuyInsPaid: newBuyIns,
               roundsPlayed: newRounds,
               topTeamAppearances: newTopTeam,
             },

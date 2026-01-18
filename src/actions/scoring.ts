@@ -318,6 +318,7 @@ export async function finishRound(roundId: string) {
 
     // Update season stats
     const year = round.date.getFullYear();
+    const buyIn = round.buyInPerPlayer;
 
     for (const team of round.teams) {
       const isTop = topTeamIds.includes(team.id);
@@ -334,6 +335,7 @@ export async function finishRound(roundId: string) {
           },
           update: {
             totalWinnings: { increment: payout },
+            totalBuyInsPaid: { increment: buyIn },
             roundsPlayed: { increment: 1 },
             topTeamAppearances: isTop ? { increment: 1 } : undefined,
           },
@@ -341,6 +343,7 @@ export async function finishRound(roundId: string) {
             year,
             playerId: rp.playerId,
             totalWinnings: payout,
+            totalBuyInsPaid: buyIn,
             roundsPlayed: 1,
             topTeamAppearances: isTop ? 1 : 0,
           },

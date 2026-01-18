@@ -36,14 +36,22 @@ export async function getLeaderboard(year: number) {
   });
 
   // Convert Decimal to number for client serialization
-  return stats.map((s) => ({
-    playerId: s.playerId,
-    playerName: s.player.nickname || s.player.fullName,
-    handicapIndex: s.player.handicapIndex ? Number(s.player.handicapIndex) : null,
-    totalWinnings: Number(s.totalWinnings),
-    roundsPlayed: s.roundsPlayed,
-    topTeamAppearances: s.topTeamAppearances,
-  }));
+  return stats.map((s) => {
+    const totalWinnings = Number(s.totalWinnings);
+    const totalBuyInsPaid = Number(s.totalBuyInsPaid);
+    const netWinnings = totalWinnings - totalBuyInsPaid;
+
+    return {
+      playerId: s.playerId,
+      playerName: s.player.nickname || s.player.fullName,
+      handicapIndex: s.player.handicapIndex ? Number(s.player.handicapIndex) : null,
+      totalWinnings,
+      totalBuyInsPaid,
+      netWinnings,
+      roundsPlayed: s.roundsPlayed,
+      topTeamAppearances: s.topTeamAppearances,
+    };
+  });
 }
 
 export async function getPlayerSeasonDetail(playerId: string, year: number) {
@@ -132,6 +140,7 @@ export async function rebuildSeasonStats(year: number) {
     string,
     {
       totalWinnings: Decimal;
+      totalBuyInsPaid: Decimal;
       roundsPlayed: number;
       topTeamAppearances: number;
     }
@@ -141,11 +150,13 @@ export async function rebuildSeasonStats(year: number) {
     for (const rp of round.roundPlayers) {
       const existing = playerStats.get(rp.playerId) ?? {
         totalWinnings: new Decimal(0),
+        totalBuyInsPaid: new Decimal(0),
         roundsPlayed: 0,
         topTeamAppearances: 0,
       };
 
       existing.totalWinnings = existing.totalWinnings.add(rp.payoutAmount);
+      existing.totalBuyInsPaid = existing.totalBuyInsPaid.add(round.buyInPerPlayer);
       existing.roundsPlayed += 1;
       if (rp.wasOnTopPayingTeam) {
         existing.topTeamAppearances += 1;
@@ -162,6 +173,7 @@ export async function rebuildSeasonStats(year: number) {
         year,
         playerId,
         totalWinnings: stats.totalWinnings,
+        totalBuyInsPaid: stats.totalBuyInsPaid,
         roundsPlayed: stats.roundsPlayed,
         topTeamAppearances: stats.topTeamAppearances,
       },

@@ -6,6 +6,8 @@ interface LeaderboardEntry {
   playerId: string;
   playerName: string;
   totalWinnings: number;
+  totalBuyInsPaid: number;
+  netWinnings: number;
   roundsPlayed: number;
   topTeamAppearances: number;
 }
@@ -31,10 +33,6 @@ export function MastersLeaderboard({ entries, year }: MastersLeaderboardProps) {
     );
   }
 
-  // Calculate net winnings (winnings - buy-ins)
-  // Assuming $20 buy-in per round
-  const BUY_IN = 20;
-
   return (
     <div className="masters-board">
       <div className="masters-header">
@@ -54,9 +52,8 @@ export function MastersLeaderboard({ entries, year }: MastersLeaderboardProps) {
           </thead>
           <tbody>
             {entries.slice(0, 10).map((entry, index) => {
-              const netWinnings = entry.totalWinnings - (entry.roundsPlayed * BUY_IN);
-              const isPositive = netWinnings > 0;
-              const isEven = netWinnings === 0;
+              const isPositive = entry.netWinnings > 0;
+              const isEven = entry.netWinnings === 0;
 
               return (
                 <tr key={entry.playerId}>
@@ -70,7 +67,7 @@ export function MastersLeaderboard({ entries, year }: MastersLeaderboardProps) {
                     </Link>
                   </td>
                   <td className={`score-col ${isPositive ? 'positive' : isEven ? 'even' : 'negative'}`}>
-                    {isPositive ? '+' : ''}{Math.round(netWinnings)}
+                    {isPositive ? '+' : ''}{Math.round(entry.netWinnings)}
                   </td>
                   <td className="rounds-col">{entry.roundsPlayed}</td>
                   <td className="wins-col">{entry.topTeamAppearances}</td>

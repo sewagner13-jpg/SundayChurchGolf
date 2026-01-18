@@ -229,6 +229,7 @@ model SeasonPlayerStat {
   year                Int
   playerId            String
   totalWinnings       Decimal  @default(0) @db.Decimal(10, 2)
+  totalBuyInsPaid     Decimal  @default(0) @db.Decimal(10, 2)
   roundsPlayed        Int      @default(0)
   topTeamAppearances  Int      @default(0)
   createdAt           DateTime @default(now())
