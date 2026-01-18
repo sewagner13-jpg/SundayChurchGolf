@@ -9,12 +9,10 @@ import { Card, CardHeader, CardContent } from "@/components/card";
 import { Button } from "@/components/button";
 import { ConfirmModal } from "@/components/modal";
 import { getScoringOrder } from "@/lib/scoring-engine";
-import { Decimal } from "@prisma/client/runtime/library";
-
 interface Team {
   id: string;
   teamNumber: number;
-  totalPayout: Decimal;
+  totalPayout: number;
   isTopPayingTeam: boolean;
   roundPlayers: {
     id: string;
@@ -35,7 +33,7 @@ interface HoleResult {
   holeNumber: number;
   winnerTeamId: string | null;
   isTie: boolean;
-  holePayout: Decimal;
+  holePayout: number;
 }
 
 interface Round {
@@ -43,8 +41,8 @@ interface Round {
   date: Date;
   status: string;
   startingHole: number | null;
-  buyInPerPlayer: Decimal;
-  pot: Decimal | null;
+  buyInPerPlayer: number;
+  pot: number | null;
   course: {
     name: string;
     holes: { holeNumber: number; par: number }[];
@@ -54,7 +52,7 @@ interface Round {
   roundPlayers: {
     id: string;
     playerId: string;
-    payoutAmount: Decimal;
+    payoutAmount: number;
     wasOnTopPayingTeam: boolean;
     player: { fullName: string; nickname: string | null };
   }[];
@@ -179,10 +177,10 @@ export default function RoundSummaryPage({
               <strong>{round.roundPlayers.length}</strong> players
             </span>
             <span>
-              <strong>${round.buyInPerPlayer.toString()}</strong> buy-in
+              <strong>${round.buyInPerPlayer}</strong> buy-in
             </span>
             <span>
-              <strong>${round.pot?.toString() ?? "0"}</strong> pot
+              <strong>${round.pot ?? 0}</strong> pot
             </span>
           </div>
         </CardContent>
@@ -202,7 +200,7 @@ export default function RoundSummaryPage({
                   <div className="flex justify-between items-center mb-2">
                     <span className="font-bold">Team {team.teamNumber}</span>
                     <span className="text-green-600 font-bold text-lg">
-                      ${Math.round(team.totalPayout.toNumber())}
+                      ${Math.round(team.totalPayout)}
                     </span>
                   </div>
                   <p className="text-sm text-gray-600">
@@ -227,9 +225,7 @@ export default function RoundSummaryPage({
         <CardContent>
           <div className="space-y-3">
             {round.teams
-              .sort(
-                (a, b) => b.totalPayout.toNumber() - a.totalPayout.toNumber()
-              )
+              .sort((a, b) => b.totalPayout - a.totalPayout)
               .map((team) => (
                 <div
                   key={team.id}
@@ -248,7 +244,7 @@ export default function RoundSummaryPage({
                       team.isTopPayingTeam ? "text-green-600" : ""
                     }`}
                   >
-                    ${Math.round(team.totalPayout.toNumber())}
+                    ${Math.round(team.totalPayout)}
                   </span>
                 </div>
               ))}
@@ -262,9 +258,7 @@ export default function RoundSummaryPage({
         <CardContent>
           <div className="space-y-2">
             {round.roundPlayers
-              .sort(
-                (a, b) => b.payoutAmount.toNumber() - a.payoutAmount.toNumber()
-              )
+              .sort((a, b) => b.payoutAmount - a.payoutAmount)
               .map((rp) => (
                 <div
                   key={rp.id}
@@ -276,7 +270,7 @@ export default function RoundSummaryPage({
                       rp.wasOnTopPayingTeam ? "text-green-600" : ""
                     }`}
                   >
-                    ${Math.round(rp.payoutAmount.toNumber())}
+                    ${Math.round(rp.payoutAmount)}
                   </span>
                 </div>
               ))}
@@ -348,7 +342,7 @@ export default function RoundSummaryPage({
                                 (t) => t.id === result.winnerTeamId
                               )?.teamNumber
                             }{" "}
-                            ${Math.round(result.holePayout.toNumber())}
+                            ${Math.round(result.holePayout)}
                           </span>
                         ) : (
                           "-"

@@ -283,5 +283,8 @@ export async function getTeamsWithMissingHandicaps(roundId: string) {
 
   return round.roundPlayers
     .filter((rp) => rp.player.handicapIndex === null)
-    .map((rp) => rp.player);
+    .map((rp) => ({
+      ...rp.player,
+      handicapIndex: null,
+    }));
 }

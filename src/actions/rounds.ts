@@ -266,7 +266,7 @@ export async function listRounds(year?: number) {
 }
 
 export async function getRound(id: string) {
-  return prisma.round.findUnique({
+  const round = await prisma.round.findUnique({
     where: { id },
     include: {
       course: { include: { holes: { orderBy: { holeNumber: "asc" } } } },
@@ -288,6 +288,40 @@ export async function getRound(id: string) {
       },
     },
   });
+
+  if (!round) return null;
+
+  // Helper to convert player Decimal fields
+  const serializePlayer = (player: typeof round.roundPlayers[0]["player"]) => ({
+    ...player,
+    handicapIndex: player.handicapIndex ? Number(player.handicapIndex) : null,
+  });
+
+  // Convert Decimal values to numbers for client-side serialization
+  return {
+    ...round,
+    buyInPerPlayer: Number(round.buyInPerPlayer),
+    pot: round.pot ? Number(round.pot) : null,
+    baseSkinValue: round.baseSkinValue ? Number(round.baseSkinValue) : null,
+    teams: round.teams.map((team) => ({
+      ...team,
+      totalPayout: Number(team.totalPayout),
+      handicapTotal: team.handicapTotal ? Number(team.handicapTotal) : null,
+      roundPlayers: team.roundPlayers.map((rp) => ({
+        ...rp,
+        player: serializePlayer(rp.player),
+      })),
+    })),
+    roundPlayers: round.roundPlayers.map((rp) => ({
+      ...rp,
+      payoutAmount: Number(rp.payoutAmount),
+      player: serializePlayer(rp.player),
+    })),
+    holeResults: round.holeResults.map((hr) => ({
+      ...hr,
+      holePayout: Number(hr.holePayout),
+    })),
+  };
 }
 
 export async function getActiveRound() {

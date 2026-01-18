@@ -8,13 +8,11 @@ import { Select } from "@/components/select";
 import { Modal, ConfirmModal } from "@/components/modal";
 import { getRound, setRoundPlayers, startRound, deleteRound } from "@/actions/rounds";
 import { generateTeams, swapTeamMembers, getTeamsWithMissingHandicaps } from "@/actions/teams";
-import { Decimal } from "@prisma/client/runtime/library";
-
 interface Player {
   id: string;
   fullName: string;
   nickname: string | null;
-  handicapIndex: Decimal | null;
+  handicapIndex: number | string | null;
   isActive: boolean;
 }
 
@@ -28,7 +26,7 @@ interface RoundPlayer {
 interface Team {
   id: string;
   teamNumber: number;
-  handicapTotal: Decimal | null;
+  handicapTotal: number | string | null;
   roundPlayers: RoundPlayer[];
 }
 
@@ -40,7 +38,7 @@ interface Round {
   course: { name: string };
   format: { name: string };
   date: Date;
-  buyInPerPlayer: Decimal;
+  buyInPerPlayer: number;
   teams: Team[];
   roundPlayers: RoundPlayer[];
 }
@@ -96,7 +94,7 @@ export default function RoundSetupPage({
 
       // Set selected players from round
       const selected = new Set(
-        roundData.roundPlayers.map((rp: RoundPlayer) => rp.playerId)
+        roundData.roundPlayers.map((rp) => rp.playerId)
       );
       setSelectedPlayerIds(selected);
 
@@ -255,7 +253,7 @@ export default function RoundSetupPage({
             {formatDate(round.date)} • {round.course.name}
           </p>
           <p className="text-sm text-gray-600">
-            ${round.buyInPerPlayer.toString()} buy-in • {round.format.name}
+            ${round.buyInPerPlayer} buy-in • {round.format.name}
           </p>
         </CardContent>
       </Card>
@@ -319,7 +317,7 @@ export default function RoundSetupPage({
                     </div>
                     <span className="text-sm text-gray-500">
                       {player.handicapIndex
-                        ? `${player.handicapIndex.toString()} HCP`
+                        ? `${player.handicapIndex} HCP`
                         : "No HCP"}
                     </span>
                   </label>
@@ -441,7 +439,7 @@ export default function RoundSetupPage({
                       <span>Team {team.teamNumber}</span>
                       {team.handicapTotal && (
                         <span className="text-sm font-normal text-gray-500">
-                          Total HCP: {team.handicapTotal.toString()}
+                          Total HCP: {team.handicapTotal}
                         </span>
                       )}
                     </CardHeader>
@@ -465,9 +463,7 @@ export default function RoundSetupPage({
                               {rp.player.nickname || rp.player.fullName}
                             </span>
                             <span className="text-sm text-gray-500">
-                              {rp.player.handicapIndex
-                                ? rp.player.handicapIndex.toString()
-                                : "-"}
+                              {rp.player.handicapIndex ?? "-"}
                             </span>
                           </div>
                         ))}

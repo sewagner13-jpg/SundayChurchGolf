@@ -87,7 +87,11 @@ export async function listPlayers(includeInactive = false) {
     orderBy: [{ isActive: "desc" }, { fullName: "asc" }],
   });
 
-  return players;
+  // Convert Decimal to number for client serialization
+  return players.map((p) => ({
+    ...p,
+    handicapIndex: p.handicapIndex ? Number(p.handicapIndex) : null,
+  }));
 }
 
 export async function getPlayer(id: string) {

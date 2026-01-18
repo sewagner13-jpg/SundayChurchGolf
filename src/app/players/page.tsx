@@ -12,13 +12,11 @@ import {
   deletePlayer,
   listPlayers,
 } from "@/actions/players";
-import { Decimal } from "@prisma/client/runtime/library";
-
 interface Player {
   id: string;
   fullName: string;
   nickname: string | null;
-  handicapIndex: Decimal | null;
+  handicapIndex: number | null;
   handicapLastUpdatedAt: Date | null;
   isActive: boolean;
 }
@@ -65,7 +63,7 @@ export default function PlayersPage() {
     setEditingPlayer(player);
     setFullName(player.fullName);
     setNickname(player.nickname || "");
-    setHandicapIndex(player.handicapIndex?.toString() || "");
+    setHandicapIndex(player.handicapIndex != null ? String(player.handicapIndex) : "");
     setShowModal(true);
     setError(null);
   };
@@ -169,8 +167,8 @@ export default function PlayersPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-gray-500">
-                      {player.handicapIndex
-                        ? `${player.handicapIndex.toString()} HCP`
+                      {player.handicapIndex != null
+                        ? `${player.handicapIndex} HCP`
                         : "-"}
                     </span>
                     <Button
