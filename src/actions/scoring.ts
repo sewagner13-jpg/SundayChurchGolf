@@ -445,3 +445,27 @@ export async function getHoleView(
     payout: !isLive && holeResult ? holeResult.holePayout : null,
   };
 }
+
+export async function getTeamScorecard(roundId: string, teamId: string) {
+  const round = await prisma.round.findUnique({
+    where: { id: roundId },
+    include: {
+      course: { include: { holes: { orderBy: { holeNumber: "asc" } } } },
+      holeScores: {
+        where: { teamId },
+      },
+    },
+  });
+
+  if (!round) throw new Error("Round not found");
+
+  return round.course.holes.map((hole) => {
+    const score = round.holeScores.find((hs) => hs.holeNumber === hole.holeNumber);
+    return {
+      holeNumber: hole.holeNumber,
+      par: hole.par,
+      entryType: score?.entryType ?? null,
+      value: score?.value ?? null,
+    };
+  });
+}

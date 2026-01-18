@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect, use, useCallback } from "react";
+import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/button";
 import { Card } from "@/components/card";
 import { ConfirmModal } from "@/components/modal";
 import { getRound } from "@/actions/rounds";
-import { upsertHoleScore, getHoleView, finishRound } from "@/actions/scoring";
-import { getScoringOrder, areAllHolesComplete } from "@/lib/scoring-engine";
+import { upsertHoleScore, getHoleView, finishRound, getTeamScorecard } from "@/actions/scoring";
+import { getScoringOrder } from "@/lib/scoring-engine";
 import { HoleEntryType } from "@prisma/client";
 
 interface TeamScore {
@@ -28,6 +28,13 @@ interface HoleViewData {
   teamScores: TeamScore[];
   result: { winnerTeamId: string | null; isTie: boolean } | null;
   payout: number | null;
+}
+
+interface ScorecardHole {
+  holeNumber: number;
+  par: number;
+  entryType: string | null;
+  value: number | null;
 }
 
 interface Round {
@@ -61,6 +68,9 @@ export default function LiveScoringPage({
   const [showFinishModal, setShowFinishModal] = useState(false);
   const [myTeamId, setMyTeamId] = useState<string | null>(null);
   const [showTeamSelect, setShowTeamSelect] = useState(false);
+  const [showScorecard, setShowScorecard] = useState(false);
+  const [scorecard, setScorecard] = useState<ScorecardHole[]>([]);
+  const [customScore, setCustomScore] = useState<string>("");
 
   const isBlind = round?.visibility === "BLIND";
   const isLive = round?.status === "LIVE";
@@ -76,8 +86,8 @@ export default function LiveScoringPage({
   }, [round, currentHole, myTeamId]);
 
   useEffect(() => {
-    // Check localStorage for team selection in blind mode
-    if (round && isBlind && isLive) {
+    // Always require team selection for scoring
+    if (round && isLive) {
       const stored = localStorage.getItem(`round-${id}-team`);
       if (stored && round.teams.some((t) => t.id === stored)) {
         setMyTeamId(stored);
@@ -85,7 +95,7 @@ export default function LiveScoringPage({
         setShowTeamSelect(true);
       }
     }
-  }, [round, id]);
+  }, [round, id, isLive]);
 
   async function loadRound() {
     try {
@@ -125,12 +135,26 @@ export default function LiveScoringPage({
     }
   }
 
+  async function loadScorecard() {
+    if (!myTeamId) return;
+    try {
+      const data = await getTeamScorecard(id, myTeamId);
+      setScorecard(data);
+      setShowScorecard(true);
+    } catch (err) {
+      setError("Failed to load scorecard");
+    }
+  }
+
   const scoringOrder = round ? getScoringOrder(round.startingHole) : [];
   const currentIndex = scoringOrder.indexOf(currentHole);
   const isFirstHole = currentIndex === 0;
   const isLastHole = currentIndex === 17;
 
   const canAdvance = holeData?.isComplete ?? false;
+
+  const myTeamScore = holeData?.teamScores.find((t) => t.teamId === myTeamId);
+  const myTeamNumber = round?.teams.find((t) => t.id === myTeamId)?.teamNumber;
 
   const handleScoreEntry = async (
     teamId: string,
@@ -144,10 +168,22 @@ export default function LiveScoringPage({
         value: entryType === "VALUE" ? value : undefined,
       });
       await loadHoleData();
+      setCustomScore("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save score");
     }
     setSaving(false);
+  };
+
+  const handleCustomScoreSubmit = () => {
+    const value = parseInt(customScore);
+    if (isNaN(value) || value < 1) {
+      setError("Please enter a valid positive number");
+      return;
+    }
+    if (myTeamId) {
+      handleScoreEntry(myTeamId, "VALUE", value);
+    }
   };
 
   const handleClear = async (teamId: string) => {
@@ -157,6 +193,7 @@ export default function LiveScoringPage({
   const handlePrevHole = () => {
     if (currentIndex > 0) {
       setCurrentHole(scoringOrder[currentIndex - 1]);
+      setCustomScore("");
     }
   };
 
@@ -168,6 +205,7 @@ export default function LiveScoringPage({
     if (currentIndex < 17) {
       setCurrentHole(scoringOrder[currentIndex + 1]);
       setError(null);
+      setCustomScore("");
     }
   };
 
@@ -176,7 +214,6 @@ export default function LiveScoringPage({
 
     // In blind mode, restrict navigation
     if (isBlind && round?.blindRevealMode === "REVEAL_AFTER_ROUND") {
-      // Only allow current hole
       if (hole !== currentHole) {
         setError("Cannot browse holes in blind mode");
         setShowHolePicker(false);
@@ -185,27 +222,28 @@ export default function LiveScoringPage({
     }
 
     // Check if we can jump forward
-    if (targetIndex > currentIndex) {
-      // Need to verify all holes in between are complete
-      for (let i = currentIndex; i < targetIndex; i++) {
-        // For now, just block forward navigation if current isn't complete
-        if (!canAdvance) {
-          setError("Enter scores for this hole before moving on.");
-          setShowHolePicker(false);
-          return;
-        }
-      }
+    if (targetIndex > currentIndex && !canAdvance) {
+      setError("Enter scores for this hole before moving on.");
+      setShowHolePicker(false);
+      return;
     }
 
     setCurrentHole(hole);
     setShowHolePicker(false);
     setError(null);
+    setCustomScore("");
   };
 
   const handleTeamSelect = (teamId: string) => {
     localStorage.setItem(`round-${id}-team`, teamId);
     setMyTeamId(teamId);
     setShowTeamSelect(false);
+  };
+
+  const changeTeam = () => {
+    localStorage.removeItem(`round-${id}-team`);
+    setMyTeamId(null);
+    setShowTeamSelect(true);
   };
 
   const handleFinish = async () => {
@@ -218,14 +256,6 @@ export default function LiveScoringPage({
       setSaving(false);
     }
   };
-
-  const allHolesComplete = round
-    ? scoringOrder.every((hole) => {
-        // We'd need to check each hole's completion status
-        // For now, check if we're on last hole and it's complete
-        return isLastHole && canAdvance;
-      })
-    : false;
 
   if (loading) {
     return <p className="text-center py-8">Loading...</p>;
@@ -258,13 +288,36 @@ export default function LiveScoringPage({
                 Par {holeInfo?.par} • HCP {holeInfo?.handicapRank}
               </p>
             </div>
-            <button
-              onClick={() => setShowHolePicker(true)}
-              className="px-3 py-1 bg-gray-100 rounded text-sm"
-            >
-              Holes
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={loadScorecard}
+                className="px-3 py-1 bg-blue-100 text-blue-700 rounded text-sm"
+              >
+                Scorecard
+              </button>
+              <button
+                onClick={() => setShowHolePicker(true)}
+                className="px-3 py-1 bg-gray-100 rounded text-sm"
+              >
+                Holes
+              </button>
+            </div>
           </div>
+
+          {/* Team indicator */}
+          {myTeamId && (
+            <div className="mt-2 flex items-center justify-between bg-green-100 text-green-800 text-sm px-3 py-2 rounded">
+              <span>
+                You are scoring for <strong>Team {myTeamNumber}</strong>
+              </span>
+              <button
+                onClick={changeTeam}
+                className="text-green-600 underline text-xs"
+              >
+                Change
+              </button>
+            </div>
+          )}
 
           {isBlind && isLive && (
             <div className="mt-2 bg-yellow-100 text-yellow-800 text-sm px-3 py-1 rounded">
@@ -287,172 +340,150 @@ export default function LiveScoringPage({
         </div>
       )}
 
-      {/* Main Content - Team Cards */}
+      {/* Main Content - My Team Scoring */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {holeData.teamScores.map((team) => {
-          const canEdit =
-            !isBlind || !isLive || myTeamId === team.teamId;
-          const showValue = team.entryType !== null;
+        {myTeamId && myTeamScore && (
+          <Card className="overflow-hidden border-2 border-green-500">
+            <div className="bg-green-700 text-white px-4 py-3 flex justify-between items-center">
+              <span className="font-bold text-lg">Team {myTeamScore.teamNumber}</span>
+              {myTeamScore.wasEdited && (
+                <span className="text-xs bg-red-500 px-2 py-0.5 rounded">
+                  Edited
+                </span>
+              )}
+            </div>
 
-          return (
-            <Card key={team.teamId} className="overflow-hidden">
-              <div className="bg-green-700 text-white px-4 py-2 flex justify-between items-center">
-                <span className="font-bold">Team {team.teamNumber}</span>
-                {team.wasEdited && (
-                  <span className="text-xs bg-red-500 px-2 py-0.5 rounded">
-                    Edited
-                  </span>
-                )}
-              </div>
+            <div className="p-4">
+              <p className="text-sm text-gray-600 mb-4">
+                {myTeamScore.players.map((p) => p.name).join(", ")}
+              </p>
 
-              <div className="p-4">
-                <p className="text-sm text-gray-600 mb-3">
-                  {team.players.map((p) => p.name).join(", ")}
-                </p>
-
-                {/* Score Display */}
-                <div className="text-center mb-4">
-                  <div className="text-5xl font-bold h-16 flex items-center justify-center">
-                    {!showValue ? (
-                      isBlind && !canEdit ? (
-                        team.hasEntry ? (
-                          <span className="text-gray-400 text-lg">
-                            Score Entered
-                          </span>
-                        ) : (
-                          <span className="text-gray-400 text-lg">
-                            Not Entered
-                          </span>
-                        )
-                      ) : (
-                        <span className="text-gray-300">-</span>
-                      )
-                    ) : team.entryType === "X" ? (
-                      <span className="text-gray-500">X</span>
-                    ) : (
-                      <span className="text-green-600">{team.value}</span>
-                    )}
-                  </div>
+              {/* Current Score Display */}
+              <div className="text-center mb-6">
+                <div className="text-6xl font-bold h-20 flex items-center justify-center">
+                  {myTeamScore.entryType === null ? (
+                    <span className="text-gray-300">-</span>
+                  ) : myTeamScore.entryType === "X" ? (
+                    <span className="text-gray-500">X</span>
+                  ) : (
+                    <span className="text-green-600">+{myTeamScore.value}</span>
+                  )}
                 </div>
-
-                {/* Score Entry Buttons */}
-                {canEdit && (
-                  <div className="grid grid-cols-4 gap-2">
-                    <Button
-                      variant="secondary"
-                      size="lg"
-                      onClick={() =>
-                        handleScoreEntry(team.teamId, "VALUE", 1)
-                      }
-                      disabled={saving}
-                      className="text-xl"
-                    >
-                      +1
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="lg"
-                      onClick={() =>
-                        handleScoreEntry(team.teamId, "VALUE", 2)
-                      }
-                      disabled={saving}
-                      className="text-xl"
-                    >
-                      +2
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="lg"
-                      onClick={() =>
-                        handleScoreEntry(
-                          team.teamId,
-                          "VALUE",
-                          (team.value ?? 0) + 1
-                        )
-                      }
-                      disabled={saving || team.entryType !== "VALUE"}
-                      className="text-xl"
-                    >
-                      +
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="lg"
-                      onClick={() => handleScoreEntry(team.teamId, "X")}
-                      disabled={saving}
-                      className="text-xl"
-                    >
-                      X
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleClear(team.teamId)}
-                      disabled={saving}
-                      className="col-span-2"
-                    >
-                      Clear
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        if (
-                          team.entryType === "VALUE" &&
-                          team.value &&
-                          team.value > 1
-                        ) {
-                          handleScoreEntry(
-                            team.teamId,
-                            "VALUE",
-                            team.value - 1
-                          );
-                        }
-                      }}
-                      disabled={
-                        saving ||
-                        team.entryType !== "VALUE" ||
-                        !team.value ||
-                        team.value <= 1
-                      }
-                      className="col-span-2"
-                    >
-                      Undo (-1)
-                    </Button>
-                  </div>
-                )}
+                <p className="text-sm text-gray-500 mt-1">
+                  {myTeamScore.entryType === "X"
+                    ? "Par or worse"
+                    : myTeamScore.entryType === "VALUE"
+                    ? `${myTeamScore.value} under par`
+                    : "Enter your score"}
+                </p>
               </div>
-            </Card>
-          );
-        })}
 
-        {/* Hole Result (if visible) */}
-        {holeData.result && holeData.isComplete && !isLive && (
-          <Card className="bg-gray-50">
-            <div className="p-4 text-center">
-              {holeData.result.isTie ? (
-                <p className="text-lg font-medium text-gray-600">
-                  Tie - Carryover
-                </p>
-              ) : (
-                <p className="text-lg font-medium text-green-600">
-                  Team{" "}
-                  {
-                    holeData.teamScores.find(
-                      (t) => t.teamId === holeData.result?.winnerTeamId
-                    )?.teamNumber
-                  }{" "}
-                  Wins!
-                </p>
-              )}
-              {holeData.payout && (
-                <p className="text-sm text-gray-600">
-                  Payout: ${holeData.payout}
-                </p>
-              )}
+              {/* Quick Score Buttons */}
+              <div className="grid grid-cols-4 gap-3 mb-4">
+                {[1, 2, 3, 4].map((num) => (
+                  <Button
+                    key={num}
+                    variant={myTeamScore.value === num ? "primary" : "secondary"}
+                    size="lg"
+                    onClick={() => handleScoreEntry(myTeamId, "VALUE", num)}
+                    disabled={saving}
+                    className="text-2xl h-14"
+                  >
+                    +{num}
+                  </Button>
+                ))}
+              </div>
+
+              {/* Custom Score Input */}
+              <div className="flex gap-2 mb-4">
+                <input
+                  type="number"
+                  min="1"
+                  placeholder="Other score..."
+                  value={customScore}
+                  onChange={(e) => setCustomScore(e.target.value)}
+                  className="flex-1 px-4 py-3 border border-gray-300 rounded-lg text-lg"
+                />
+                <Button
+                  variant="secondary"
+                  size="lg"
+                  onClick={handleCustomScoreSubmit}
+                  disabled={saving || !customScore}
+                  className="px-6"
+                >
+                  Set
+                </Button>
+              </div>
+
+              {/* X and Clear buttons */}
+              <div className="grid grid-cols-2 gap-3">
+                <Button
+                  variant={myTeamScore.entryType === "X" ? "primary" : "secondary"}
+                  size="lg"
+                  onClick={() => handleScoreEntry(myTeamId, "X")}
+                  disabled={saving}
+                  className="text-xl h-12"
+                >
+                  X (Par or worse)
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="lg"
+                  onClick={() => handleClear(myTeamId)}
+                  disabled={saving || myTeamScore.entryType === null}
+                  className="text-xl h-12"
+                >
+                  Clear
+                </Button>
+              </div>
             </div>
           </Card>
         )}
+
+        {/* Other Teams Status (collapsed view) */}
+        <Card>
+          <div className="p-4">
+            <h3 className="font-medium text-gray-700 mb-3">Other Teams</h3>
+            <div className="space-y-2">
+              {holeData.teamScores
+                .filter((t) => t.teamId !== myTeamId)
+                .map((team) => (
+                  <div
+                    key={team.teamId}
+                    className="flex justify-between items-center py-2 border-b last:border-b-0"
+                  >
+                    <span className="text-sm">
+                      Team {team.teamNumber}
+                    </span>
+                    <span className="text-sm">
+                      {isBlind ? (
+                        team.hasEntry ? (
+                          <span className="text-green-600">✓ Entered</span>
+                        ) : (
+                          <span className="text-gray-400">Waiting...</span>
+                        )
+                      ) : team.entryType === null ? (
+                        <span className="text-gray-400">-</span>
+                      ) : team.entryType === "X" ? (
+                        <span className="text-gray-500">X</span>
+                      ) : (
+                        <span className="text-green-600">+{team.value}</span>
+                      )}
+                    </span>
+                  </div>
+                ))}
+            </div>
+          </div>
+        </Card>
+
+        {/* Hole completion status */}
+        <div className="text-center text-sm text-gray-500">
+          {canAdvance ? (
+            <span className="text-green-600">✓ All teams have entered scores</span>
+          ) : (
+            <span>Waiting for all teams to enter scores...</span>
+          )}
+        </div>
       </div>
 
       {/* Sticky Footer */}
@@ -528,11 +559,11 @@ export default function LiveScoringPage({
         </div>
       )}
 
-      {/* Team Selection Modal (Blind Mode) */}
+      {/* Team Selection Modal */}
       {showTeamSelect && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full mx-4">
-            <h2 className="text-lg font-bold mb-4">Which team are you on?</h2>
+            <h2 className="text-lg font-bold mb-4">Which team are you scoring for?</h2>
             <div className="space-y-2">
               {round.teams.map((team) => {
                 const teamData = holeData?.teamScores.find(
@@ -552,6 +583,69 @@ export default function LiveScoringPage({
                 );
               })}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Team Scorecard Modal */}
+      {showScorecard && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setShowScorecard(false)}
+          />
+          <div className="relative bg-white rounded-lg shadow-xl p-4 max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto">
+            <h2 className="text-lg font-bold mb-4">
+              Team {myTeamNumber} Scorecard
+            </h2>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="py-2 text-left">Hole</th>
+                  <th className="py-2 text-center">Par</th>
+                  <th className="py-2 text-right">Score</th>
+                </tr>
+              </thead>
+              <tbody>
+                {scoringOrder.map((holeNum) => {
+                  const hole = scorecard.find((h) => h.holeNumber === holeNum);
+                  const holeInfo = round.course.holes.find(
+                    (h) => h.holeNumber === holeNum
+                  );
+                  return (
+                    <tr
+                      key={holeNum}
+                      className={`border-b ${
+                        holeNum === currentHole ? "bg-green-50" : ""
+                      }`}
+                    >
+                      <td className="py-2 font-medium">{holeNum}</td>
+                      <td className="py-2 text-center text-gray-500">
+                        {holeInfo?.par}
+                      </td>
+                      <td className="py-2 text-right">
+                        {hole?.entryType === "X" ? (
+                          <span className="text-gray-500">X</span>
+                        ) : hole?.entryType === "VALUE" ? (
+                          <span className="text-green-600 font-bold">
+                            +{hole.value}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300">-</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <Button
+              variant="secondary"
+              className="w-full mt-4"
+              onClick={() => setShowScorecard(false)}
+            >
+              Close
+            </Button>
           </div>
         </div>
       )}
