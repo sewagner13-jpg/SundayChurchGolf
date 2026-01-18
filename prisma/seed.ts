@@ -2,35 +2,39 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
-// Timberlake Country Club hole data
+// Timberlake Country Club hole data (Par 71)
+// Data from official scorecard - "Home to the only golf course on Lake Murray!"
 // Par and Handicap Rank for each hole
 const timberlakeHoles = [
-  { holeNumber: 1, par: 4, handicapRank: 11 },
-  { holeNumber: 2, par: 4, handicapRank: 7 },
-  { holeNumber: 3, par: 3, handicapRank: 17 },
-  { holeNumber: 4, par: 5, handicapRank: 3 },
-  { holeNumber: 5, par: 4, handicapRank: 5 },
-  { holeNumber: 6, par: 4, handicapRank: 13 },
-  { holeNumber: 7, par: 3, handicapRank: 15 },
-  { holeNumber: 8, par: 4, handicapRank: 9 },
-  { holeNumber: 9, par: 5, handicapRank: 1 },
-  { holeNumber: 10, par: 4, handicapRank: 12 },
-  { holeNumber: 11, par: 4, handicapRank: 8 },
+  // Front 9 (Par 35)
+  { holeNumber: 1, par: 4, handicapRank: 15 },
+  { holeNumber: 2, par: 4, handicapRank: 1 },
+  { holeNumber: 3, par: 4, handicapRank: 3 },
+  { holeNumber: 4, par: 3, handicapRank: 11 },
+  { holeNumber: 5, par: 5, handicapRank: 7 },
+  { holeNumber: 6, par: 4, handicapRank: 5 },
+  { holeNumber: 7, par: 4, handicapRank: 9 },
+  { holeNumber: 8, par: 3, handicapRank: 17 },
+  { holeNumber: 9, par: 5, handicapRank: 13 },
+  // Back 9 (Par 36)
+  { holeNumber: 10, par: 4, handicapRank: 8 },
+  { holeNumber: 11, par: 4, handicapRank: 6 },
   { holeNumber: 12, par: 5, handicapRank: 4 },
-  { holeNumber: 13, par: 3, handicapRank: 18 },
-  { holeNumber: 14, par: 4, handicapRank: 6 },
-  { holeNumber: 15, par: 4, handicapRank: 14 },
-  { holeNumber: 16, par: 4, handicapRank: 10 },
-  { holeNumber: 17, par: 3, handicapRank: 16 },
-  { holeNumber: 18, par: 5, handicapRank: 2 },
+  { holeNumber: 13, par: 3, handicapRank: 16 },
+  { holeNumber: 14, par: 4, handicapRank: 12 },
+  { holeNumber: 15, par: 4, handicapRank: 2 },
+  { holeNumber: 16, par: 4, handicapRank: 18 },
+  { holeNumber: 17, par: 3, handicapRank: 14 },
+  { holeNumber: 18, par: 5, handicapRank: 10 },
 ];
 
 async function main() {
   console.log("Seeding database...");
 
-  // Seed Timberlake Country Club (idempotent)
+  // Seed Timberlake Country Club (idempotent - will update if exists)
   const existingCourse = await prisma.course.findUnique({
     where: { name: "Timberlake Country Club" },
+    include: { holes: true },
   });
 
   if (!existingCourse) {
@@ -46,7 +50,29 @@ async function main() {
     });
     console.log("Timberlake Country Club created.");
   } else {
-    console.log("Timberlake Country Club already exists.");
+    // Update existing course holes to ensure correct data
+    console.log("Updating Timberlake Country Club holes...");
+    for (const hole of timberlakeHoles) {
+      await prisma.courseHole.upsert({
+        where: {
+          courseId_holeNumber: {
+            courseId: existingCourse.id,
+            holeNumber: hole.holeNumber,
+          },
+        },
+        update: {
+          par: hole.par,
+          handicapRank: hole.handicapRank,
+        },
+        create: {
+          courseId: existingCourse.id,
+          holeNumber: hole.holeNumber,
+          par: hole.par,
+          handicapRank: hole.handicapRank,
+        },
+      });
+    }
+    console.log("Timberlake Country Club updated.");
   }
 
   // Seed Sunday Church Scramble Skins format (idempotent)

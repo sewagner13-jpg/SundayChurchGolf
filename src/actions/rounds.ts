@@ -106,16 +106,57 @@ export async function updateRoundDraft(id: string, data: UpdateRoundDraftData) {
 }
 
 export async function deleteRound(id: string) {
-  const round = await prisma.round.findUnique({ where: { id } });
+  const round = await prisma.round.findUnique({
+    where: { id },
+    include: {
+      roundPlayers: true,
+    },
+  });
 
   if (!round) throw new Error("Round not found");
-  if (round.status !== "DRAFT") {
-    throw new Error("Can only delete rounds in DRAFT status");
+  if (round.status === "LIVE") {
+    throw new Error("Cannot delete a round that is currently LIVE. Finish it first.");
+  }
+
+  // If FINISHED, we need to reverse the season stats
+  if (round.status === "FINISHED") {
+    const year = round.date.getFullYear();
+
+    for (const rp of round.roundPlayers) {
+      const stat = await prisma.seasonPlayerStat.findUnique({
+        where: { year_playerId: { year, playerId: rp.playerId } },
+      });
+
+      if (stat) {
+        const newWinnings = stat.totalWinnings.sub(rp.payoutAmount);
+        const newRounds = Math.max(0, stat.roundsPlayed - 1);
+        const newTopTeam = rp.wasOnTopPayingTeam
+          ? Math.max(0, stat.topTeamAppearances - 1)
+          : stat.topTeamAppearances;
+
+        if (newRounds === 0) {
+          // Delete the stat if no rounds left
+          await prisma.seasonPlayerStat.delete({
+            where: { year_playerId: { year, playerId: rp.playerId } },
+          });
+        } else {
+          await prisma.seasonPlayerStat.update({
+            where: { year_playerId: { year, playerId: rp.playerId } },
+            data: {
+              totalWinnings: newWinnings,
+              roundsPlayed: newRounds,
+              topTeamAppearances: newTopTeam,
+            },
+          });
+        }
+      }
+    }
   }
 
   await prisma.round.delete({ where: { id } });
   revalidatePath("/");
   revalidatePath("/rounds");
+  revalidatePath("/leaderboard");
 }
 
 export async function setRoundPlayers(id: string, playerIds: string[]) {
