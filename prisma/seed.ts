@@ -50,28 +50,19 @@ async function main() {
     });
     console.log("Timberlake Country Club created.");
   } else {
-    // Update existing course holes to ensure correct data
+    // Update existing course holes - delete and recreate to avoid unique constraint issues
     console.log("Updating Timberlake Country Club holes...");
-    for (const hole of timberlakeHoles) {
-      await prisma.courseHole.upsert({
-        where: {
-          courseId_holeNumber: {
-            courseId: existingCourse.id,
-            holeNumber: hole.holeNumber,
-          },
-        },
-        update: {
-          par: hole.par,
-          handicapRank: hole.handicapRank,
-        },
-        create: {
-          courseId: existingCourse.id,
-          holeNumber: hole.holeNumber,
-          par: hole.par,
-          handicapRank: hole.handicapRank,
-        },
-      });
-    }
+    await prisma.courseHole.deleteMany({
+      where: { courseId: existingCourse.id },
+    });
+    await prisma.courseHole.createMany({
+      data: timberlakeHoles.map((hole) => ({
+        courseId: existingCourse.id,
+        holeNumber: hole.holeNumber,
+        par: hole.par,
+        handicapRank: hole.handicapRank,
+      })),
+    });
     console.log("Timberlake Country Club updated.");
   }
 
