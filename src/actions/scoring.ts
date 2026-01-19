@@ -472,3 +472,87 @@ export async function getTeamScorecard(roundId: string, teamId: string) {
     };
   });
 }
+
+// Get each team's scoring progress (how many holes they've scored)
+export async function getTeamsProgress(roundId: string) {
+  const round = await prisma.round.findUnique({
+    where: { id: roundId },
+    include: {
+      teams: {
+        orderBy: { teamNumber: "asc" },
+        include: {
+          roundPlayers: { include: { player: true } },
+        },
+      },
+      holeScores: true,
+    },
+  });
+
+  if (!round) throw new Error("Round not found");
+
+  return round.teams.map((team) => {
+    const teamScores = round.holeScores.filter(
+      (hs) => hs.teamId === team.id && hs.entryType !== "BLANK"
+    );
+
+    return {
+      teamId: team.id,
+      teamNumber: team.teamNumber,
+      players: team.roundPlayers.map((rp) => ({
+        id: rp.player.id,
+        name: rp.player.nickname || rp.player.fullName,
+      })),
+      holesScored: teamScores.length,
+      scoredHoles: teamScores.map((s) => s.holeNumber),
+    };
+  });
+}
+
+// Get live skins status (which holes have results vs pending)
+export async function getLiveSkinsStatus(roundId: string, startingHole: number) {
+  const round = await prisma.round.findUnique({
+    where: { id: roundId },
+    include: {
+      teams: { orderBy: { teamNumber: "asc" } },
+      holeScores: true,
+      holeResults: true,
+      course: { include: { holes: true } },
+    },
+  });
+
+  if (!round) throw new Error("Round not found");
+
+  // Build scoring order
+  const holes = [];
+  for (let i = 0; i < 18; i++) {
+    const holeNum = ((startingHole - 1 + i) % 18) + 1;
+    holes.push(holeNum);
+  }
+
+  return holes.map((holeNumber) => {
+    const holeInfo = round.course.holes.find((h) => h.holeNumber === holeNumber);
+    const teamCount = round.teams.length;
+    const scoresForHole = round.holeScores.filter(
+      (hs) => hs.holeNumber === holeNumber && hs.entryType !== "BLANK"
+    );
+    const result = round.holeResults.find((hr) => hr.holeNumber === holeNumber);
+
+    return {
+      holeNumber,
+      par: holeInfo?.par ?? 4,
+      teamsScored: scoresForHole.length,
+      totalTeams: teamCount,
+      isComplete: scoresForHole.length === teamCount,
+      result: result
+        ? {
+            winnerTeamId: result.winnerTeamId,
+            winnerTeamNumber: result.winnerTeamId
+              ? round.teams.find((t) => t.id === result.winnerTeamId)?.teamNumber ?? null
+              : null,
+            isTie: result.isTie,
+            carryover: result.carrySkinsUsed > 1,
+          }
+        : null,
+    };
+  });
+}

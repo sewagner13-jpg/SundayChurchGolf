@@ -6,7 +6,14 @@ import { Button } from "@/components/button";
 import { Card } from "@/components/card";
 import { ConfirmModal } from "@/components/modal";
 import { getRound } from "@/actions/rounds";
-import { upsertHoleScore, getHoleView, finishRound, getTeamScorecard } from "@/actions/scoring";
+import {
+  upsertHoleScore,
+  getHoleView,
+  finishRound,
+  getTeamScorecard,
+  getTeamsProgress,
+  getLiveSkinsStatus,
+} from "@/actions/scoring";
 import { getScoringOrder } from "@/lib/scoring-engine";
 import { HoleEntryType } from "@prisma/client";
 
@@ -35,6 +42,28 @@ interface ScorecardHole {
   par: number;
   entryType: string | null;
   value: number | null;
+}
+
+interface TeamProgress {
+  teamId: string;
+  teamNumber: number;
+  players: { id: string; name: string }[];
+  holesScored: number;
+  scoredHoles: number[];
+}
+
+interface SkinStatus {
+  holeNumber: number;
+  par: number;
+  teamsScored: number;
+  totalTeams: number;
+  isComplete: boolean;
+  result: {
+    winnerTeamId: string | null;
+    winnerTeamNumber: number | null;
+    isTie: boolean;
+    carryover: boolean;
+  } | null;
 }
 
 interface Round {
@@ -71,8 +100,10 @@ export default function LiveScoringPage({
   const [showScorecard, setShowScorecard] = useState(false);
   const [scorecard, setScorecard] = useState<ScorecardHole[]>([]);
   const [customScore, setCustomScore] = useState<string>("");
+  const [teamsProgress, setTeamsProgress] = useState<TeamProgress[]>([]);
+  const [skinsStatus, setSkinsStatus] = useState<SkinStatus[]>([]);
+  const [showSkinsStatus, setShowSkinsStatus] = useState(false);
 
-  const isBlind = round?.visibility === "BLIND";
   const isLive = round?.status === "LIVE";
 
   useEffect(() => {
@@ -80,17 +111,25 @@ export default function LiveScoringPage({
   }, [id]);
 
   useEffect(() => {
-    if (round) {
+    if (round && myTeamId) {
       loadHoleData();
+      loadTeamsProgress();
     }
   }, [round, currentHole, myTeamId]);
 
   useEffect(() => {
-    // Always require team selection for scoring
+    // Require team selection for scoring
     if (round && isLive) {
       const stored = localStorage.getItem(`round-${id}-team`);
       if (stored && round.teams.some((t) => t.id === stored)) {
         setMyTeamId(stored);
+        // Load this team's saved hole position
+        const savedHole = localStorage.getItem(`round-${id}-team-${stored}-hole`);
+        if (savedHole) {
+          setCurrentHole(parseInt(savedHole, 10));
+        } else {
+          setCurrentHole(round.startingHole ?? 1);
+        }
       } else {
         setShowTeamSelect(true);
       }
@@ -135,6 +174,27 @@ export default function LiveScoringPage({
     }
   }
 
+  async function loadTeamsProgress() {
+    if (!round) return;
+    try {
+      const progress = await getTeamsProgress(id);
+      setTeamsProgress(progress);
+    } catch (err) {
+      console.error("Failed to load teams progress");
+    }
+  }
+
+  async function loadSkinsStatus() {
+    if (!round) return;
+    try {
+      const status = await getLiveSkinsStatus(id, round.startingHole);
+      setSkinsStatus(status);
+      setShowSkinsStatus(true);
+    } catch (err) {
+      setError("Failed to load skins status");
+    }
+  }
+
   async function loadScorecard() {
     if (!myTeamId) return;
     try {
@@ -151,9 +211,10 @@ export default function LiveScoringPage({
   const isFirstHole = currentIndex === 0;
   const isLastHole = currentIndex === 17;
 
-  const canAdvance = holeData?.isComplete ?? false;
-
+  // Can advance once MY team has entered a score (not waiting for others)
   const myTeamScore = holeData?.teamScores.find((t) => t.teamId === myTeamId);
+  const canAdvance = myTeamScore?.hasEntry ?? false;
+
   const myTeamNumber = round?.teams.find((t) => t.id === myTeamId)?.teamNumber;
 
   const handleScoreEntry = async (
@@ -168,6 +229,7 @@ export default function LiveScoringPage({
         value: entryType === "VALUE" ? value : undefined,
       });
       await loadHoleData();
+      await loadTeamsProgress();
       setCustomScore("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save score");
@@ -192,18 +254,26 @@ export default function LiveScoringPage({
 
   const handlePrevHole = () => {
     if (currentIndex > 0) {
-      setCurrentHole(scoringOrder[currentIndex - 1]);
+      const prevHole = scoringOrder[currentIndex - 1];
+      setCurrentHole(prevHole);
+      if (myTeamId) {
+        localStorage.setItem(`round-${id}-team-${myTeamId}-hole`, String(prevHole));
+      }
       setCustomScore("");
     }
   };
 
   const handleNextHole = () => {
     if (!canAdvance) {
-      setError("Enter scores for all teams before moving on.");
+      setError("Enter your team's score before moving on.");
       return;
     }
     if (currentIndex < 17) {
-      setCurrentHole(scoringOrder[currentIndex + 1]);
+      const nextHole = scoringOrder[currentIndex + 1];
+      setCurrentHole(nextHole);
+      if (myTeamId) {
+        localStorage.setItem(`round-${id}-team-${myTeamId}-hole`, String(nextHole));
+      }
       setError(null);
       setCustomScore("");
     }
@@ -212,23 +282,17 @@ export default function LiveScoringPage({
   const handleHolePick = (hole: number) => {
     const targetIndex = scoringOrder.indexOf(hole);
 
-    // In blind mode, restrict navigation
-    if (isBlind && round?.blindRevealMode === "REVEAL_AFTER_ROUND") {
-      if (hole !== currentHole) {
-        setError("Cannot browse holes in blind mode");
-        setShowHolePicker(false);
-        return;
-      }
-    }
-
-    // Check if we can jump forward
+    // Check if we can jump forward - only need our team's score
     if (targetIndex > currentIndex && !canAdvance) {
-      setError("Enter scores for this hole before moving on.");
+      setError("Enter your team's score before moving on.");
       setShowHolePicker(false);
       return;
     }
 
     setCurrentHole(hole);
+    if (myTeamId) {
+      localStorage.setItem(`round-${id}-team-${myTeamId}-hole`, String(hole));
+    }
     setShowHolePicker(false);
     setError(null);
     setCustomScore("");
@@ -237,6 +301,15 @@ export default function LiveScoringPage({
   const handleTeamSelect = (teamId: string) => {
     localStorage.setItem(`round-${id}-team`, teamId);
     setMyTeamId(teamId);
+
+    // Load saved hole for this team or start at beginning
+    const savedHole = localStorage.getItem(`round-${id}-team-${teamId}-hole`);
+    if (savedHole && round) {
+      setCurrentHole(parseInt(savedHole, 10));
+    } else if (round) {
+      setCurrentHole(round.startingHole ?? 1);
+    }
+
     setShowTeamSelect(false);
   };
 
@@ -257,6 +330,9 @@ export default function LiveScoringPage({
     }
   };
 
+  // Check if all teams have completed all holes
+  const allTeamsComplete = teamsProgress.every((t) => t.holesScored === 18);
+
   if (loading) {
     return <p className="text-center py-8">Loading...</p>;
   }
@@ -265,9 +341,7 @@ export default function LiveScoringPage({
     return <p className="text-center py-8">Round not found</p>;
   }
 
-  const holeInfo = round.course.holes.find(
-    (h) => h.holeNumber === currentHole
-  );
+  const holeInfo = round.course.holes.find((h) => h.holeNumber === currentHole);
 
   return (
     <div className="flex flex-col min-h-[calc(100vh-56px)]">
@@ -308,7 +382,7 @@ export default function LiveScoringPage({
           {myTeamId && (
             <div className="mt-2 flex items-center justify-between bg-green-100 text-green-800 text-sm px-3 py-2 rounded">
               <span>
-                You are scoring for <strong>Team {myTeamNumber}</strong>
+                Scoring for <strong>Team {myTeamNumber}</strong>
               </span>
               <button
                 onClick={changeTeam}
@@ -316,12 +390,6 @@ export default function LiveScoringPage({
               >
                 Change
               </button>
-            </div>
-          )}
-
-          {isBlind && isLive && (
-            <div className="mt-2 bg-yellow-100 text-yellow-800 text-sm px-3 py-1 rounded">
-              Blind Mode Active
             </div>
           )}
         </div>
@@ -440,35 +508,26 @@ export default function LiveScoringPage({
           </Card>
         )}
 
-        {/* Other Teams Status (collapsed view) */}
+        {/* Other Teams Progress - Just show what hole they're on */}
         <Card>
           <div className="p-4">
             <h3 className="font-medium text-gray-700 mb-3">Other Teams</h3>
             <div className="space-y-2">
-              {holeData.teamScores
+              {teamsProgress
                 .filter((t) => t.teamId !== myTeamId)
                 .map((team) => (
                   <div
                     key={team.teamId}
                     className="flex justify-between items-center py-2 border-b last:border-b-0"
                   >
-                    <span className="text-sm">
-                      Team {team.teamNumber}
-                    </span>
-                    <span className="text-sm">
-                      {isBlind ? (
-                        team.hasEntry ? (
-                          <span className="text-green-600">✓ Entered</span>
-                        ) : (
-                          <span className="text-gray-400">Waiting...</span>
-                        )
-                      ) : team.entryType === null ? (
-                        <span className="text-gray-400">-</span>
-                      ) : team.entryType === "X" ? (
-                        <span className="text-gray-500">X</span>
-                      ) : (
-                        <span className="text-green-600">+{team.value}</span>
-                      )}
+                    <div>
+                      <span className="font-medium text-sm">Team {team.teamNumber}</span>
+                      <p className="text-xs text-gray-500">
+                        {team.players.map((p) => p.name).join(", ")}
+                      </p>
+                    </div>
+                    <span className="text-sm text-gray-600">
+                      {team.holesScored}/18 holes
                     </span>
                   </div>
                 ))}
@@ -476,14 +535,13 @@ export default function LiveScoringPage({
           </div>
         </Card>
 
-        {/* Hole completion status */}
-        <div className="text-center text-sm text-gray-500">
-          {canAdvance ? (
-            <span className="text-green-600">✓ All teams have entered scores</span>
-          ) : (
-            <span>Waiting for all teams to enter scores...</span>
-          )}
-        </div>
+        {/* Live Skins Status Button */}
+        <button
+          onClick={loadSkinsStatus}
+          className="w-full py-3 bg-yellow-100 text-yellow-800 rounded-lg font-medium text-sm"
+        >
+          View Live Skins Status
+        </button>
       </div>
 
       {/* Sticky Footer */}
@@ -492,7 +550,7 @@ export default function LiveScoringPage({
           <span className="text-sm text-gray-600">
             Hole {currentIndex + 1} of 18
           </span>
-          {isLastHole && canAdvance && (
+          {isLastHole && canAdvance && allTeamsComplete && (
             <Button
               variant="primary"
               onClick={() => setShowFinishModal(true)}
@@ -515,7 +573,7 @@ export default function LiveScoringPage({
             variant={canAdvance ? "primary" : "secondary"}
             className="flex-1"
             onClick={handleNextHole}
-            disabled={isLastHole || !canAdvance}
+            disabled={isLastHole}
           >
             Next →
           </Button>
@@ -532,22 +590,29 @@ export default function LiveScoringPage({
           <div className="relative bg-white rounded-lg shadow-xl p-4 max-w-sm w-full mx-4">
             <h2 className="text-lg font-bold mb-4">Select Hole</h2>
             <div className="grid grid-cols-6 gap-2">
-              {scoringOrder.map((hole, idx) => (
-                <button
-                  key={hole}
-                  onClick={() => handleHolePick(hole)}
-                  className={`p-3 rounded font-medium ${
-                    hole === currentHole
-                      ? "bg-green-600 text-white"
-                      : idx <= currentIndex
-                      ? "bg-gray-100 hover:bg-gray-200"
-                      : "bg-gray-50 text-gray-400"
-                  }`}
-                >
-                  {hole}
-                </button>
-              ))}
+              {scoringOrder.map((hole, idx) => {
+                const myProgress = teamsProgress.find((t) => t.teamId === myTeamId);
+                const hasScored = myProgress?.scoredHoles.includes(hole);
+                return (
+                  <button
+                    key={hole}
+                    onClick={() => handleHolePick(hole)}
+                    className={`p-3 rounded font-medium ${
+                      hole === currentHole
+                        ? "bg-green-600 text-white"
+                        : hasScored
+                        ? "bg-green-100 text-green-800"
+                        : "bg-gray-50 hover:bg-gray-100"
+                    }`}
+                  >
+                    {hole}
+                  </button>
+                );
+              })}
             </div>
+            <p className="text-xs text-gray-500 mt-2 text-center">
+              Green = scored
+            </p>
             <Button
               variant="secondary"
               className="w-full mt-4"
@@ -566,18 +631,21 @@ export default function LiveScoringPage({
             <h2 className="text-lg font-bold mb-4">Which team are you scoring for?</h2>
             <div className="space-y-2">
               {round.teams.map((team) => {
-                const teamData = holeData?.teamScores.find(
-                  (t) => t.teamId === team.id
-                );
+                const progress = teamsProgress.find((t) => t.teamId === team.id);
                 return (
                   <button
                     key={team.id}
                     onClick={() => handleTeamSelect(team.id)}
                     className="w-full p-4 text-left border rounded hover:bg-gray-50"
                   >
-                    <span className="font-bold">Team {team.teamNumber}</span>
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold">Team {team.teamNumber}</span>
+                      <span className="text-sm text-gray-500">
+                        {progress?.holesScored ?? 0}/18
+                      </span>
+                    </div>
                     <p className="text-sm text-gray-600">
-                      {teamData?.players.map((p) => p.name).join(", ")}
+                      {progress?.players.map((p) => p.name).join(", ")}
                     </p>
                   </button>
                 );
@@ -643,6 +711,68 @@ export default function LiveScoringPage({
               variant="secondary"
               className="w-full mt-4"
               onClick={() => setShowScorecard(false)}
+            >
+              Close
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Live Skins Status Modal */}
+      {showSkinsStatus && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setShowSkinsStatus(false)}
+          />
+          <div className="relative bg-white rounded-lg shadow-xl p-4 max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto">
+            <h2 className="text-lg font-bold mb-4">Live Skins Status</h2>
+            <div className="space-y-1">
+              {skinsStatus.map((hole) => (
+                <div
+                  key={hole.holeNumber}
+                  className={`flex justify-between items-center py-2 px-3 rounded ${
+                    hole.isComplete
+                      ? hole.result?.isTie
+                        ? "bg-yellow-50"
+                        : hole.result?.winnerTeamNumber
+                        ? "bg-green-50"
+                        : "bg-gray-50"
+                      : "bg-gray-50"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium w-8">#{hole.holeNumber}</span>
+                    <span className="text-xs text-gray-500">Par {hole.par}</span>
+                  </div>
+                  <div className="text-sm">
+                    {!hole.isComplete ? (
+                      <span className="text-gray-400">
+                        {hole.teamsScored}/{hole.totalTeams} teams
+                      </span>
+                    ) : hole.result?.isTie ? (
+                      <span className="text-yellow-600">
+                        Tie {hole.result.carryover ? "(carry)" : ""}
+                      </span>
+                    ) : hole.result?.winnerTeamNumber ? (
+                      <span className="text-green-600 font-medium">
+                        Team {hole.result.winnerTeamNumber}{" "}
+                        {hole.result.carryover ? "🔥" : ""}
+                      </span>
+                    ) : (
+                      <span className="text-gray-400">-</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-gray-500 mt-3 text-center">
+              Results update as teams complete each hole
+            </p>
+            <Button
+              variant="secondary"
+              className="w-full mt-4"
+              onClick={() => setShowSkinsStatus(false)}
             >
               Close
             </Button>
