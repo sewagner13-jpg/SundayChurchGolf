@@ -3,7 +3,7 @@
 import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { getRound, deleteRound } from "@/actions/rounds";
+import { getRound, deleteRound, reopenRound } from "@/actions/rounds";
 import { getTopTeamHistory } from "@/actions/season-stats";
 import { Card, CardHeader, CardContent } from "@/components/card";
 import { Button } from "@/components/button";
@@ -78,6 +78,8 @@ export default function RoundSummaryPage({
   const [loading, setLoading] = useState(true);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [showReopenModal, setShowReopenModal] = useState(false);
+  const [reopening, setReopening] = useState(false);
 
   useEffect(() => {
     loadRound();
@@ -126,6 +128,17 @@ export default function RoundSummaryPage({
     }
   };
 
+  const handleReopen = async () => {
+    setReopening(true);
+    try {
+      await reopenRound(id);
+      router.push(`/rounds/${id}/scoring`);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to reopen round");
+      setReopening(false);
+    }
+  };
+
   if (loading || !round) {
     return <p className="text-center py-8">Loading...</p>;
   }
@@ -155,6 +168,13 @@ export default function RoundSummaryPage({
       <div className="flex justify-between items-center">
         <h1 className="text-xl font-bold">Round Summary</h1>
         <div className="flex gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setShowReopenModal(true)}
+          >
+            Reopen
+          </Button>
           <Button
             variant="danger"
             size="sm"
@@ -415,6 +435,17 @@ export default function RoundSummaryPage({
         message="Are you sure you want to delete this round? This will also remove the stats from the leaderboard. This cannot be undone."
         confirmText={deleting ? "Deleting..." : "Delete Round"}
         confirmVariant="danger"
+      />
+
+      {/* Reopen Confirmation Modal */}
+      <ConfirmModal
+        isOpen={showReopenModal}
+        onClose={() => setShowReopenModal(false)}
+        onConfirm={handleReopen}
+        title="Reopen Round"
+        message="This will reopen the round for scoring corrections. Season stats will be reversed until the round is finished again."
+        confirmText={reopening ? "Reopening..." : "Reopen Round"}
+        confirmVariant="primary"
       />
     </div>
   );

@@ -13,6 +13,8 @@ import {
   getTeamScorecard,
   getTeamsProgress,
   getLiveSkinsStatus,
+  markTeamFinished,
+  getTeamFinishStatus,
 } from "@/actions/scoring";
 import { getScoringOrder } from "@/lib/scoring-engine";
 import { HoleEntryType } from "@prisma/client";
@@ -50,6 +52,14 @@ interface TeamProgress {
   players: { id: string; name: string }[];
   holesScored: number;
   scoredHoles: number[];
+}
+
+interface TeamFinishStatus {
+  teamId: string;
+  teamNumber: number;
+  players: { id: string; name: string }[];
+  holesScored: number;
+  finishedScoring: boolean;
 }
 
 interface SkinStatus {
@@ -103,6 +113,8 @@ export default function LiveScoringPage({
   const [teamsProgress, setTeamsProgress] = useState<TeamProgress[]>([]);
   const [skinsStatus, setSkinsStatus] = useState<SkinStatus[]>([]);
   const [showSkinsStatus, setShowSkinsStatus] = useState(false);
+  const [showMarkFinishedModal, setShowMarkFinishedModal] = useState(false);
+  const [teamFinishStatus, setTeamFinishStatus] = useState<TeamFinishStatus[]>([]);
 
   const isLive = round?.status === "LIVE";
 
@@ -179,6 +191,9 @@ export default function LiveScoringPage({
     try {
       const progress = await getTeamsProgress(id);
       setTeamsProgress(progress);
+      // Also load finish status
+      const finishStatus = await getTeamFinishStatus(id);
+      setTeamFinishStatus(finishStatus);
     } catch (err) {
       console.error("Failed to load teams progress");
     }
@@ -319,6 +334,23 @@ export default function LiveScoringPage({
     setShowTeamSelect(true);
   };
 
+  const handleMarkTeamFinished = async () => {
+    if (!myTeamId) return;
+    setSaving(true);
+    try {
+      const result = await markTeamFinished(id, myTeamId);
+      await loadTeamsProgress();
+      setShowMarkFinishedModal(false);
+      if (result.allTeamsFinished) {
+        // All teams are done, show finish round modal
+        setShowFinishModal(true);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to mark team finished");
+    }
+    setSaving(false);
+  };
+
   const handleFinish = async () => {
     setSaving(true);
     try {
@@ -332,6 +364,14 @@ export default function LiveScoringPage({
 
   // Check if all teams have completed all holes
   const allTeamsComplete = teamsProgress.every((t) => t.holesScored === 18);
+
+  // Check if my team has finished scoring
+  const myTeamFinishStatus = teamFinishStatus.find((t) => t.teamId === myTeamId);
+  const myTeamFinished = myTeamFinishStatus?.finishedScoring ?? false;
+  const myTeamHasAll18 = myTeamFinishStatus?.holesScored === 18;
+
+  // Check if all teams have marked themselves finished
+  const allTeamsMarkedFinished = teamFinishStatus.every((t) => t.finishedScoring);
 
   if (loading) {
     return <p className="text-center py-8">Loading...</p>;
@@ -513,7 +553,7 @@ export default function LiveScoringPage({
           <div className="p-4">
             <h3 className="font-medium text-gray-700 mb-3">Other Teams</h3>
             <div className="space-y-2">
-              {teamsProgress
+              {teamFinishStatus
                 .filter((t) => t.teamId !== myTeamId)
                 .map((team) => (
                   <div
@@ -526,9 +566,16 @@ export default function LiveScoringPage({
                         {team.players.map((p) => p.name).join(", ")}
                       </p>
                     </div>
-                    <span className="text-sm text-gray-600">
-                      {team.holesScored}/18 holes
-                    </span>
+                    <div className="text-right">
+                      <span className="text-sm text-gray-600">
+                        {team.holesScored}/18 holes
+                      </span>
+                      {team.finishedScoring && (
+                        <span className="ml-2 text-xs text-green-600 font-medium">
+                          ✓ Done
+                        </span>
+                      )}
+                    </div>
                   </div>
                 ))}
             </div>
@@ -550,15 +597,36 @@ export default function LiveScoringPage({
           <span className="text-sm text-gray-600">
             Hole {currentIndex + 1} of 18
           </span>
-          {isLastHole && canAdvance && allTeamsComplete && (
-            <Button
-              variant="primary"
-              onClick={() => setShowFinishModal(true)}
-              disabled={saving}
-            >
-              Finish Round
-            </Button>
-          )}
+          <div className="flex gap-2">
+            {/* Mark Team Finished button - show when team has 18 holes and not finished */}
+            {myTeamHasAll18 && !myTeamFinished && (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => setShowMarkFinishedModal(true)}
+                disabled={saving}
+              >
+                Mark Team Done
+              </Button>
+            )}
+            {/* Show finished status */}
+            {myTeamFinished && (
+              <span className="text-sm text-green-600 font-medium flex items-center">
+                ✓ Team Finished
+              </span>
+            )}
+            {/* Finish Round - only when all teams marked finished */}
+            {allTeamsMarkedFinished && allTeamsComplete && (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => setShowFinishModal(true)}
+                disabled={saving}
+              >
+                Finish Round
+              </Button>
+            )}
+          </div>
         </div>
         <div className="flex gap-2">
           <Button
@@ -780,13 +848,23 @@ export default function LiveScoringPage({
         </div>
       )}
 
+      {/* Mark Team Finished Confirmation */}
+      <ConfirmModal
+        isOpen={showMarkFinishedModal}
+        onClose={() => setShowMarkFinishedModal(false)}
+        onConfirm={handleMarkTeamFinished}
+        title="Mark Team Finished"
+        message={`Mark Team ${myTeamNumber} as finished scoring? Make sure all 18 holes are correct before confirming.`}
+        confirmText={saving ? "Saving..." : "Mark Done"}
+      />
+
       {/* Finish Round Confirmation */}
       <ConfirmModal
         isOpen={showFinishModal}
         onClose={() => setShowFinishModal(false)}
         onConfirm={handleFinish}
         title="Finish Round"
-        message="Are you sure you want to finish this round? All results will be finalized."
+        message="All teams have finished scoring. Finalize results and calculate payouts?"
         confirmText="Finish Round"
       />
     </div>

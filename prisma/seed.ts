@@ -15,7 +15,7 @@ const timberlakeHoles = [
   { holeNumber: 6, par: 4, handicapRank: 5 },
   { holeNumber: 7, par: 4, handicapRank: 9 },
   { holeNumber: 8, par: 3, handicapRank: 17 },
-  { holeNumber: 9, par: 5, handicapRank: 13 },
+  { holeNumber: 9, par: 4, handicapRank: 13 },
   // Back 9 (Par 36)
   { holeNumber: 10, par: 4, handicapRank: 8 },
   { holeNumber: 11, par: 4, handicapRank: 6 },

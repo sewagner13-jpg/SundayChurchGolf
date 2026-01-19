@@ -147,6 +147,7 @@ model Team {
   handicapTotal   Decimal? @db.Decimal(5, 1)
   totalPayout     Decimal  @default(0) @db.Decimal(10, 2)
   isTopPayingTeam Boolean  @default(false)
+  finishedScoring Boolean  @default(false)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

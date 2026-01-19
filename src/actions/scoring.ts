@@ -572,3 +572,84 @@ export async function getLiveSkinsStatus(roundId: string, startingHole: number) 
     };
   });
 }
+
+// Mark a team as finished scoring
+export async function markTeamFinished(roundId: string, teamId: string) {
+  const round = await prisma.round.findUnique({
+    where: { id: roundId },
+    include: {
+      teams: true,
+      holeScores: true,
+    },
+  });
+
+  if (!round) throw new Error("Round not found");
+  if (round.status !== "LIVE") {
+    throw new Error("Round is not live");
+  }
+
+  // Verify team belongs to this round
+  const team = round.teams.find((t) => t.id === teamId);
+  if (!team) throw new Error("Team not found in this round");
+
+  // Check that team has scored all 18 holes
+  const teamScores = round.holeScores.filter(
+    (hs) => hs.teamId === teamId && hs.entryType !== "BLANK"
+  );
+  if (teamScores.length < 18) {
+    throw new Error(`Team has only scored ${teamScores.length}/18 holes`);
+  }
+
+  // Mark team as finished
+  await prisma.team.update({
+    where: { id: teamId },
+    data: { finishedScoring: true },
+  });
+
+  revalidatePath(`/rounds/${roundId}/scoring`);
+
+  // Check if all teams are now finished
+  const updatedRound = await prisma.round.findUnique({
+    where: { id: roundId },
+    include: { teams: true },
+  });
+
+  const allTeamsFinished = updatedRound?.teams.every((t) => t.finishedScoring);
+
+  return { allTeamsFinished };
+}
+
+// Get team finish status
+export async function getTeamFinishStatus(roundId: string) {
+  const round = await prisma.round.findUnique({
+    where: { id: roundId },
+    include: {
+      teams: {
+        orderBy: { teamNumber: "asc" },
+        include: {
+          roundPlayers: { include: { player: true } },
+        },
+      },
+      holeScores: true,
+    },
+  });
+
+  if (!round) throw new Error("Round not found");
+
+  return round.teams.map((team) => {
+    const teamScores = round.holeScores.filter(
+      (hs) => hs.teamId === team.id && hs.entryType !== "BLANK"
+    );
+
+    return {
+      teamId: team.id,
+      teamNumber: team.teamNumber,
+      players: team.roundPlayers.map((rp) => ({
+        id: rp.player.id,
+        name: rp.player.nickname || rp.player.fullName,
+      })),
+      holesScored: teamScores.length,
+      finishedScoring: team.finishedScoring,
+    };
+  });
+}

@@ -161,6 +161,97 @@ export async function deleteRound(id: string) {
   revalidatePath("/leaderboard");
 }
 
+export async function reopenRound(id: string) {
+  const round = await prisma.round.findUnique({
+    where: { id },
+    include: {
+      roundPlayers: true,
+      teams: true,
+    },
+  });
+
+  if (!round) throw new Error("Round not found");
+  if (round.status !== "FINISHED") {
+    throw new Error("Can only reopen rounds that are FINISHED");
+  }
+
+  // Reverse the season stats that were added when the round was finished
+  const year = round.date.getFullYear();
+
+  for (const rp of round.roundPlayers) {
+    const stat = await prisma.seasonPlayerStat.findUnique({
+      where: { year_playerId: { year, playerId: rp.playerId } },
+    });
+
+    if (stat) {
+      const newWinnings = stat.totalWinnings.sub(rp.payoutAmount);
+      const newBuyIns = stat.totalBuyInsPaid.sub(round.buyInPerPlayer);
+      const newRounds = Math.max(0, stat.roundsPlayed - 1);
+      const newTopTeam = rp.wasOnTopPayingTeam
+        ? Math.max(0, stat.topTeamAppearances - 1)
+        : stat.topTeamAppearances;
+
+      if (newRounds === 0) {
+        await prisma.seasonPlayerStat.delete({
+          where: { year_playerId: { year, playerId: rp.playerId } },
+        });
+      } else {
+        await prisma.seasonPlayerStat.update({
+          where: { year_playerId: { year, playerId: rp.playerId } },
+          data: {
+            totalWinnings: newWinnings,
+            totalBuyInsPaid: newBuyIns,
+            roundsPlayed: newRounds,
+            topTeamAppearances: newTopTeam,
+          },
+        });
+      }
+    }
+  }
+
+  // Reset team payouts and top team status
+  for (const team of round.teams) {
+    await prisma.team.update({
+      where: { id: team.id },
+      data: {
+        totalPayout: 0,
+        isTopPayingTeam: false,
+      },
+    });
+  }
+
+  // Reset round player payouts
+  for (const rp of round.roundPlayers) {
+    await prisma.roundPlayer.update({
+      where: { id: rp.id },
+      data: {
+        payoutAmount: 0,
+        wasOnTopPayingTeam: false,
+      },
+    });
+  }
+
+  // Clear hole results (they'll be recalculated)
+  await prisma.holeResult.deleteMany({ where: { roundId: id } });
+
+  // Set round back to LIVE and clear tiebreaker info
+  await prisma.round.update({
+    where: { id },
+    data: {
+      status: "LIVE",
+      tiebreakerTeamId: null,
+      tiebreakerHoleNum: null,
+      tiebreakerSkinsWon: null,
+    },
+  });
+
+  revalidatePath("/");
+  revalidatePath(`/rounds/${id}`);
+  revalidatePath(`/rounds/${id}/scoring`);
+  revalidatePath(`/rounds/${id}/summary`);
+  revalidatePath("/leaderboard");
+}
+
 export async function setRoundPlayers(id: string, playerIds: string[]) {
   const round = await prisma.round.findUnique({ where: { id } });
 
