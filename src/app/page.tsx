@@ -25,22 +25,9 @@ export default async function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen relative">
-      {/* Background Image with Overlay */}
-      <div
-        className="fixed inset-0 z-0"
-        style={{
-          backgroundImage: "url('/sunday-church-bg.jpg')",
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-          backgroundAttachment: "fixed",
-        }}
-      >
-        <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-black/30 to-black/50" />
-      </div>
-
+    <div className="min-h-screen bg-gradient-to-b from-green-900 via-green-800 to-green-900">
       {/* Content */}
-      <div className="relative z-10 px-4 py-6 max-w-6xl mx-auto">
+      <div className="px-4 py-6 max-w-6xl mx-auto">
         {/* Header */}
         <div className="text-center mb-8">
           <h1
@@ -66,7 +53,7 @@ export default async function Dashboard() {
           {/* Right Column - Round Actions */}
           <div className="space-y-4">
             {/* Active Round / New Round Card */}
-            <Card className="bg-white/95 backdrop-blur-sm shadow-xl border-green-800/20">
+            <Card className="bg-white/95 shadow-xl border-green-800/20">
               <CardHeader className="bg-green-800 text-white rounded-t-lg">
                 {activeRound ? "Current Round" : "Start Playing"}
               </CardHeader>
@@ -124,7 +111,7 @@ export default async function Dashboard() {
             </Card>
 
             {/* Recent Rounds */}
-            <Card className="bg-white/95 backdrop-blur-sm shadow-xl border-green-800/20">
+            <Card className="bg-white/95 shadow-xl border-green-800/20">
               <CardHeader className="bg-green-800/90 text-white">
                 Recent Rounds
               </CardHeader>
@@ -180,7 +167,7 @@ export default async function Dashboard() {
             {/* Quick Links */}
             <div className="grid grid-cols-3 gap-2">
               <Link href="/players">
-                <Card className="bg-white/90 backdrop-blur-sm hover:bg-white transition-colors cursor-pointer">
+                <Card className="bg-white/90 hover:bg-white transition-colors cursor-pointer">
                   <CardContent className="p-3 text-center">
                     <div className="text-2xl mb-1">👥</div>
                     <p className="text-xs font-medium text-gray-700">Players</p>
@@ -188,7 +175,7 @@ export default async function Dashboard() {
                 </Card>
               </Link>
               <Link href="/courses">
-                <Card className="bg-white/90 backdrop-blur-sm hover:bg-white transition-colors cursor-pointer">
+                <Card className="bg-white/90 hover:bg-white transition-colors cursor-pointer">
                   <CardContent className="p-3 text-center">
                     <div className="text-2xl mb-1">🏌️</div>
                     <p className="text-xs font-medium text-gray-700">Courses</p>
@@ -196,7 +183,7 @@ export default async function Dashboard() {
                 </Card>
               </Link>
               <Link href="/leaderboard">
-                <Card className="bg-white/90 backdrop-blur-sm hover:bg-white transition-colors cursor-pointer">
+                <Card className="bg-white/90 hover:bg-white transition-colors cursor-pointer">
                   <CardContent className="p-3 text-center">
                     <div className="text-2xl mb-1">🏆</div>
                     <p className="text-xs font-medium text-gray-700">Stats</p>
