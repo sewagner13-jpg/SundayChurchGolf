@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { revalidatePath } from "next/cache";
 
 // POST /api/reset-rounds - Delete all rounds and reset season stats
 export async function POST() {
@@ -23,6 +24,11 @@ export async function POST() {
     // 6. Delete season stats (since they're based on rounds)
     const deletedStats = await prisma.seasonPlayerStat.deleteMany({});
 
+    // Revalidate all paths to clear cache
+    revalidatePath("/");
+    revalidatePath("/leaderboard");
+    revalidatePath("/rounds");
+
     return NextResponse.json({
       success: true,
       message: "All rounds and stats have been deleted",
@@ -38,7 +44,7 @@ export async function POST() {
   } catch (error) {
     console.error("Error resetting rounds:", error);
     return NextResponse.json(
-      { error: "Failed to reset rounds" },
+      { error: "Failed to reset rounds", details: String(error) },
       { status: 500 }
     );
   }
