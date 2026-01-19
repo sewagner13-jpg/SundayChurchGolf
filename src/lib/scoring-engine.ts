@@ -115,9 +115,12 @@ export function calculateRoundResults(
   // Initialize team payouts
   teams.forEach((t) => teamPayouts.set(t.id, new Decimal(0)));
 
-  let carrySkins = 1;
+  let carrySkins = 0;
 
   for (const holeNumber of scoringOrder) {
+    // Each hole adds 1 skin to the pot
+    carrySkins += 1;
+
     const holeScores = allScores.filter((s) => s.holeNumber === holeNumber);
 
     // Check if hole is complete (all teams have non-BLANK entries)
@@ -128,6 +131,8 @@ export function calculateRoundResults(
 
     if (!allTeamsScored) {
       // Hole not complete - still record placeholder result
+      // Don't count this hole's skin yet since it's not played
+      carrySkins -= 1;
       holeResults.push({
         holeNumber,
         winnerTeamId: null,
@@ -156,9 +161,9 @@ export function calculateRoundResults(
       teamPayouts.set(winnerTeamId, currentPayout.add(holePayout));
 
       // Reset carry
-      carrySkins = 1;
+      carrySkins = 0;
     } else {
-      // Tie - no skin awarded, carry increases
+      // Tie - no skin awarded, skins carry to next hole
       holeResults.push({
         holeNumber,
         winnerTeamId: null,
@@ -166,15 +171,22 @@ export function calculateRoundResults(
         carrySkinsUsed: 0,
         holePayout: new Decimal(0),
       });
-      carrySkins += 1;
+      // carrySkins already incremented at top of loop, keeps accumulating
     }
   }
 
   return {
     holeResults,
     teamPayouts,
-    unresolvedCarryover: carrySkins > 1 ? carrySkins : 0,
+    unresolvedCarryover: carrySkins,
   };
+}
+
+export interface TiebreakerResult {
+  additionalPayouts: Map<string, Decimal>;
+  winnerTeamId: string | null;  // null if split
+  decidingHoleNumber: number | null;  // null if split
+  skinsWon: number;
 }
 
 /**
@@ -192,12 +204,12 @@ export function resolveCarryoverTiebreaker(
   courseHoles: CourseHoleInfo[],
   unresolvedCarryover: number,
   baseSkinValue: Decimal
-): Map<string, Decimal> {
+): TiebreakerResult {
   const additionalPayouts = new Map<string, Decimal>();
   teams.forEach((t) => additionalPayouts.set(t.id, new Decimal(0)));
 
-  if (unresolvedCarryover <= 1) {
-    return additionalPayouts;
+  if (unresolvedCarryover <= 0) {
+    return { additionalPayouts, winnerTeamId: null, decidingHoleNumber: null, skinsWon: 0 };
   }
 
   const carryoverPayout = baseSkinValue.mul(unresolvedCarryover);
@@ -231,7 +243,12 @@ export function resolveCarryoverTiebreaker(
     if (teamsWithMax.length === 1) {
       // Single winner on this handicap-ranked hole
       additionalPayouts.set(teamsWithMax[0].teamId, carryoverPayout);
-      return additionalPayouts;
+      return {
+        additionalPayouts,
+        winnerTeamId: teamsWithMax[0].teamId,
+        decidingHoleNumber: hole.holeNumber,
+        skinsWon: unresolvedCarryover,
+      };
     }
     // Tie on this hole, continue to next handicap rank
   }
@@ -240,7 +257,12 @@ export function resolveCarryoverTiebreaker(
   const splitPayout = carryoverPayout.div(teams.length);
   teams.forEach((t) => additionalPayouts.set(t.id, splitPayout));
 
-  return additionalPayouts;
+  return {
+    additionalPayouts,
+    winnerTeamId: null,
+    decidingHoleNumber: null,
+    skinsWon: unresolvedCarryover,
+  };
 }
 
 /**

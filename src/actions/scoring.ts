@@ -221,9 +221,14 @@ export async function finishRound(roundId: string) {
 
   // Handle end-of-round carryover tiebreaker if needed
   let finalTeamPayouts = teamPayouts;
+  let tiebreakerInfo: {
+    winnerTeamId: string | null;
+    decidingHoleNumber: number | null;
+    skinsWon: number;
+  } | null = null;
 
-  if (unresolvedCarryover > 1) {
-    const additionalPayouts = resolveCarryoverTiebreaker(
+  if (unresolvedCarryover > 0) {
+    const tiebreakerResult = resolveCarryoverTiebreaker(
       allScores,
       teams,
       courseHoles,
@@ -231,8 +236,14 @@ export async function finishRound(roundId: string) {
       round.baseSkinValue
     );
 
+    tiebreakerInfo = {
+      winnerTeamId: tiebreakerResult.winnerTeamId,
+      decidingHoleNumber: tiebreakerResult.decidingHoleNumber,
+      skinsWon: tiebreakerResult.skinsWon,
+    };
+
     // Merge additional payouts
-    for (const [teamId, additional] of additionalPayouts) {
+    for (const [teamId, additional] of tiebreakerResult.additionalPayouts) {
       const current = finalTeamPayouts.get(teamId) ?? new Decimal(0);
       finalTeamPayouts.set(teamId, current.add(additional));
     }
@@ -310,10 +321,15 @@ export async function finishRound(roundId: string) {
       }
     }
 
-    // Set round to FINISHED
+    // Set round to FINISHED with tiebreaker info
     await tx.round.update({
       where: { id: roundId },
-      data: { status: "FINISHED" },
+      data: {
+        status: "FINISHED",
+        tiebreakerTeamId: tiebreakerInfo?.winnerTeamId ?? null,
+        tiebreakerHoleNum: tiebreakerInfo?.decidingHoleNumber ?? null,
+        tiebreakerSkinsWon: tiebreakerInfo?.skinsWon ?? null,
+      },
     });
 
     // Update season stats

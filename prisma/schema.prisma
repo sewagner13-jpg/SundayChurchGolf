@@ -113,6 +113,12 @@ model Round {
   startingHole     Int?            // 1 or 10
   teamSize         Int?
   teamMode         String?         // "RANDOM" or "BALANCED"
+
+  // Tiebreaker info (when carryover skins resolved at end of round)
+  tiebreakerTeamId    String?      // Team that won the tiebreaker (null if split)
+  tiebreakerHoleNum   Int?         // Hole where tiebreaker was decided (null if split)
+  tiebreakerSkinsWon  Int?         // Number of carryover skins won
+
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 

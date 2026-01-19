@@ -43,6 +43,10 @@ interface Round {
   startingHole: number | null;
   buyInPerPlayer: number;
   pot: number | null;
+  baseSkinValue: number | null;
+  tiebreakerTeamId: string | null;
+  tiebreakerHoleNum: number | null;
+  tiebreakerSkinsWon: number | null;
   course: {
     name: string;
     holes: { holeNumber: number; par: number }[];
@@ -359,6 +363,48 @@ export default function RoundSummaryPage({
           </p>
         </CardContent>
       </Card>
+
+      {/* Tiebreaker Result */}
+      {round.tiebreakerSkinsWon && round.tiebreakerSkinsWon > 0 && (
+        <Card className="border-2 border-purple-400 bg-purple-50">
+          <CardHeader>Carryover Tiebreaker</CardHeader>
+          <CardContent>
+            <p className="text-sm">
+              <strong>{round.tiebreakerSkinsWon} skins</strong> were carried over
+              at the end of the round.
+            </p>
+            {round.tiebreakerTeamId ? (
+              <p className="text-sm mt-2">
+                <span className="text-purple-700 font-bold">
+                  Team{" "}
+                  {round.teams.find((t) => t.id === round.tiebreakerTeamId)
+                    ?.teamNumber}
+                </span>{" "}
+                won the tiebreaker on{" "}
+                <strong>Hole {round.tiebreakerHoleNum}</strong> (handicap rank
+                tiebreaker) and received{" "}
+                <span className="text-green-600 font-bold">
+                  $
+                  {Math.round(
+                    round.tiebreakerSkinsWon * (round.baseSkinValue ?? 0)
+                  )}
+                </span>
+              </p>
+            ) : (
+              <p className="text-sm mt-2 text-gray-600">
+                No single winner could be determined by handicap rank.{" "}
+                <strong>
+                  $
+                  {Math.round(
+                    round.tiebreakerSkinsWon * (round.baseSkinValue ?? 0)
+                  )}
+                </strong>{" "}
+                was split evenly among all teams.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Delete Confirmation Modal */}
       <ConfirmModal
