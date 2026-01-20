@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getActiveRound, getFinishedRounds } from "@/actions/rounds";
+import { getActiveRound } from "@/actions/rounds";
 import { getLeaderboard } from "@/actions/season-stats";
 import { Button } from "@/components/button";
 import { Card, CardHeader, CardContent } from "@/components/card";
@@ -10,9 +10,8 @@ export const dynamic = "force-dynamic";
 
 export default async function Dashboard() {
   const currentYear = new Date().getFullYear();
-  const [activeRound, finishedRounds, leaderboard] = await Promise.all([
+  const [activeRound, leaderboard] = await Promise.all([
     getActiveRound(),
-    getFinishedRounds(),
     getLeaderboard(currentYear),
   ]);
 
@@ -60,6 +59,11 @@ export default async function Dashboard() {
               <CardContent className="p-4">
                 {activeRound ? (
                   <div className="space-y-4">
+                    {(activeRound as { name?: string }).name && (
+                      <p className="text-center font-semibold text-green-800 text-lg">
+                        {(activeRound as { name?: string }).name}
+                      </p>
+                    )}
                     <div className="text-sm text-gray-700 space-y-1">
                       <p className="flex justify-between">
                         <span className="text-gray-500">Date:</span>
@@ -104,60 +108,6 @@ export default async function Dashboard() {
                       <Button className="w-full bg-green-700 hover:bg-green-600" size="lg">
                         Create New Round
                       </Button>
-                    </Link>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Recent Rounds */}
-            <Card className="bg-white/95 shadow-xl border-green-800/20">
-              <CardHeader className="bg-green-800/90 text-white">
-                Recent Rounds
-              </CardHeader>
-              <CardContent className="p-0">
-                {finishedRounds.length === 0 ? (
-                  <p className="text-gray-500 text-center py-6 text-sm">
-                    No completed rounds yet
-                  </p>
-                ) : (
-                  <ul className="divide-y divide-gray-100">
-                    {finishedRounds.slice(0, 5).map((round) => (
-                      <li key={round.id}>
-                        <Link
-                          href={`/rounds/${round.id}/summary`}
-                          className="block py-3 px-4 hover:bg-green-50 transition-colors"
-                        >
-                          <div className="flex justify-between items-center">
-                            <div>
-                              <p className="font-medium text-gray-800">
-                                {formatDate(round.date)}
-                              </p>
-                              <p className="text-xs text-gray-500">
-                                {round.course.name}
-                              </p>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-xs text-gray-500">
-                                {round.roundPlayers.length} players
-                              </p>
-                              <p className="text-sm text-green-700 font-bold">
-                                ${round.pot ? Number(round.pot).toFixed(0) : 0}
-                              </p>
-                            </div>
-                          </div>
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {finishedRounds.length > 5 && (
-                  <div className="p-3 border-t border-gray-100 text-center">
-                    <Link
-                      href="/leaderboard"
-                      className="text-sm text-green-700 hover:text-green-800 font-medium"
-                    >
-                      View All History
                     </Link>
                   </div>
                 )}

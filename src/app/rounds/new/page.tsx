@@ -52,6 +52,7 @@ function NewRoundForm() {
   const [dataLoaded, setDataLoaded] = useState(false);
 
   // Form state
+  const [name, setName] = useState("");
   const [date, setDate] = useState(getNextSunday());
   const [courseId, setCourseId] = useState("");
   const [formatId, setFormatId] = useState("");
@@ -103,6 +104,7 @@ function NewRoundForm() {
 
     try {
       const round = await createRound({
+        name: name.trim() || undefined,
         date: new Date(date),
         courseId,
         formatId,
@@ -133,6 +135,14 @@ function NewRoundForm() {
       <Card>
         <CardHeader>Round Details</CardHeader>
         <CardContent className="space-y-4">
+          <Input
+            label="Round Name (optional)"
+            type="text"
+            placeholder="e.g., Week 1, Championship, etc."
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+
           <Input
             label="Date"
             type="date"

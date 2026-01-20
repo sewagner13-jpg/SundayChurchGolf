@@ -25,15 +25,6 @@ export async function upsertHoleScore(
   holeNumber: number,
   entry: ScoreEntry
 ) {
-  const round = await prisma.round.findUnique({
-    where: { id: roundId },
-  });
-
-  if (!round) throw new Error("Round not found");
-  if (round.status !== "LIVE") {
-    throw new Error("Can only enter scores while round is LIVE");
-  }
-
   // Validate entry
   if (entry.entryType === "VALUE") {
     if (!entry.value || entry.value <= 0) {
@@ -41,16 +32,28 @@ export async function upsertHoleScore(
     }
   }
 
-  // Check for existing score
-  const existingScore = await prisma.holeScore.findUnique({
-    where: {
-      roundId_teamId_holeNumber: {
-        roundId,
-        teamId,
-        holeNumber,
+  // Single query to check round status and get existing score
+  const [round, existingScore] = await Promise.all([
+    prisma.round.findUnique({
+      where: { id: roundId },
+      select: { status: true },
+    }),
+    prisma.holeScore.findUnique({
+      where: {
+        roundId_teamId_holeNumber: {
+          roundId,
+          teamId,
+          holeNumber,
+        },
       },
-    },
-  });
+      select: { entryType: true, value: true, wasEdited: true },
+    }),
+  ]);
+
+  if (!round) throw new Error("Round not found");
+  if (round.status !== "LIVE") {
+    throw new Error("Can only enter scores while round is LIVE");
+  }
 
   const isEdit =
     existingScore &&
@@ -58,7 +61,8 @@ export async function upsertHoleScore(
     (existingScore.entryType !== entry.entryType ||
       existingScore.value !== entry.value);
 
-  // Upsert the score
+  // Upsert the score - no recalculation needed during live play
+  // Final results are calculated when round is finished
   await prisma.holeScore.upsert({
     where: {
       roundId_teamId_holeNumber: {
@@ -82,10 +86,9 @@ export async function upsertHoleScore(
     },
   });
 
-  // Trigger recalculation
-  await recalculateRound(roundId);
-
-  revalidatePath(`/rounds/${roundId}/scoring`);
+  // Skip recalculation - it's expensive and only needed for display
+  // Live skins status is calculated on-demand when user views it
+  // Final results are calculated at finishRound
 }
 
 export async function recalculateRound(roundId: string) {

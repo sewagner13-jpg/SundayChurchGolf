@@ -10,6 +10,7 @@ const MAX_PLAYERS_PER_ROUND = 12;
 const MIN_PLAYERS_PER_ROUND = 2;
 
 export interface CreateRoundData {
+  name?: string;
   date: Date;
   courseId: string;
   formatId: string;
@@ -19,6 +20,7 @@ export interface CreateRoundData {
 }
 
 export interface UpdateRoundDraftData {
+  name?: string;
   date?: Date;
   courseId?: string;
   formatId?: string;
@@ -51,6 +53,7 @@ export async function createRound(data: CreateRoundData) {
 
   const round = await prisma.round.create({
     data: {
+      name: data.name || null,
       date: data.date,
       courseId: data.courseId,
       formatId: data.formatId,
@@ -85,6 +88,7 @@ export async function updateRoundDraft(id: string, data: UpdateRoundDraftData) {
   const updated = await prisma.round.update({
     where: { id },
     data: {
+      name: data.name,
       date: data.date,
       courseId: data.courseId,
       formatId: data.formatId,

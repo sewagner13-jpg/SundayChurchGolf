@@ -103,6 +103,7 @@ model Format {
 
 model Round {
   id               String          @id @default(cuid())
+  name             String?         // Optional name for the round (e.g., "Week 1", "Championship")
   date             DateTime        @db.Date
   status           RoundStatus     @default(DRAFT)
   visibility       VisibilityMode  @default(OPEN)
