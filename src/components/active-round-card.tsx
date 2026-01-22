@@ -36,15 +36,16 @@ export function ActiveRoundCard({ activeRound }: ActiveRoundCardProps) {
     if (!activeRound) return;
     setDeleting(true);
     try {
-      // Use the reset-rounds API to force delete
-      const res = await fetch("/api/reset-rounds", { method: "POST" });
+      // Use the cancel-round API to delete only this active round
+      const res = await fetch("/api/cancel-round", { method: "POST" });
       if (!res.ok) {
-        throw new Error("Failed to delete round");
+        const data = await res.json();
+        throw new Error(data.error || "Failed to cancel round");
       }
       router.refresh();
       setShowDeleteModal(false);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to delete round");
+      alert(err instanceof Error ? err.message : "Failed to cancel round");
     }
     setDeleting(false);
   };
