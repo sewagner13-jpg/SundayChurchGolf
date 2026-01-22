@@ -433,15 +433,22 @@ export default function RoundSetupPage({
               )}
 
               <div className="space-y-3">
-                {round.teams.map((team) => (
+                {round.teams.map((team) => {
+                  // Calculate total handicap from players if not stored
+                  const calculatedTotal = team.roundPlayers.reduce((sum, rp) => {
+                    const hcp = rp.player.handicapIndex;
+                    return sum + (typeof hcp === 'number' ? hcp : 0);
+                  }, 0);
+                  const storedTotal = team.handicapTotal != null ? Number(team.handicapTotal) : null;
+                  const displayTotal = storedTotal ?? calculatedTotal;
+
+                  return (
                   <Card key={team.id}>
                     <CardHeader className="flex justify-between items-center">
                       <span>Team {team.teamNumber}</span>
-                      {team.handicapTotal && (
-                        <span className="text-sm font-normal text-gray-500">
-                          Total HCP: {team.handicapTotal}
-                        </span>
-                      )}
+                      <span className="text-sm font-normal text-green-700 bg-green-50 px-2 py-0.5 rounded">
+                        Total: {displayTotal.toFixed(1)} HCP
+                      </span>
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-2">
@@ -470,7 +477,8 @@ export default function RoundSetupPage({
                       </div>
                     </CardContent>
                   </Card>
-                ))}
+                  );
+                })}
               </div>
 
               <Button

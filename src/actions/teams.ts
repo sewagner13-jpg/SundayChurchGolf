@@ -147,7 +147,7 @@ export async function generateTeams(
       data: {
         roundId,
         teamNumber: i + 1,
-        handicapTotal: mode === "BALANCED" ? handicapTotal : null,
+        handicapTotal, // Always store handicap total regardless of mode
       },
     });
 
@@ -233,37 +233,35 @@ export async function swapTeamMembers(
     }),
   ]);
 
-  // Recalculate team handicap totals if in balanced mode
-  if (round.teamMode === "BALANCED") {
-    for (const team of round.teams) {
-      const teamPlayers = round.roundPlayers.filter(
-        (rp) => rp.teamId === team.id
-      );
-      // Adjust for the swap
-      const adjustedPlayers = teamPlayers.map((rp) => {
-        if (rp.playerId === player1Id) {
-          return round.roundPlayers.find((r) => r.playerId === player2Id)!;
-        }
-        if (rp.playerId === player2Id) {
-          return round.roundPlayers.find((r) => r.playerId === player1Id)!;
-        }
-        return rp;
-      });
+  // Always recalculate team handicap totals after swap
+  for (const team of round.teams) {
+    const teamPlayers = round.roundPlayers.filter(
+      (rp) => rp.teamId === team.id
+    );
+    // Adjust for the swap
+    const adjustedPlayers = teamPlayers.map((rp) => {
+      if (rp.playerId === player1Id) {
+        return round.roundPlayers.find((r) => r.playerId === player2Id)!;
+      }
+      if (rp.playerId === player2Id) {
+        return round.roundPlayers.find((r) => r.playerId === player1Id)!;
+      }
+      return rp;
+    });
 
-      const avgHandicap = calculateAverageHandicap(
-        round.roundPlayers.map((rp) => rp.player.handicapIndex)
-      );
+    const avgHandicap = calculateAverageHandicap(
+      round.roundPlayers.map((rp) => rp.player.handicapIndex)
+    );
 
-      const handicapTotal = adjustedPlayers.reduce((sum, rp) => {
-        const hcp = rp.player.handicapIndex ?? avgHandicap;
-        return sum.add(hcp ?? new Decimal(0));
-      }, new Decimal(0));
+    const handicapTotal = adjustedPlayers.reduce((sum, rp) => {
+      const hcp = rp.player.handicapIndex ?? avgHandicap;
+      return sum.add(hcp ?? new Decimal(0));
+    }, new Decimal(0));
 
-      await prisma.team.update({
-        where: { id: team.id },
-        data: { handicapTotal },
-      });
-    }
+    await prisma.team.update({
+      where: { id: team.id },
+      data: { handicapTotal },
+    });
   }
 
   revalidatePath(`/rounds/${roundId}`);
