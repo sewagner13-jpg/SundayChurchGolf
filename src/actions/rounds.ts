@@ -257,6 +257,8 @@ export async function reopenRound(id: string) {
 }
 
 export async function setRoundPlayers(id: string, playerIds: string[]) {
+  console.log("[setRoundPlayers] Called with:", { roundId: id, playerCount: playerIds.length });
+
   const round = await prisma.round.findUnique({ where: { id } });
 
   if (!round) throw new Error("Round not found");
@@ -276,12 +278,14 @@ export async function setRoundPlayers(id: string, playerIds: string[]) {
   await prisma.team.deleteMany({ where: { roundId: id } });
 
   // Create new round players
-  await prisma.roundPlayer.createMany({
+  const result = await prisma.roundPlayer.createMany({
     data: playerIds.map((playerId) => ({
       roundId: id,
       playerId,
     })),
   });
+
+  console.log("[setRoundPlayers] Created round players:", result.count);
 
   revalidatePath(`/rounds/${id}`);
 }

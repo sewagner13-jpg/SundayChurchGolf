@@ -79,6 +79,8 @@ export async function generateTeams(
   teamSize: number,
   mode: "RANDOM" | "BALANCED"
 ) {
+  console.log("[generateTeams] Called with:", { roundId, teamSize, mode });
+
   const round = await prisma.round.findUnique({
     where: { id: roundId },
     include: {
@@ -94,6 +96,11 @@ export async function generateTeams(
   }
 
   const playerCount = round.roundPlayers.length;
+  console.log("[generateTeams] Round players count:", playerCount);
+
+  if (playerCount === 0) {
+    throw new Error("No players in round. Please add players first.");
+  }
 
   if (!validateEvenTeams(playerCount, teamSize)) {
     throw new Error(

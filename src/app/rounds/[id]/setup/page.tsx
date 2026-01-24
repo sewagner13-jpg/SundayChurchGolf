@@ -96,6 +96,13 @@ export default function RoundSetupPage({
       const activePlayers = playersRes.filter((p: Player) => p.isActive);
       setAllPlayers(activePlayers);
 
+      console.log("Loaded round data:", {
+        roundId: roundData.id,
+        roundPlayersCount: roundData.roundPlayers.length,
+        teamsCount: roundData.teams.length,
+        activePlayersCount: activePlayers.length,
+      });
+
       if (activePlayers.length === 0) {
         setError("No active players found. Please add players first.");
       }
@@ -105,6 +112,7 @@ export default function RoundSetupPage({
         roundData.roundPlayers.map((rp) => rp.playerId)
       );
       setSelectedPlayerIds(selected);
+      console.log("Selected players from DB:", selected.size);
 
       // Check if teams exist
       if (roundData.teams.length > 0) {
@@ -148,11 +156,16 @@ export default function RoundSetupPage({
     }
 
     setActionLoading(true);
+    setError(null);
     try {
+      console.log("Saving players:", Array.from(selectedPlayerIds));
       await setRoundPlayers(id, Array.from(selectedPlayerIds));
+      console.log("Players saved successfully, reloading data...");
       await loadData();
+      console.log("Data reloaded, switching to teams step");
       setStep("teams");
     } catch (err) {
+      console.error("Save players error:", err);
       setError(err instanceof Error ? err.message : "Failed to save players");
     }
     setActionLoading(false);
@@ -160,6 +173,8 @@ export default function RoundSetupPage({
 
   const handleGenerateTeams = async () => {
     const size = Number(teamSize);
+    console.log("Generate teams called:", { size, selectedCount: selectedPlayerIds.size, teamMode });
+
     if (selectedPlayerIds.size % size !== 0) {
       setError(
         `Cannot create even teams: ${selectedPlayerIds.size} players is not divisible by team size ${size}`
@@ -175,8 +190,11 @@ export default function RoundSetupPage({
     setActionLoading(true);
     setError(null);
     try {
+      console.log("Calling generateTeams action...");
       await generateTeams(id, size, teamMode);
+      console.log("Teams generated, reloading data...");
       await loadData();
+      console.log("Data reloaded after team generation");
     } catch (err) {
       console.error("Generate teams error:", err);
       setError(
@@ -305,8 +323,17 @@ export default function RoundSetupPage({
               ? "border-b-2 border-green-600 text-green-600"
               : "text-gray-500"
           }`}
-          onClick={() => selectedPlayerIds.size >= 2 && setStep("teams")}
-          disabled={selectedPlayerIds.size < 2}
+          onClick={async () => {
+            if (selectedPlayerIds.size >= 2) {
+              // Save players first if not already on teams step
+              if (step === "players") {
+                await handleSavePlayers();
+              } else {
+                setStep("teams");
+              }
+            }
+          }}
+          disabled={selectedPlayerIds.size < 2 || actionLoading}
         >
           2. Teams
         </button>
