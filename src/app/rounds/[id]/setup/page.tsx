@@ -76,7 +76,10 @@ export default function RoundSetupPage({
     try {
       const [roundData, playersRes] = await Promise.all([
         getRound(id),
-        fetch("/api/players").then((r) => r.json()),
+        fetch("/api/players").then((r) => {
+          if (!r.ok) throw new Error("Failed to fetch players");
+          return r.json();
+        }),
       ]);
 
       if (!roundData) {
@@ -90,7 +93,12 @@ export default function RoundSetupPage({
       }
 
       setRound(roundData as Round);
-      setAllPlayers(playersRes.filter((p: Player) => p.isActive));
+      const activePlayers = playersRes.filter((p: Player) => p.isActive);
+      setAllPlayers(activePlayers);
+
+      if (activePlayers.length === 0) {
+        setError("No active players found. Please add players first.");
+      }
 
       // Set selected players from round
       const selected = new Set(
@@ -112,7 +120,8 @@ export default function RoundSetupPage({
 
       setLoading(false);
     } catch (err) {
-      setError("Failed to load round");
+      console.error("Setup page load error:", err);
+      setError(err instanceof Error ? err.message : "Failed to load round");
       setLoading(false);
     }
   }
@@ -158,11 +167,18 @@ export default function RoundSetupPage({
       return;
     }
 
+    if (selectedPlayerIds.size === 0) {
+      setError("No players selected. Please select players first.");
+      return;
+    }
+
     setActionLoading(true);
+    setError(null);
     try {
       await generateTeams(id, size, teamMode);
       await loadData();
     } catch (err) {
+      console.error("Generate teams error:", err);
       setError(
         err instanceof Error ? err.message : "Failed to generate teams"
       );
@@ -198,10 +214,12 @@ export default function RoundSetupPage({
 
   const handleStartRound = async () => {
     setActionLoading(true);
+    setError(null);
     try {
       await startRound(id, startingHole);
       router.push(`/rounds/${id}/scoring`);
     } catch (err) {
+      console.error("Start round error:", err);
       setError(err instanceof Error ? err.message : "Failed to start round");
       setActionLoading(false);
     }
@@ -217,11 +235,16 @@ export default function RoundSetupPage({
   };
 
   if (loading) {
-    return <p className="text-center py-8">Loading...</p>;
+    return <p className="text-center py-8">Loading round setup...</p>;
   }
 
   if (!round) {
-    return <p className="text-center py-8">Round not found</p>;
+    return (
+      <div className="text-center py-8">
+        <p className="text-red-600 mb-4">Round not found</p>
+        <Button onClick={() => router.push("/")}>Go Home</Button>
+      </div>
+    );
   }
 
   const formatDate = (date: Date) =>
