@@ -377,8 +377,38 @@ export default function LiveScoringPage({
     return <p className="text-center py-8">Loading...</p>;
   }
 
-  if (!round || !holeData) {
+  if (!round) {
     return <p className="text-center py-8">Round not found</p>;
+  }
+
+  // Show team selection modal if needed (before checking holeData)
+  if (showTeamSelect) {
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg p-6 m-4 max-w-sm w-full">
+          <h2 className="text-xl font-bold mb-4">Which team are you scoring for?</h2>
+          <div className="space-y-2">
+            {round.teams.map((team) => (
+              <button
+                key={team.id}
+                onClick={() => {
+                  handleTeamSelect(team.id);
+                  setShowTeamSelect(false);
+                }}
+                className="w-full p-4 border rounded hover:bg-gray-50 text-left"
+              >
+                <span className="font-bold">Team {team.teamNumber}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Still loading hole data after team selection
+  if (!holeData) {
+    return <p className="text-center py-8">Loading hole data...</p>;
   }
 
   const holeInfo = round.course.holes.find((h) => h.holeNumber === currentHole);
