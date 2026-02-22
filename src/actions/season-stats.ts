@@ -236,3 +236,150 @@ export async function getAvailableYears() {
 
   return years;
 }
+
+// Get all team combination winnings for a year
+// Returns groups of players who played together and their combined winnings
+export async function getTeamCombinationStats(year: number) {
+  const rounds = await prisma.round.findMany({
+    where: {
+      status: "FINISHED",
+      date: {
+        gte: new Date(`${year}-01-01`),
+        lt: new Date(`${year + 1}-01-01`),
+      },
+    },
+    include: {
+      teams: {
+        include: {
+          roundPlayers: {
+            include: {
+              player: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  // Track team combinations: key is sorted player IDs joined by "|"
+  const combinations = new Map<
+    string,
+    {
+      playerIds: string[];
+      playerNames: string[];
+      totalWinnings: number;
+      roundsPlayed: number;
+      wins: number; // Times they were top paying team
+    }
+  >();
+
+  for (const round of rounds) {
+    for (const team of round.teams) {
+      const playerIds = team.roundPlayers.map((rp) => rp.playerId).sort();
+      const key = playerIds.join("|");
+
+      const existing = combinations.get(key) ?? {
+        playerIds,
+        playerNames: team.roundPlayers
+          .map((rp) => rp.player.nickname || rp.player.fullName)
+          .sort(),
+        totalWinnings: 0,
+        roundsPlayed: 0,
+        wins: 0,
+      };
+
+      existing.totalWinnings += Number(team.totalPayout);
+      existing.roundsPlayed += 1;
+      if (team.isTopPayingTeam) {
+        existing.wins += 1;
+      }
+
+      combinations.set(key, existing);
+    }
+  }
+
+  // Convert to array and sort by winnings
+  return Array.from(combinations.values())
+    .filter((c) => c.roundsPlayed > 0)
+    .sort((a, b) => b.totalWinnings - a.totalWinnings);
+}
+
+// Get pair combination winnings for a year
+// Tracks every pair of players who have played on the same team together
+export async function getPairCombinationStats(year: number) {
+  const rounds = await prisma.round.findMany({
+    where: {
+      status: "FINISHED",
+      date: {
+        gte: new Date(`${year}-01-01`),
+        lt: new Date(`${year + 1}-01-01`),
+      },
+    },
+    include: {
+      teams: {
+        include: {
+          roundPlayers: {
+            include: {
+              player: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  // Track pairs: key is sorted player IDs joined by "|"
+  const pairs = new Map<
+    string,
+    {
+      playerIds: [string, string];
+      playerNames: [string, string];
+      totalWinnings: number;
+      roundsPlayed: number;
+      wins: number;
+    }
+  >();
+
+  for (const round of rounds) {
+    for (const team of round.teams) {
+      const players = team.roundPlayers.map((rp) => ({
+        id: rp.playerId,
+        name: rp.player.nickname || rp.player.fullName,
+      }));
+
+      // Generate all pairs from this team
+      for (let i = 0; i < players.length; i++) {
+        for (let j = i + 1; j < players.length; j++) {
+          const p1 = players[i];
+          const p2 = players[j];
+
+          // Sort by ID to ensure consistent key
+          const sorted = [p1, p2].sort((a, b) => a.id.localeCompare(b.id));
+          const key = `${sorted[0].id}|${sorted[1].id}`;
+
+          const existing = pairs.get(key) ?? {
+            playerIds: [sorted[0].id, sorted[1].id] as [string, string],
+            playerNames: [sorted[0].name, sorted[1].name] as [string, string],
+            totalWinnings: 0,
+            roundsPlayed: 0,
+            wins: 0,
+          };
+
+          // Each pair gets the full team payout attributed to them
+          existing.totalWinnings += Number(team.totalPayout);
+          existing.roundsPlayed += 1;
+          if (team.isTopPayingTeam) {
+            existing.wins += 1;
+          }
+
+          pairs.set(key, existing);
+        }
+      }
+    }
+  }
+
+  // Convert to array and sort by winnings
+  return Array.from(pairs.values())
+    .filter((p) => p.roundsPlayed > 0)
+    .sort((a, b) => b.totalWinnings - a.totalWinnings);
+}

@@ -47,7 +47,7 @@ export default async function Dashboard() {
             <ActiveRoundCard activeRound={activeRound as { id: string; name?: string | null; date: Date; status: string; course: { name: string } } | null} />
 
             {/* Quick Links */}
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               <Link href="/players">
                 <Card className="bg-white/90 hover:bg-white transition-colors cursor-pointer">
                   <CardContent className="p-3 text-center">
@@ -64,11 +64,19 @@ export default async function Dashboard() {
                   </CardContent>
                 </Card>
               </Link>
+              <Link href="/stats">
+                <Card className="bg-white/90 hover:bg-white transition-colors cursor-pointer">
+                  <CardContent className="p-3 text-center">
+                    <div className="text-2xl mb-1">📊</div>
+                    <p className="text-xs font-medium text-gray-700">Stats</p>
+                  </CardContent>
+                </Card>
+              </Link>
               <Link href="/leaderboard">
                 <Card className="bg-white/90 hover:bg-white transition-colors cursor-pointer">
                   <CardContent className="p-3 text-center">
                     <div className="text-2xl mb-1">🏆</div>
-                    <p className="text-xs font-medium text-gray-700">Stats</p>
+                    <p className="text-xs font-medium text-gray-700">Leaderboard</p>
                   </CardContent>
                 </Card>
               </Link>
