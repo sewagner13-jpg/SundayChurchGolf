@@ -34,6 +34,7 @@ interface HoleResult {
   winnerTeamId: string | null;
   isTie: boolean;
   holePayout: number;
+  carrySkinsUsed: number;
 }
 
 interface Round {
@@ -243,61 +244,72 @@ export default function RoundSummaryPage({
         </Card>
       )}
 
-      {/* Team Payouts */}
+      {/* Payout Summary */}
       <Card>
-        <CardHeader>Team Payouts</CardHeader>
+        <CardHeader>Payout Summary</CardHeader>
         <CardContent>
+          <div className="text-xs text-gray-500 mb-3">
+            Skin value: ${round.baseSkinValue?.toFixed(2) ?? "—"} each &bull; {round.roundPlayers.length} players &bull; ${round.pot ?? 0} pot
+          </div>
           <div className="space-y-3">
             {round.teams
               .sort((a, b) => b.totalPayout - a.totalPayout)
-              .map((team) => (
-                <div
-                  key={team.id}
-                  className="flex justify-between items-center py-2 border-b last:border-b-0"
-                >
-                  <div>
-                    <span className="font-medium">Team {team.teamNumber}</span>
-                    <p className="text-sm text-gray-600">
-                      {team.roundPlayers
-                        .map((rp) => rp.player.nickname || rp.player.fullName)
-                        .join(", ")}
-                    </p>
+              .map((team) => {
+                // Count skins won by this team
+                const skinsWon = round.holeResults
+                  .filter((hr) => hr.winnerTeamId === team.id)
+                  .reduce((sum, hr) => sum + (hr.carrySkinsUsed || 1), 0);
+                return (
+                  <div
+                    key={team.id}
+                    className={`rounded-lg p-3 border ${
+                      team.isTopPayingTeam
+                        ? "border-green-400 bg-green-50"
+                        : "border-gray-200 bg-gray-50"
+                    }`}
+                  >
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <span className="font-bold">Team {team.teamNumber}</span>
+                        {team.isTopPayingTeam && (
+                          <span className="ml-2 text-xs bg-green-200 text-green-800 px-1.5 py-0.5 rounded">WINNER</span>
+                        )}
+                        <p className="text-sm text-gray-600 mt-0.5">
+                          {team.roundPlayers
+                            .map((rp) => rp.player.nickname || rp.player.fullName)
+                            .join(" & ")}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className={`text-xl font-bold ${team.isTopPayingTeam ? "text-green-600" : "text-gray-800"}`}>
+                          ${Math.round(team.totalPayout)}
+                        </p>
+                        {skinsWon > 0 && (
+                          <p className="text-xs text-gray-500">{skinsWon} skin{skinsWon !== 1 ? "s" : ""} won</p>
+                        )}
+                      </div>
+                    </div>
+                    {/* Per-player payout */}
+                    <div className="mt-2 pt-2 border-t border-gray-200 flex flex-wrap gap-x-4 gap-y-1">
+                      {team.roundPlayers.map((rp) => {
+                        const playerRecord = round.roundPlayers.find(
+                          (p) => p.playerId === rp.playerId
+                        );
+                        return (
+                          <div key={rp.id} className="text-sm flex gap-1">
+                            <span className="text-gray-600">
+                              {rp.player.nickname || rp.player.fullName}:
+                            </span>
+                            <span className="font-semibold text-gray-800">
+                              ${Math.round(playerRecord?.payoutAmount ?? 0)}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                  <span
-                    className={`font-bold ${
-                      team.isTopPayingTeam ? "text-green-600" : ""
-                    }`}
-                  >
-                    ${Math.round(team.totalPayout)}
-                  </span>
-                </div>
-              ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Player Payouts */}
-      <Card>
-        <CardHeader>Player Payouts</CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            {round.roundPlayers
-              .sort((a, b) => b.payoutAmount - a.payoutAmount)
-              .map((rp) => (
-                <div
-                  key={rp.id}
-                  className="flex justify-between items-center py-1"
-                >
-                  <span>{rp.player.nickname || rp.player.fullName}</span>
-                  <span
-                    className={`font-medium ${
-                      rp.wasOnTopPayingTeam ? "text-green-600" : ""
-                    }`}
-                  >
-                    ${Math.round(rp.payoutAmount)}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
           </div>
         </CardContent>
       </Card>
@@ -309,14 +321,14 @@ export default function RoundSummaryPage({
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b">
-                  <th className="py-2 text-left">Hole</th>
+                <tr className="border-b text-xs text-gray-500">
+                  <th className="py-2 text-left font-medium">Hole</th>
                   {round.teams.map((team) => (
-                    <th key={team.id} className="py-2 text-center">
+                    <th key={team.id} className="py-2 text-center font-medium">
                       T{team.teamNumber}
                     </th>
                   ))}
-                  <th className="py-2 text-right">Result</th>
+                  <th className="py-2 text-right font-medium">Result</th>
                 </tr>
               </thead>
               <tbody>
@@ -325,14 +337,31 @@ export default function RoundSummaryPage({
                   const holeInfo = round.course.holes.find(
                     (h) => h.holeNumber === holeNumber
                   );
+                  const isCarryover = (result?.carrySkinsUsed ?? 0) > 1;
 
                   return (
-                    <tr key={holeNumber} className="border-b">
-                      <td className="py-2">
+                    <tr
+                      key={holeNumber}
+                      className={`border-b ${
+                        result?.winnerTeamId
+                          ? isCarryover
+                            ? "bg-orange-50"
+                            : "bg-green-50"
+                          : result?.isTie
+                          ? "bg-yellow-50"
+                          : ""
+                      }`}
+                    >
+                      <td className="py-2 pl-1">
                         <span className="font-medium">{holeNumber}</span>
                         <span className="text-gray-400 text-xs ml-1">
                           P{holeInfo?.par}
                         </span>
+                        {isCarryover && (
+                          <span className="ml-1 text-xs font-bold text-orange-600">
+                            ×{result!.carrySkinsUsed}
+                          </span>
+                        )}
                       </td>
                       {round.teams.map((team) => {
                         const score = holeScoresMap.get(
@@ -344,8 +373,8 @@ export default function RoundSummaryPage({
                           <td
                             key={team.id}
                             className={`py-2 text-center ${
-                              isWinner ? "font-bold text-green-600" : ""
-                            } ${score?.wasEdited ? "text-red-600" : ""}`}
+                              isWinner ? "font-bold text-green-700" : ""
+                            } ${score?.wasEdited ? "italic text-red-500" : ""}`}
                           >
                             {score?.entryType === "X"
                               ? "X"
@@ -355,31 +384,37 @@ export default function RoundSummaryPage({
                           </td>
                         );
                       })}
-                      <td className="py-2 text-right text-xs">
+                      <td className="py-2 pr-1 text-right text-xs whitespace-nowrap">
                         {result?.isTie ? (
-                          <span className="text-gray-500">Carry</span>
+                          <span className="text-yellow-600 font-medium">Carry</span>
                         ) : result?.winnerTeamId ? (
-                          <span className="text-green-600">
-                            T
-                            {
-                              round.teams.find(
-                                (t) => t.id === result.winnerTeamId
-                              )?.teamNumber
-                            }{" "}
-                            ${Math.round(result.holePayout)}
+                          <span className="text-green-700 font-bold">
+                            T{round.teams.find((t) => t.id === result.winnerTeamId)?.teamNumber}{" "}
+                            <span className="text-green-600">${Math.round(result.holePayout)}</span>
                           </span>
                         ) : (
-                          "-"
+                          <span className="text-gray-400">—</span>
                         )}
                       </td>
                     </tr>
                   );
                 })}
               </tbody>
+              <tfoot>
+                <tr className="border-t-2 bg-gray-50 text-xs font-medium text-gray-600">
+                  <td className="py-2 pl-1">Total</td>
+                  {round.teams.map((team) => (
+                    <td key={team.id} className="py-2 text-center">
+                      ${Math.round(team.totalPayout)}
+                    </td>
+                  ))}
+                  <td className="py-2 pr-1 text-right">${round.pot ?? 0}</td>
+                </tr>
+              </tfoot>
             </table>
           </div>
-          <p className="text-xs text-gray-500 mt-2">
-            * Red values indicate edited scores
+          <p className="text-xs text-gray-400 mt-2">
+            ×2, ×3 etc. = skins carried from ties &bull; Italic = edited score
           </p>
         </CardContent>
       </Card>

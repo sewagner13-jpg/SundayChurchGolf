@@ -527,42 +527,64 @@ export async function getTeamsProgress(roundId: string) {
   });
 }
 
-// Get live skins status (which holes have results vs pending)
+// Get live skins status - calculates on-the-fly from scores (NOT stored holeResults)
+// holeResults are only stored at round finish, so we must compute live
 export async function getLiveSkinsStatus(roundId: string, startingHole: number) {
   const round = await prisma.round.findUnique({
     where: { id: roundId },
     include: {
       teams: { orderBy: { teamNumber: "asc" } },
       holeScores: true,
-      holeResults: true,
       course: { include: { holes: true } },
     },
   });
 
   if (!round) throw new Error("Round not found");
 
-  // Build scoring order
-  const holes = [];
-  for (let i = 0; i < 18; i++) {
-    const holeNum = ((startingHole - 1 + i) % 18) + 1;
-    holes.push(holeNum);
-  }
+  const scoringOrder = getScoringOrder(startingHole);
+  const teamCount = round.teams.length;
 
-  return holes.map((holeNumber) => {
+  // Map scores to TeamScore format for the engine
+  const allScores: TeamScore[] = round.holeScores.map((hs) => ({
+    teamId: hs.teamId,
+    holeNumber: hs.holeNumber,
+    entryType: hs.entryType as HoleEntryType,
+    value: hs.value,
+  }));
+
+  // Calculate live results using the scoring engine (same logic as finishRound)
+  const pot = round.pot ?? new Decimal(0);
+  const courseHoles = round.course.holes.map((h) => ({
+    holeNumber: h.holeNumber,
+    par: h.par,
+    handicapRank: h.handicapRank,
+  }));
+
+  const { holeResults } = calculateRoundResults(
+    allScores,
+    round.teams,
+    startingHole,
+    pot,
+    courseHoles
+  );
+
+  const holeResultsMap = new Map(holeResults.map((hr) => [hr.holeNumber, hr]));
+
+  return scoringOrder.map((holeNumber) => {
     const holeInfo = round.course.holes.find((h) => h.holeNumber === holeNumber);
-    const teamCount = round.teams.length;
     const scoresForHole = round.holeScores.filter(
       (hs) => hs.holeNumber === holeNumber && hs.entryType !== "BLANK"
     );
-    const result = round.holeResults.find((hr) => hr.holeNumber === holeNumber);
+    const result = holeResultsMap.get(holeNumber);
+    const isComplete = scoresForHole.length === teamCount;
 
     return {
       holeNumber,
       par: holeInfo?.par ?? 4,
       teamsScored: scoresForHole.length,
       totalTeams: teamCount,
-      isComplete: scoresForHole.length === teamCount,
-      result: result
+      isComplete,
+      result: isComplete && result
         ? {
             winnerTeamId: result.winnerTeamId,
             winnerTeamNumber: result.winnerTeamId
@@ -570,6 +592,8 @@ export async function getLiveSkinsStatus(roundId: string, startingHole: number) 
               : null,
             isTie: result.isTie,
             carryover: result.carrySkinsUsed > 1,
+            skinsWon: result.carrySkinsUsed,
+            holePayout: Number(result.holePayout),
           }
         : null,
     };

@@ -73,6 +73,8 @@ interface SkinStatus {
     winnerTeamNumber: number | null;
     isTie: boolean;
     carryover: boolean;
+    skinsWon: number;
+    holePayout: number;
   } | null;
 }
 
@@ -824,49 +826,81 @@ export default function LiveScoringPage({
             onClick={() => setShowSkinsStatus(false)}
           />
           <div className="relative bg-white rounded-lg shadow-xl p-4 max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto">
-            <h2 className="text-lg font-bold mb-4">Live Skins Status</h2>
+            <h2 className="text-lg font-bold mb-1">Live Skins</h2>
+            <p className="text-xs text-gray-500 mb-3">Updates as teams score each hole</p>
+
+            {/* Running totals by team */}
+            {skinsStatus.some((h) => h.result?.winnerTeamNumber) && (
+              <div className="mb-3 p-2 bg-gray-50 rounded text-sm">
+                <p className="font-medium text-xs text-gray-500 mb-1">RUNNING TOTALS</p>
+                {Array.from(
+                  skinsStatus.reduce((acc, hole) => {
+                    if (hole.result?.winnerTeamNumber && hole.result.holePayout > 0) {
+                      const t = hole.result.winnerTeamNumber;
+                      acc.set(t, (acc.get(t) ?? 0) + hole.result.holePayout);
+                    }
+                    return acc;
+                  }, new Map<number, number>())
+                )
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([teamNum, total]) => (
+                    <div key={teamNum} className="flex justify-between">
+                      <span>Team {teamNum}</span>
+                      <span className="font-bold text-green-700">${Math.round(total)}</span>
+                    </div>
+                  ))}
+              </div>
+            )}
+
             <div className="space-y-1">
               {skinsStatus.map((hole) => (
                 <div
                   key={hole.holeNumber}
                   className={`flex justify-between items-center py-2 px-3 rounded ${
-                    hole.isComplete
-                      ? hole.result?.isTie
-                        ? "bg-yellow-50"
-                        : hole.result?.winnerTeamNumber
-                        ? "bg-green-50"
-                        : "bg-gray-50"
+                    !hole.isComplete
+                      ? "bg-gray-50"
+                      : hole.result?.isTie
+                      ? "bg-yellow-50 border border-yellow-200"
+                      : hole.result?.winnerTeamNumber
+                      ? "bg-green-50 border border-green-200"
                       : "bg-gray-50"
                   }`}
                 >
                   <div className="flex items-center gap-2">
                     <span className="font-medium w-8">#{hole.holeNumber}</span>
-                    <span className="text-xs text-gray-500">Par {hole.par}</span>
+                    <span className="text-xs text-gray-400">P{hole.par}</span>
+                    {hole.result?.carryover && hole.result.skinsWon > 1 && (
+                      <span className="text-xs font-bold text-orange-600 bg-orange-100 px-1 rounded">
+                        {hole.result.skinsWon} skins
+                      </span>
+                    )}
                   </div>
-                  <div className="text-sm">
+                  <div className="text-sm text-right">
                     {!hole.isComplete ? (
                       <span className="text-gray-400">
-                        {hole.teamsScored}/{hole.totalTeams} teams
+                        {hole.teamsScored}/{hole.totalTeams}
                       </span>
                     ) : hole.result?.isTie ? (
-                      <span className="text-yellow-600">
-                        Tie {hole.result.carryover ? "(carry)" : ""}
+                      <span className="text-yellow-600 font-medium">
+                        Tie — carries
                       </span>
                     ) : hole.result?.winnerTeamNumber ? (
-                      <span className="text-green-600 font-medium">
-                        Team {hole.result.winnerTeamNumber}{" "}
-                        {hole.result.carryover ? "🔥" : ""}
-                      </span>
+                      <div>
+                        <span className="text-green-700 font-bold">
+                          Team {hole.result.winnerTeamNumber}
+                        </span>
+                        <span className="text-green-600 text-xs ml-2">
+                          ${Math.round(hole.result.holePayout)}
+                        </span>
+                      </div>
                     ) : (
-                      <span className="text-gray-400">-</span>
+                      <span className="text-gray-400">—</span>
                     )}
                   </div>
                 </div>
               ))}
             </div>
-            <p className="text-xs text-gray-500 mt-3 text-center">
-              Results update as teams complete each hole
-            </p>
+
             <Button
               variant="secondary"
               className="w-full mt-4"
