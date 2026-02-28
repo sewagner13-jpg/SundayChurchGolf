@@ -40,10 +40,37 @@ function balanceTeams(
     effectiveHandicap: p.handicapIndex ?? averageHandicap,
   }));
 
-  // Sort by handicap (highest first)
+  // Group players into tiers by handicap (within 3 strokes = same tier)
+  // Then shuffle within each tier before sorting
+  const tierSize = 3;
+  const tiers: (typeof playersWithEffective)[] = [];
+
+  // Sort first, then group into tiers
   playersWithEffective.sort((a, b) =>
     b.effectiveHandicap.sub(a.effectiveHandicap).toNumber()
   );
+
+  let currentTier: typeof playersWithEffective = [];
+  let tierBaseline: Decimal | null = null;
+
+  for (const player of playersWithEffective) {
+    if (tierBaseline === null) {
+      tierBaseline = player.effectiveHandicap;
+      currentTier.push(player);
+    } else if (tierBaseline.sub(player.effectiveHandicap).toNumber() <= tierSize) {
+      currentTier.push(player);
+    } else {
+      tiers.push(currentTier);
+      currentTier = [player];
+      tierBaseline = player.effectiveHandicap;
+    }
+  }
+  if (currentTier.length > 0) {
+    tiers.push(currentTier);
+  }
+
+  // Shuffle within each tier, then flatten
+  const shuffledPlayers = tiers.flatMap((tier) => shuffleArray(tier));
 
   const teamCount = Math.floor(players.length / teamSize);
   const teams: PlayerWithHandicap[][] = Array.from(
@@ -55,23 +82,28 @@ function balanceTeams(
     () => new Decimal(0)
   );
 
-  // Greedy assignment: add each player to team with lowest total
-  for (const player of playersWithEffective) {
-    let minIdx = 0;
-    let minTotal = teamTotals[0];
+  // Greedy assignment with randomness: when multiple teams have similar totals, pick randomly
+  for (const player of shuffledPlayers) {
+    // Find all teams with totals within 2 strokes of minimum
+    const minTotal = teamTotals.reduce((min, t) => t.lt(min) ? t : min, teamTotals[0]);
+    const threshold = 2;
 
-    for (let i = 1; i < teamCount; i++) {
-      if (teamTotals[i].lt(minTotal)) {
-        minTotal = teamTotals[i];
-        minIdx = i;
+    const eligibleIndices: number[] = [];
+    for (let i = 0; i < teamCount; i++) {
+      if (teamTotals[i].sub(minTotal).toNumber() <= threshold) {
+        eligibleIndices.push(i);
       }
     }
 
-    teams[minIdx].push(player);
-    teamTotals[minIdx] = teamTotals[minIdx].add(player.effectiveHandicap);
+    // Pick randomly from eligible teams
+    const selectedIdx = eligibleIndices[Math.floor(Math.random() * eligibleIndices.length)];
+
+    teams[selectedIdx].push(player);
+    teamTotals[selectedIdx] = teamTotals[selectedIdx].add(player.effectiveHandicap);
   }
 
-  return teams;
+  // Final shuffle of teams order for variety
+  return shuffleArray(teams);
 }
 
 export async function generateTeams(
@@ -195,22 +227,14 @@ export async function swapTeamMembers(
   player1Id: string,
   player2Id: string
 ) {
+  // Fetch ALL round players (not just the two being swapped) for handicap recalculation
   const round = await prisma.round.findUnique({
     where: { id: roundId },
     include: {
       roundPlayers: {
-        where: {
-          playerId: { in: [player1Id, player2Id] },
-        },
         include: { team: true, player: true },
       },
-      teams: {
-        include: {
-          roundPlayers: {
-            include: { player: true },
-          },
-        },
-      },
+      teams: true,
     },
   });
 
@@ -240,27 +264,35 @@ export async function swapTeamMembers(
     }),
   ]);
 
-  // Always recalculate team handicap totals after swap
+  // Recalculate team handicap totals after swap
+  // Build new team assignments after the swap
+  const newTeamAssignments = new Map<string, typeof round.roundPlayers>();
+
+  for (const rp of round.roundPlayers) {
+    let teamId = rp.teamId!;
+    // Apply the swap
+    if (rp.playerId === player1Id) {
+      teamId = rp2.teamId;
+    } else if (rp.playerId === player2Id) {
+      teamId = rp1.teamId;
+    }
+
+    if (!newTeamAssignments.has(teamId)) {
+      newTeamAssignments.set(teamId, []);
+    }
+    newTeamAssignments.get(teamId)!.push(rp);
+  }
+
+  // Calculate average handicap for missing values
+  const avgHandicap = calculateAverageHandicap(
+    round.roundPlayers.map((rp) => rp.player.handicapIndex)
+  );
+
+  // Update each team's handicap total
   for (const team of round.teams) {
-    const teamPlayers = round.roundPlayers.filter(
-      (rp) => rp.teamId === team.id
-    );
-    // Adjust for the swap
-    const adjustedPlayers = teamPlayers.map((rp) => {
-      if (rp.playerId === player1Id) {
-        return round.roundPlayers.find((r) => r.playerId === player2Id)!;
-      }
-      if (rp.playerId === player2Id) {
-        return round.roundPlayers.find((r) => r.playerId === player1Id)!;
-      }
-      return rp;
-    });
+    const teamPlayers = newTeamAssignments.get(team.id) ?? [];
 
-    const avgHandicap = calculateAverageHandicap(
-      round.roundPlayers.map((rp) => rp.player.handicapIndex)
-    );
-
-    const handicapTotal = adjustedPlayers.reduce((sum, rp) => {
+    const handicapTotal = teamPlayers.reduce((sum, rp) => {
       const hcp = rp.player.handicapIndex ?? avgHandicap;
       return sum.add(hcp ?? new Decimal(0));
     }, new Decimal(0));
