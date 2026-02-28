@@ -6,13 +6,13 @@ import { Decimal } from "@prisma/client/runtime/library";
 import { HoleEntryType, RoundStatus } from "@prisma/client";
 import {
   calculateRoundResults,
-  getScoringOrder,
   areAllHolesComplete,
   resolveCarryoverTiebreaker,
   calculatePlayerPayouts,
   findTopPayingTeams,
   TeamScore,
 } from "@/lib/scoring-engine";
+import { getScoringOrder } from "@/lib/scoring-order";
 
 export interface ScoreEntry {
   entryType: HoleEntryType;
@@ -223,7 +223,7 @@ export async function finishRound(roundId: string) {
     );
 
   // Handle end-of-round carryover tiebreaker if needed
-  let finalTeamPayouts = teamPayouts;
+  const finalTeamPayouts = teamPayouts;
   let tiebreakerInfo: {
     winnerTeamId: string | null;
     decidingHoleNumber: number | null;

@@ -1,5 +1,6 @@
 import { Decimal } from "@prisma/client/runtime/library";
 import { HoleEntryType } from "@prisma/client";
+import { getScoringOrder } from "@/lib/scoring-order";
 
 // Types for scoring calculations
 export interface TeamScore {
@@ -78,18 +79,6 @@ export function determineHoleWinner(
 
   // If 2+ teams tie for max, it's a tie (no skin awarded)
   return { winnerTeamId: null, isTie: true };
-}
-
-/**
- * Get the scoring order based on starting hole
- * startingHole = 1: 1,2,3...18
- * startingHole = 10: 10,11...18,1,2...9
- */
-export function getScoringOrder(startingHole: number): number[] {
-  if (startingHole === 10) {
-    return [10, 11, 12, 13, 14, 15, 16, 17, 18, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-  }
-  return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
 }
 
 /**

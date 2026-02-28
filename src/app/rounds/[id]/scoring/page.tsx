@@ -5,6 +5,11 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/button";
 import { Card } from "@/components/card";
 import { ConfirmModal } from "@/components/modal";
+import {
+  acknowledgeImportantMessage,
+  getRoundChat,
+  postRoundMessage,
+} from "@/actions/chat";
 import { getRound, revertToDraft } from "@/actions/rounds";
 import {
   upsertHoleScore,
@@ -15,7 +20,7 @@ import {
   getLiveSkinsStatus,
   markTeamFinished,
 } from "@/actions/scoring";
-import { getScoringOrder } from "@/lib/scoring-engine";
+import { getScoringOrder } from "@/lib/scoring-order";
 import { HoleEntryType } from "@prisma/client";
 
 interface TeamScore {
@@ -91,6 +96,23 @@ interface Round {
   }[];
 }
 
+interface ChatMessage {
+  id: string;
+  body: string;
+  isImportant: boolean;
+  createdAt: string;
+  senderTeamId: string;
+  senderTeamNumber: number;
+  acknowledgedByCurrentTeam: boolean;
+}
+
+interface PendingImportantMessage {
+  id: string;
+  body: string;
+  createdAt: string;
+  senderTeamNumber: number;
+}
+
 export default function LiveScoringPage({
   params,
 }: {
@@ -119,6 +141,12 @@ export default function LiveScoringPage({
   const [showEditTeamsModal, setShowEditTeamsModal] = useState(false);
   const [unlockCode, setUnlockCode] = useState("");
   const [unlockError, setUnlockError] = useState<string | null>(null);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatDraft, setChatDraft] = useState("");
+  const [chatImportant, setChatImportant] = useState(false);
+  const [chatSending, setChatSending] = useState(false);
+  const [pendingImportantMessage, setPendingImportantMessage] =
+    useState<PendingImportantMessage | null>(null);
 
   const isLive = round?.status === "LIVE";
 
@@ -130,8 +158,19 @@ export default function LiveScoringPage({
     if (round && myTeamId) {
       loadHoleData();
       loadTeamsProgress();
+      loadChat();
     }
   }, [round, currentHole, myTeamId]);
+
+  useEffect(() => {
+    if (!round || !myTeamId) return;
+
+    const intervalId = window.setInterval(() => {
+      loadChat();
+    }, 15000);
+
+    return () => window.clearInterval(intervalId);
+  }, [round, myTeamId]);
 
   useEffect(() => {
     // Require team selection for scoring
@@ -222,6 +261,20 @@ export default function LiveScoringPage({
     }
   }
 
+  async function loadChat() {
+    if (!myTeamId) return;
+
+    try {
+      const data = await getRoundChat(id, myTeamId);
+      setChatMessages(data.messages as ChatMessage[]);
+      setPendingImportantMessage(
+        data.pendingImportantMessage as PendingImportantMessage | null
+      );
+    } catch (err) {
+      console.error("Failed to load chat");
+    }
+  }
+
   const scoringOrder = round ? getScoringOrder(round.startingHole) : [];
   const currentIndex = scoringOrder.indexOf(currentHole);
   const isFirstHole = currentIndex === 0;
@@ -232,12 +285,18 @@ export default function LiveScoringPage({
   const canAdvance = myTeamScore?.hasEntry ?? false;
 
   const myTeamNumber = round?.teams.find((t) => t.id === myTeamId)?.teamNumber;
+  const scoreEntryBlocked = !!pendingImportantMessage;
 
   const handleScoreEntry = async (
     teamId: string,
     entryType: HoleEntryType,
     value?: number
   ) => {
+    if (scoreEntryBlocked) {
+      setError("Acknowledge the important alert before entering a score.");
+      return;
+    }
+
     setSaving(true);
     try {
       await upsertHoleScore(id, teamId, currentHole, {
@@ -254,6 +313,11 @@ export default function LiveScoringPage({
   };
 
   const handleCustomScoreSubmit = () => {
+    if (scoreEntryBlocked) {
+      setError("Acknowledge the important alert before entering a score.");
+      return;
+    }
+
     const value = parseInt(customScore);
     if (isNaN(value) || value < 1) {
       setError("Please enter a valid positive number");
@@ -280,6 +344,11 @@ export default function LiveScoringPage({
   };
 
   const handleNextHole = () => {
+    if (scoreEntryBlocked) {
+      setError("Acknowledge the important alert before continuing.");
+      return;
+    }
+
     if (!canAdvance) {
       setError("Enter your team's score before moving on.");
       return;
@@ -296,6 +365,12 @@ export default function LiveScoringPage({
   };
 
   const handleHolePick = (hole: number) => {
+    if (scoreEntryBlocked) {
+      setError("Acknowledge the important alert before continuing.");
+      setShowHolePicker(false);
+      return;
+    }
+
     const targetIndex = scoringOrder.indexOf(hole);
 
     // Check if we can jump forward - only need our team's score
@@ -337,6 +412,10 @@ export default function LiveScoringPage({
 
   const handleMarkTeamFinished = async () => {
     if (!myTeamId) return;
+    if (scoreEntryBlocked) {
+      setError("Acknowledge the important alert before continuing.");
+      return;
+    }
     setSaving(true);
     try {
       const result = await markTeamFinished(id, myTeamId);
@@ -379,6 +458,34 @@ export default function LiveScoringPage({
     }
   };
 
+  const handleSendChatMessage = async () => {
+    if (!myTeamId) return;
+
+    setChatSending(true);
+    try {
+      await postRoundMessage(id, myTeamId, chatDraft, chatImportant);
+      setChatDraft("");
+      setChatImportant(false);
+      await loadChat();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to send message");
+    }
+    setChatSending(false);
+  };
+
+  const handleAcknowledgeImportant = async () => {
+    if (!myTeamId || !pendingImportantMessage) return;
+
+    setSaving(true);
+    try {
+      await acknowledgeImportantMessage(id, myTeamId, pendingImportantMessage.id);
+      await loadChat();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to acknowledge alert");
+    }
+    setSaving(false);
+  };
+
   // Check if all teams have completed all holes
   const allTeamsComplete = teamsProgress.every((t) => t.holesScored === 18);
 
@@ -389,6 +496,12 @@ export default function LiveScoringPage({
 
   // Check if all teams have marked themselves finished
   const allTeamsMarkedFinished = teamsProgress.every((t) => t.finishedScoring);
+
+  const formatChatTime = (timestamp: string) =>
+    new Date(timestamp).toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+    });
 
   if (loading) {
     return <p className="text-center py-8">Loading...</p>;
@@ -530,6 +643,7 @@ export default function LiveScoringPage({
               </button>
               <button
                 onClick={() => setShowHolePicker(true)}
+                disabled={scoreEntryBlocked}
                 className="px-3 py-1 bg-gray-100 rounded text-sm"
               >
                 Holes
@@ -569,6 +683,28 @@ export default function LiveScoringPage({
 
       {/* Main Content - My Team Scoring */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {pendingImportantMessage && (
+          <div className="bg-amber-50 border-2 border-amber-400 text-amber-900 px-4 py-4 rounded-lg shadow-sm">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wide text-amber-700">
+                  Important Alert
+                </p>
+                <p className="mt-1 font-medium">
+                  Team {pendingImportantMessage.senderTeamNumber}:
+                </p>
+                <p className="mt-1">{pendingImportantMessage.body}</p>
+                <p className="mt-2 text-xs text-amber-700">
+                  {formatChatTime(pendingImportantMessage.createdAt)}
+                </p>
+              </div>
+              <Button onClick={handleAcknowledgeImportant} disabled={saving}>
+                OK
+              </Button>
+            </div>
+          </div>
+        )}
+
         {myTeamId && myTeamScore && (
           <Card className="overflow-hidden border-2 border-green-500">
             <div className="bg-green-700 text-white px-4 py-3 flex justify-between items-center">
@@ -613,7 +749,7 @@ export default function LiveScoringPage({
                     variant={myTeamScore.value === num ? "primary" : "secondary"}
                     size="lg"
                     onClick={() => handleScoreEntry(myTeamId, "VALUE", num)}
-                    disabled={saving}
+                    disabled={saving || scoreEntryBlocked}
                     className="text-2xl h-14"
                   >
                     +{num}
@@ -629,13 +765,14 @@ export default function LiveScoringPage({
                   placeholder="Other score..."
                   value={customScore}
                   onChange={(e) => setCustomScore(e.target.value)}
+                  disabled={scoreEntryBlocked}
                   className="flex-1 px-4 py-3 border border-gray-300 rounded-lg text-lg"
                 />
                 <Button
                   variant="secondary"
                   size="lg"
                   onClick={handleCustomScoreSubmit}
-                  disabled={saving || !customScore}
+                  disabled={saving || !customScore || scoreEntryBlocked}
                   className="px-6"
                 >
                   Set
@@ -648,7 +785,7 @@ export default function LiveScoringPage({
                   variant={myTeamScore.entryType === "X" ? "primary" : "secondary"}
                   size="lg"
                   onClick={() => handleScoreEntry(myTeamId, "X")}
-                  disabled={saving}
+                  disabled={saving || scoreEntryBlocked}
                   className="text-xl h-12"
                 >
                   X (Par or worse)
@@ -657,7 +794,7 @@ export default function LiveScoringPage({
                   variant="ghost"
                   size="lg"
                   onClick={() => handleClear(myTeamId)}
-                  disabled={saving || myTeamScore.entryType === null}
+                  disabled={saving || myTeamScore.entryType === null || scoreEntryBlocked}
                   className="text-xl h-12"
                 >
                   Clear
@@ -708,6 +845,84 @@ export default function LiveScoringPage({
         >
           View Live Skins Status
         </button>
+
+        <Card>
+          <div className="p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-medium text-gray-800">Round Chat</h3>
+              <span className="text-xs text-gray-500">
+                {chatMessages.length} messages
+              </span>
+            </div>
+
+            <div className="max-h-72 overflow-y-auto space-y-3">
+              {chatMessages.length === 0 ? (
+                <p className="text-sm text-gray-500">
+                  No chat yet. Send the first message to everyone in this round.
+                </p>
+              ) : (
+                chatMessages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={`rounded-lg border px-3 py-2 ${
+                      message.isImportant
+                        ? "border-amber-300 bg-amber-50"
+                        : "border-gray-200 bg-gray-50"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold">
+                          Team {message.senderTeamNumber}
+                        </span>
+                        {message.isImportant && (
+                          <span className="text-[10px] uppercase tracking-wide bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full font-bold">
+                            Important
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-500">
+                        {formatChatTime(message.createdAt)}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-sm text-gray-800">{message.body}</p>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <textarea
+                value={chatDraft}
+                onChange={(e) => setChatDraft(e.target.value)}
+                maxLength={280}
+                rows={3}
+                placeholder="Send a message to everyone in this round..."
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              />
+              <div className="flex items-center justify-between gap-3">
+                <label className="flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={chatImportant}
+                    onChange={(e) => setChatImportant(e.target.checked)}
+                  />
+                  Mark as Important
+                </label>
+                <span className="text-xs text-gray-500">
+                  {chatDraft.trim().length}/280
+                </span>
+              </div>
+              <Button
+                onClick={handleSendChatMessage}
+                disabled={chatSending || !chatDraft.trim() || !myTeamId}
+                className="w-full"
+              >
+                {chatSending ? "Sending..." : "Send Message"}
+              </Button>
+            </div>
+          </div>
+        </Card>
       </div>
 
       {/* Sticky Footer */}
@@ -723,7 +938,7 @@ export default function LiveScoringPage({
                 variant="primary"
                 size="sm"
                 onClick={() => setShowMarkFinishedModal(true)}
-                disabled={saving}
+                disabled={saving || scoreEntryBlocked}
               >
                 Mark Team Done
               </Button>
@@ -752,7 +967,7 @@ export default function LiveScoringPage({
             variant="secondary"
             className="flex-1"
             onClick={handlePrevHole}
-            disabled={isFirstHole}
+            disabled={isFirstHole || scoreEntryBlocked}
           >
             ← Previous
           </Button>
@@ -760,7 +975,7 @@ export default function LiveScoringPage({
             variant={canAdvance ? "primary" : "secondary"}
             className="flex-1"
             onClick={handleNextHole}
-            disabled={isLastHole}
+            disabled={isLastHole || scoreEntryBlocked}
           >
             Next →
           </Button>

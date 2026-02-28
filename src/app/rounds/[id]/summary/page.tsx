@@ -8,7 +8,7 @@ import { getTopTeamHistory } from "@/actions/season-stats";
 import { Card, CardHeader, CardContent } from "@/components/card";
 import { Button } from "@/components/button";
 import { ConfirmModal } from "@/components/modal";
-import { getScoringOrder } from "@/lib/scoring-engine";
+import { getScoringOrder } from "@/lib/scoring-order";
 interface Team {
   id: string;
   teamNumber: number;

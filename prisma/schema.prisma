@@ -135,6 +135,7 @@ model Round {
   roundPlayers     RoundPlayer[]
   holeScores       HoleScore[]
   holeResults      HoleResult[]
+  messages         RoundMessage[]
 
   @@index([status])
   @@index([date])
@@ -158,6 +159,8 @@ model Team {
   round           Round    @relation(fields: [roundId], references: [id], onDelete: Cascade)
   roundPlayers    RoundPlayer[]
   holeScores      HoleScore[]
+  sentMessages    RoundMessage[]                @relation("RoundMessageSenderTeam")
+  messageAcknowledgements RoundMessageAcknowledgement[]
 
   @@unique([roundId, teamNumber])
   @@index([roundId])
@@ -251,4 +254,34 @@ model SeasonPlayerStat {
   @@unique([year, playerId])
   @@index([year])
   @@index([playerId])
+}
+
+model RoundMessage {
+  id            String   @id @default(cuid())
+  roundId       String
+  senderTeamId  String
+  body          String
+  isImportant   Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  round             Round                         @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  senderTeam        Team                          @relation("RoundMessageSenderTeam", fields: [senderTeamId], references: [id], onDelete: Cascade)
+  acknowledgements  RoundMessageAcknowledgement[]
+
+  @@index([roundId, createdAt])
+  @@index([senderTeamId])
+}
+
+model RoundMessageAcknowledgement {
+  id              String   @id @default(cuid())
+  roundMessageId  String
+  teamId          String
+  acknowledgedAt  DateTime @default(now())
+
+  roundMessage    RoundMessage @relation(fields: [roundMessageId], references: [id], onDelete: Cascade)
+  team            Team         @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([roundMessageId, teamId])
+  @@index([teamId])
 }
