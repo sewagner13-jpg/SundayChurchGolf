@@ -14,7 +14,6 @@ import {
   getTeamsProgress,
   getLiveSkinsStatus,
   markTeamFinished,
-  getTeamFinishStatus,
 } from "@/actions/scoring";
 import { getScoringOrder } from "@/lib/scoring-engine";
 import { HoleEntryType } from "@prisma/client";
@@ -52,13 +51,6 @@ interface TeamProgress {
   players: { id: string; name: string }[];
   holesScored: number;
   scoredHoles: number[];
-}
-
-interface TeamFinishStatus {
-  teamId: string;
-  teamNumber: number;
-  players: { id: string; name: string }[];
-  holesScored: number;
   finishedScoring: boolean;
 }
 
@@ -124,7 +116,6 @@ export default function LiveScoringPage({
   const [skinsStatus, setSkinsStatus] = useState<SkinStatus[]>([]);
   const [showSkinsStatus, setShowSkinsStatus] = useState(false);
   const [showMarkFinishedModal, setShowMarkFinishedModal] = useState(false);
-  const [teamFinishStatus, setTeamFinishStatus] = useState<TeamFinishStatus[]>([]);
 
   const isLive = round?.status === "LIVE";
 
@@ -201,9 +192,6 @@ export default function LiveScoringPage({
     try {
       const progress = await getTeamsProgress(id);
       setTeamsProgress(progress);
-      // Also load finish status
-      const finishStatus = await getTeamFinishStatus(id);
-      setTeamFinishStatus(finishStatus);
     } catch (err) {
       console.error("Failed to load teams progress");
     }
@@ -376,12 +364,12 @@ export default function LiveScoringPage({
   const allTeamsComplete = teamsProgress.every((t) => t.holesScored === 18);
 
   // Check if my team has finished scoring
-  const myTeamFinishStatus = teamFinishStatus.find((t) => t.teamId === myTeamId);
-  const myTeamFinished = myTeamFinishStatus?.finishedScoring ?? false;
-  const myTeamHasAll18 = myTeamFinishStatus?.holesScored === 18;
+  const myTeamProgress = teamsProgress.find((t) => t.teamId === myTeamId);
+  const myTeamFinished = myTeamProgress?.finishedScoring ?? false;
+  const myTeamHasAll18 = myTeamProgress?.holesScored === 18;
 
   // Check if all teams have marked themselves finished
-  const allTeamsMarkedFinished = teamFinishStatus.every((t) => t.finishedScoring);
+  const allTeamsMarkedFinished = teamsProgress.every((t) => t.finishedScoring);
 
   if (loading) {
     return <p className="text-center py-8">Loading...</p>;
@@ -605,7 +593,7 @@ export default function LiveScoringPage({
           <div className="p-4">
             <h3 className="font-medium text-gray-700 mb-3">Other Teams</h3>
             <div className="space-y-2">
-              {teamFinishStatus
+              {teamsProgress
                 .filter((t) => t.teamId !== myTeamId)
                 .map((team) => (
                   <div

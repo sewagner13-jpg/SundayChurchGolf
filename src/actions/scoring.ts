@@ -492,7 +492,7 @@ export async function getTeamScorecard(roundId: string, teamId: string) {
   });
 }
 
-// Get each team's scoring progress (how many holes they've scored)
+// Get each team's scoring progress and finish status (combined to reduce API calls)
 export async function getTeamsProgress(roundId: string) {
   const round = await prisma.round.findUnique({
     where: { id: roundId },
@@ -523,6 +523,7 @@ export async function getTeamsProgress(roundId: string) {
       })),
       holesScored: teamScores.length,
       scoredHoles: teamScores.map((s) => s.holeNumber),
+      finishedScoring: team.finishedScoring,
     };
   });
 }
