@@ -43,6 +43,14 @@ interface Round {
   roundPlayers: RoundPlayer[];
 }
 
+interface PriorWeekTeammateHistory {
+  previousRoundDate: string | null;
+  teammatesByPlayerId: Record<
+    string,
+    { playerId: string; name: string }[]
+  >;
+}
+
 export default function RoundSetupPage({
   params,
 }: {
@@ -71,7 +79,11 @@ export default function RoundSetupPage({
   const [showLockModal, setShowLockModal] = useState(false);
   const [showUnlockModal, setShowUnlockModal] = useState(false);
   const [lockCodeInput, setLockCodeInput] = useState("");
-  const [teammateHistory, setTeammateHistory] = useState<Record<string, { partnerName: string; weeksAgo: number }[]>>({});
+  const [teammateHistory, setTeammateHistory] =
+    useState<PriorWeekTeammateHistory>({
+      previousRoundDate: null,
+      teammatesByPlayerId: {},
+    });
 
   useEffect(() => {
     loadData();
@@ -134,6 +146,10 @@ export default function RoundSetupPage({
       // Check lock status
       const lockStatus = await getTeamLockStatus(id);
       setIsLocked(lockStatus.isLocked);
+
+      // Load prior-week teammate history so repeated pairings are visible in setup
+      const priorWeekHistory = await getTeammateHistoryForRound(id);
+      setTeammateHistory(priorWeekHistory);
 
       setLoading(false);
     } catch (err) {
@@ -308,6 +324,12 @@ export default function RoundSetupPage({
   const formatDate = (date: Date) =>
     new Date(date).toLocaleDateString("en-US", {
       weekday: "short",
+      month: "short",
+      day: "numeric",
+    });
+
+  const formatShortDate = (date: string) =>
+    new Date(date).toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
     });
@@ -579,28 +601,49 @@ export default function RoundSetupPage({
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-2">
-                        {team.roundPlayers.map((rp) => (
-                          <div
-                            key={rp.id}
-                            className={`flex justify-between items-center p-2 rounded ${
-                              swapMode
-                                ? swapPlayer1 === rp.playerId
-                                  ? "bg-blue-100 border border-blue-500 cursor-pointer"
-                                  : "bg-gray-50 hover:bg-gray-100 cursor-pointer"
-                                : ""
-                            }`}
-                            onClick={() =>
-                              handlePlayerSwapClick(rp.playerId)
-                            }
-                          >
-                            <span>
-                              {rp.player.nickname || rp.player.fullName}
-                            </span>
-                            <span className="text-sm text-gray-500">
-                              {rp.player.handicapIndex ?? "-"}
-                            </span>
-                          </div>
-                        ))}
+                        {team.roundPlayers.map((rp) => {
+                          const priorWeekPartners =
+                            teammateHistory.teammatesByPlayerId[rp.playerId] ?? [];
+                          const repeatPartners = priorWeekPartners.filter((partner) =>
+                            team.roundPlayers.some(
+                              (teamPlayer) => teamPlayer.playerId === partner.playerId
+                            )
+                          );
+
+                          return (
+                            <div
+                              key={rp.id}
+                              className={`flex justify-between items-center p-2 rounded ${
+                                swapMode
+                                  ? swapPlayer1 === rp.playerId
+                                    ? "bg-blue-100 border border-blue-500 cursor-pointer"
+                                    : "bg-gray-50 hover:bg-gray-100 cursor-pointer"
+                                  : ""
+                              }`}
+                              onClick={() =>
+                                handlePlayerSwapClick(rp.playerId)
+                              }
+                            >
+                              <div>
+                                <span>
+                                  {rp.player.nickname || rp.player.fullName}
+                                </span>
+                                {repeatPartners.length > 0 &&
+                                  teammateHistory.previousRoundDate && (
+                                    <p className="text-xs text-amber-700">
+                                      Prior week ({formatShortDate(teammateHistory.previousRoundDate)}):{" "}
+                                      {repeatPartners
+                                        .map((partner) => partner.name)
+                                        .join(", ")}
+                                    </p>
+                                  )}
+                              </div>
+                              <span className="text-sm text-gray-500">
+                                {rp.player.handicapIndex ?? "-"}
+                              </span>
+                            </div>
+                          );
+                        })}
                       </div>
                     </CardContent>
                   </Card>

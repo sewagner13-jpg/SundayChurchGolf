@@ -530,68 +530,92 @@ export async function getTeamLockStatus(roundId: string) {
   };
 }
 
-// Get teammate history for display on setup page
-// Returns a map of playerId -> array of { partnerName, count } for teammates they've played with recently
+// Get prior-week teammate history for display on setup page.
+// Returns only teammates from the most recent finished round before this round.
 export async function getTeammateHistoryForRound(roundId: string) {
   const round = await prisma.round.findUnique({
     where: { id: roundId },
-    include: {
-      teams: {
-        include: {
-          roundPlayers: {
-            include: { player: true },
+    select: {
+      date: true,
+      roundPlayers: {
+        select: {
+          playerId: true,
+          player: {
+            select: {
+              fullName: true,
+              nickname: true,
+            },
           },
         },
-      },
-      roundPlayers: {
-        include: { player: true },
       },
     },
   });
 
   if (!round) throw new Error("Round not found");
 
-  // Get all player IDs in this round
-  const playerIds = round.roundPlayers.map((rp) => rp.playerId);
+  const previousRound = await prisma.round.findFirst({
+    where: {
+      status: "FINISHED",
+      date: {
+        lt: round.date,
+      },
+    },
+    orderBy: {
+      date: "desc",
+    },
+    select: {
+      date: true,
+      teams: {
+        select: {
+          roundPlayers: {
+            select: {
+              playerId: true,
+              player: {
+                select: {
+                  fullName: true,
+                  nickname: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
 
-  // Get recent teammate history
-  const history = await getRecentTeammateHistory(playerIds, 4);
-
-  // Build a map of playerId -> player info
-  const playerInfo = new Map<string, { id: string; name: string }>();
-  for (const rp of round.roundPlayers) {
-    playerInfo.set(rp.playerId, {
-      id: rp.playerId,
-      name: rp.player.nickname || rp.player.fullName,
-    });
+  if (!previousRound) {
+    return {
+      previousRoundDate: null,
+      teammatesByPlayerId: {} as Record<
+        string,
+        { playerId: string; name: string }[]
+      >,
+    };
   }
 
-  // For each team, find which players have played together recently
-  const result: Record<string, { partnerName: string; weeksAgo: number }[]> = {};
+  const currentPlayerIds = new Set(round.roundPlayers.map((rp) => rp.playerId));
+  const teammatesByPlayerId: Record<
+    string,
+    { playerId: string; name: string }[]
+  > = {};
 
-  for (const team of round.teams) {
-    const teamPlayerIds = team.roundPlayers.map((rp) => rp.playerId);
+  for (const team of previousRound.teams) {
+    const relevantPlayers = team.roundPlayers.filter((rp) =>
+      currentPlayerIds.has(rp.playerId)
+    );
 
-    for (const playerId of teamPlayerIds) {
-      result[playerId] = [];
-
-      // Check against all other players on the same team
-      for (const partnerId of teamPlayerIds) {
-        if (partnerId === playerId) continue;
-
-        const key = getPairKey(playerId, partnerId);
-        const count = history.get(key);
-
-        if (count && count > 0) {
-          const partnerName = playerInfo.get(partnerId)?.name ?? "Unknown";
-          result[playerId].push({
-            partnerName,
-            weeksAgo: count, // This is actually "times in last 4 weeks"
-          });
-        }
-      }
+    for (const player of relevantPlayers) {
+      teammatesByPlayerId[player.playerId] = relevantPlayers
+        .filter((partner) => partner.playerId !== player.playerId)
+        .map((partner) => ({
+          playerId: partner.playerId,
+          name: partner.player.nickname || partner.player.fullName,
+        }));
     }
   }
 
-  return result;
+  return {
+    previousRoundDate: previousRound.date.toISOString(),
+    teammatesByPlayerId,
+  };
 }
