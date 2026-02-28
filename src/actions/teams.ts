@@ -11,6 +11,75 @@ interface PlayerWithHandicap {
   handicapIndex: Decimal | null;
 }
 
+// Map of "playerId1|playerId2" -> count of times they've been on same team recently
+type TeammateHistory = Map<string, number>;
+
+// Get recent teammate pairings from last N finished rounds
+async function getRecentTeammateHistory(
+  playerIds: string[],
+  lookbackRounds: number = 4
+): Promise<TeammateHistory> {
+  const history: TeammateHistory = new Map();
+
+  // Get the last N finished rounds
+  const recentRounds = await prisma.round.findMany({
+    where: {
+      status: "FINISHED",
+    },
+    orderBy: { date: "desc" },
+    take: lookbackRounds,
+    include: {
+      teams: {
+        include: {
+          roundPlayers: true,
+        },
+      },
+    },
+  });
+
+  // Build pair counts from each round
+  for (const round of recentRounds) {
+    for (const team of round.teams) {
+      const teamPlayerIds = team.roundPlayers
+        .map((rp) => rp.playerId)
+        .filter((id) => playerIds.includes(id)); // Only count players in current round
+
+      // Generate all pairs from this team
+      for (let i = 0; i < teamPlayerIds.length; i++) {
+        for (let j = i + 1; j < teamPlayerIds.length; j++) {
+          // Sort IDs to ensure consistent key
+          const sorted = [teamPlayerIds[i], teamPlayerIds[j]].sort();
+          const key = `${sorted[0]}|${sorted[1]}`;
+          history.set(key, (history.get(key) ?? 0) + 1);
+        }
+      }
+    }
+  }
+
+  return history;
+}
+
+// Get pair key for two player IDs
+function getPairKey(id1: string, id2: string): string {
+  const sorted = [id1, id2].sort();
+  return `${sorted[0]}|${sorted[1]}`;
+}
+
+// Calculate total recent pairing count for a team
+function getTeamRecentPairingScore(
+  teamPlayerIds: string[],
+  history: TeammateHistory
+): number {
+  let score = 0;
+  for (let i = 0; i < teamPlayerIds.length; i++) {
+    for (let j = i + 1; j < teamPlayerIds.length; j++) {
+      const key = getPairKey(teamPlayerIds[i], teamPlayerIds[j]);
+      score += history.get(key) ?? 0;
+    }
+  }
+  return score;
+}
+
 function shuffleArray<T>(array: T[]): T[] {
   const shuffled = [...array];
   for (let i = shuffled.length - 1; i > 0; i--) {
@@ -22,7 +91,8 @@ function shuffleArray<T>(array: T[]): T[] {
 
 function balanceTeams(
   players: PlayerWithHandicap[],
-  teamSize: number
+  teamSize: number,
+  history: TeammateHistory
 ): PlayerWithHandicap[][] {
   // Calculate average handicap for players missing one
   const playersWithHandicap = players.filter((p) => p.handicapIndex !== null);
@@ -82,7 +152,7 @@ function balanceTeams(
     () => new Decimal(0)
   );
 
-  // Greedy assignment with randomness: when multiple teams have similar totals, pick randomly
+  // Greedy assignment considering both handicap balance AND recent teammate history
   // But ensure all teams end up with exactly teamSize players
   for (const player of shuffledPlayers) {
     // First, filter to only teams that aren't full yet
@@ -117,8 +187,25 @@ function balanceTeams(
       }
     }
 
-    // Pick randomly from eligible teams
-    const selectedIdx = eligibleIndices[Math.floor(Math.random() * eligibleIndices.length)];
+    // For each eligible team, calculate how many recent pairings adding this player would create
+    const teamScores = eligibleIndices.map((idx) => {
+      const currentTeamPlayerIds = teams[idx].map((p) => p.playerId);
+      let recentPairings = 0;
+      for (const existingPlayerId of currentTeamPlayerIds) {
+        const key = getPairKey(player.playerId, existingPlayerId);
+        recentPairings += history.get(key) ?? 0;
+      }
+      return { idx, recentPairings };
+    });
+
+    // Find minimum recent pairings
+    const minPairings = Math.min(...teamScores.map((s) => s.recentPairings));
+
+    // Filter to teams with minimum recent pairings
+    const bestTeams = teamScores.filter((s) => s.recentPairings === minPairings);
+
+    // Pick randomly from best teams (fewest recent pairings)
+    const selectedIdx = bestTeams[Math.floor(Math.random() * bestTeams.length)].idx;
 
     teams[selectedIdx].push(player);
     teamTotals[selectedIdx] = teamTotals[selectedIdx].add(player.effectiveHandicap);
@@ -175,18 +262,48 @@ export async function generateTeams(
     handicapIndex: rp.player.handicapIndex,
   }));
 
+  // Get recent teammate history to avoid putting same players together too often
+  const playerIds = players.map((p) => p.playerId);
+  const history = await getRecentTeammateHistory(playerIds, 4);
+  console.log("[generateTeams] Recent teammate history entries:", history.size);
+
   let teamAssignments: PlayerWithHandicap[][];
 
   if (mode === "RANDOM") {
-    const shuffled = shuffleArray(players);
+    // For random mode, try multiple shuffles and pick the one with fewest recent pairings
     const teamCount = Math.floor(playerCount / teamSize);
-    teamAssignments = [];
+    const maxAttempts = 10;
+    let bestAssignment: PlayerWithHandicap[][] = [];
+    let bestScore = Infinity;
 
-    for (let i = 0; i < teamCount; i++) {
-      teamAssignments.push(shuffled.slice(i * teamSize, (i + 1) * teamSize));
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const shuffled = shuffleArray(players);
+      const candidateTeams: PlayerWithHandicap[][] = [];
+
+      for (let i = 0; i < teamCount; i++) {
+        candidateTeams.push(shuffled.slice(i * teamSize, (i + 1) * teamSize));
+      }
+
+      // Calculate total recent pairing score for this assignment
+      let totalScore = 0;
+      for (const team of candidateTeams) {
+        const teamPlayerIds = team.map((p) => p.playerId);
+        totalScore += getTeamRecentPairingScore(teamPlayerIds, history);
+      }
+
+      if (totalScore < bestScore) {
+        bestScore = totalScore;
+        bestAssignment = candidateTeams;
+      }
+
+      // If we found a perfect assignment (no recent pairings), stop early
+      if (totalScore === 0) break;
     }
+
+    console.log("[generateTeams] Random mode - best pairing score:", bestScore);
+    teamAssignments = bestAssignment;
   } else {
-    teamAssignments = balanceTeams(players, teamSize);
+    teamAssignments = balanceTeams(players, teamSize, history);
   }
 
   // Create teams and assign players
