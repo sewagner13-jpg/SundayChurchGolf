@@ -369,6 +369,8 @@ export async function swapTeamMembers(
   player1Id: string,
   player2Id: string
 ) {
+  console.log("[swapTeamMembers] Called with:", { roundId, player1Id, player2Id });
+
   // Fetch ALL round players (not just the two being swapped) for handicap recalculation
   const round = await prisma.round.findUnique({
     where: { id: roundId },
@@ -390,6 +392,11 @@ export async function swapTeamMembers(
 
   const rp1 = round.roundPlayers.find((rp) => rp.playerId === player1Id);
   const rp2 = round.roundPlayers.find((rp) => rp.playerId === player2Id);
+
+  console.log("[swapTeamMembers] Found players:", {
+    rp1: rp1 ? { id: rp1.id, playerId: rp1.playerId, teamId: rp1.teamId } : null,
+    rp2: rp2 ? { id: rp2.id, playerId: rp2.playerId, teamId: rp2.teamId } : null,
+  });
 
   if (!rp1 || !rp2) throw new Error("Players not found in round");
   if (!rp1.teamId || !rp2.teamId) throw new Error("Players must be on teams");
