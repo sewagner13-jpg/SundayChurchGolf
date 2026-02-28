@@ -148,6 +148,9 @@ export async function generateTeams(
   if (round.status !== "DRAFT") {
     throw new Error("Can only generate teams while in DRAFT status");
   }
+  if (round.lockCode) {
+    throw new Error("Teams are locked. Unlock them first to make changes.");
+  }
 
   const playerCount = round.roundPlayers.length;
   console.log("[generateTeams] Round players count:", playerCount);
@@ -264,6 +267,9 @@ export async function swapTeamMembers(
   if (round.status !== "DRAFT") {
     throw new Error("Can only swap team members while in DRAFT status");
   }
+  if (round.lockCode) {
+    throw new Error("Teams are locked. Unlock them first to make changes.");
+  }
 
   const rp1 = round.roundPlayers.find((rp) => rp.playerId === player1Id);
   const rp2 = round.roundPlayers.find((rp) => rp.playerId === player2Id);
@@ -346,4 +352,63 @@ export async function getTeamsWithMissingHandicaps(roundId: string) {
       ...rp.player,
       handicapIndex: null,
     }));
+}
+
+// Lock teams with a 4-digit code
+export async function lockTeams(roundId: string, code: string) {
+  if (!/^\d{4}$/.test(code)) {
+    throw new Error("Lock code must be exactly 4 digits");
+  }
+
+  const round = await prisma.round.findUnique({
+    where: { id: roundId },
+  });
+
+  if (!round) throw new Error("Round not found");
+  if (round.lockCode) {
+    throw new Error("Teams are already locked");
+  }
+
+  await prisma.round.update({
+    where: { id: roundId },
+    data: { lockCode: code },
+  });
+
+  revalidatePath(`/rounds/${roundId}`);
+  revalidatePath(`/rounds/${roundId}/setup`);
+}
+
+// Unlock teams with the correct code
+export async function unlockTeams(roundId: string, code: string) {
+  const round = await prisma.round.findUnique({
+    where: { id: roundId },
+  });
+
+  if (!round) throw new Error("Round not found");
+  if (!round.lockCode) {
+    throw new Error("Teams are not locked");
+  }
+  if (round.lockCode !== code) {
+    throw new Error("Incorrect unlock code");
+  }
+
+  await prisma.round.update({
+    where: { id: roundId },
+    data: { lockCode: null },
+  });
+
+  revalidatePath(`/rounds/${roundId}`);
+  revalidatePath(`/rounds/${roundId}/setup`);
+}
+
+// Check if teams are locked
+export async function getTeamLockStatus(roundId: string) {
+  const round = await prisma.round.findUnique({
+    where: { id: roundId },
+    select: { lockCode: true },
+  });
+
+  return {
+    isLocked: !!round?.lockCode,
+  };
 }

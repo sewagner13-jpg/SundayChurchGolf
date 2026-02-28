@@ -265,6 +265,9 @@ export async function setRoundPlayers(id: string, playerIds: string[]) {
   if (round.status !== "DRAFT") {
     throw new Error("Can only set players while in DRAFT status");
   }
+  if (round.lockCode) {
+    throw new Error("Teams are locked. Unlock them first to make changes.");
+  }
 
   if (playerIds.length < MIN_PLAYERS_PER_ROUND) {
     throw new Error(`Minimum ${MIN_PLAYERS_PER_ROUND} players required`);

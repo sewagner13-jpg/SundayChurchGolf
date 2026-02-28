@@ -7,7 +7,7 @@ import { Card, CardHeader, CardContent } from "@/components/card";
 import { Select } from "@/components/select";
 import { Modal, ConfirmModal } from "@/components/modal";
 import { getRound, setRoundPlayers, startRound, deleteRound } from "@/actions/rounds";
-import { generateTeams, swapTeamMembers, getTeamsWithMissingHandicaps } from "@/actions/teams";
+import { generateTeams, swapTeamMembers, getTeamsWithMissingHandicaps, lockTeams, unlockTeams, getTeamLockStatus } from "@/actions/teams";
 interface Player {
   id: string;
   fullName: string;
@@ -67,6 +67,10 @@ export default function RoundSetupPage({
   const [swapMode, setSwapMode] = useState(false);
   const [swapPlayer1, setSwapPlayer1] = useState<string | null>(null);
   const [missingHandicaps, setMissingHandicaps] = useState<Player[]>([]);
+  const [isLocked, setIsLocked] = useState(false);
+  const [showLockModal, setShowLockModal] = useState(false);
+  const [showUnlockModal, setShowUnlockModal] = useState(false);
+  const [lockCodeInput, setLockCodeInput] = useState("");
 
   useEffect(() => {
     loadData();
@@ -125,6 +129,10 @@ export default function RoundSetupPage({
       // Check for missing handicaps
       const missing = await getTeamsWithMissingHandicaps(id);
       setMissingHandicaps(missing);
+
+      // Check lock status
+      const lockStatus = await getTeamLockStatus(id);
+      setIsLocked(lockStatus.isLocked);
 
       setLoading(false);
     } catch (err) {
@@ -252,6 +260,38 @@ export default function RoundSetupPage({
     }
   };
 
+  const handleLockTeams = async () => {
+    if (!/^\d{4}$/.test(lockCodeInput)) {
+      setError("Lock code must be exactly 4 digits");
+      return;
+    }
+    setActionLoading(true);
+    setError(null);
+    try {
+      await lockTeams(id, lockCodeInput);
+      setIsLocked(true);
+      setShowLockModal(false);
+      setLockCodeInput("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to lock teams");
+    }
+    setActionLoading(false);
+  };
+
+  const handleUnlockTeams = async () => {
+    setActionLoading(true);
+    setError(null);
+    try {
+      await unlockTeams(id, lockCodeInput);
+      setIsLocked(false);
+      setShowUnlockModal(false);
+      setLockCodeInput("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to unlock teams");
+    }
+    setActionLoading(false);
+  };
+
   if (loading) {
     return <p className="text-center py-8">Loading round setup...</p>;
   }
@@ -312,8 +352,9 @@ export default function RoundSetupPage({
             step === "players"
               ? "border-b-2 border-green-600 text-green-600"
               : "text-gray-500"
-          }`}
-          onClick={() => setStep("players")}
+          } ${isLocked ? "opacity-50 cursor-not-allowed" : ""}`}
+          onClick={() => !isLocked && setStep("players")}
+          disabled={isLocked}
         >
           1. Players ({selectedPlayerIds.size})
         </button>
@@ -446,31 +487,67 @@ export default function RoundSetupPage({
           {/* Team Display */}
           {hasTeams && (
             <>
+              {/* Lock Status Banner */}
+              {isLocked && (
+                <div className="bg-yellow-50 border border-yellow-400 text-yellow-800 px-4 py-3 rounded flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">🔒</span>
+                    <span className="font-medium">Teams are locked</span>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      setLockCodeInput("");
+                      setShowUnlockModal(true);
+                    }}
+                  >
+                    Unlock
+                  </Button>
+                </div>
+              )}
+
               <div className="flex gap-2 justify-between items-center">
                 <span className="text-sm text-gray-600">
                   {round.teams.length} teams of {round.teamSize}
                 </span>
                 <div className="flex gap-2">
-                  <Button
-                    variant={swapMode ? "danger" : "secondary"}
-                    size="sm"
-                    onClick={() => {
-                      setSwapMode(!swapMode);
-                      setSwapPlayer1(null);
-                    }}
-                  >
-                    {swapMode ? "Cancel Swap" : "Swap Players"}
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={handleGenerateTeams}
-                    disabled={actionLoading}
-                  >
-                    {round.teamMode === "BALANCED"
-                      ? "Rebalance"
-                      : "Regenerate"}
-                  </Button>
+                  {!isLocked && (
+                    <>
+                      <Button
+                        variant={swapMode ? "danger" : "secondary"}
+                        size="sm"
+                        onClick={() => {
+                          setSwapMode(!swapMode);
+                          setSwapPlayer1(null);
+                        }}
+                      >
+                        {swapMode ? "Cancel Swap" : "Swap Players"}
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={handleGenerateTeams}
+                        disabled={actionLoading}
+                      >
+                        {round.teamMode === "BALANCED"
+                          ? "Rebalance"
+                          : "Regenerate"}
+                      </Button>
+                    </>
+                  )}
+                  {!isLocked && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        setLockCodeInput("");
+                        setShowLockModal(true);
+                      }}
+                    >
+                      🔒 Lock
+                    </Button>
+                  )}
                 </div>
               </div>
 
@@ -620,6 +697,84 @@ export default function RoundSetupPage({
         confirmText="Delete"
         confirmVariant="danger"
       />
+
+      {/* Lock Teams Modal */}
+      <Modal
+        isOpen={showLockModal}
+        onClose={() => setShowLockModal(false)}
+        title="Lock Teams"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            Enter a 4-digit code to lock the teams. You will need this code to unlock them later.
+          </p>
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="\d{4}"
+            maxLength={4}
+            value={lockCodeInput}
+            onChange={(e) => setLockCodeInput(e.target.value.replace(/\D/g, ""))}
+            placeholder="Enter 4-digit code"
+            className="w-full p-3 text-center text-2xl font-mono tracking-widest border rounded"
+          />
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              className="flex-1"
+              onClick={() => setShowLockModal(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="flex-1"
+              onClick={handleLockTeams}
+              disabled={actionLoading || lockCodeInput.length !== 4}
+            >
+              {actionLoading ? "Locking..." : "Lock Teams"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Unlock Teams Modal */}
+      <Modal
+        isOpen={showUnlockModal}
+        onClose={() => setShowUnlockModal(false)}
+        title="Unlock Teams"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            Enter the 4-digit code to unlock the teams.
+          </p>
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="\d{4}"
+            maxLength={4}
+            value={lockCodeInput}
+            onChange={(e) => setLockCodeInput(e.target.value.replace(/\D/g, ""))}
+            placeholder="Enter unlock code"
+            className="w-full p-3 text-center text-2xl font-mono tracking-widest border rounded"
+          />
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              className="flex-1"
+              onClick={() => setShowUnlockModal(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="flex-1"
+              onClick={handleUnlockTeams}
+              disabled={actionLoading || lockCodeInput.length !== 4}
+            >
+              {actionLoading ? "Unlocking..." : "Unlock Teams"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

@@ -120,6 +120,9 @@ model Round {
   tiebreakerHoleNum   Int?         // Hole where tiebreaker was decided (null if split)
   tiebreakerSkinsWon  Int?         // Number of carryover skins won
 
+  // Team lock (4-digit code to prevent team changes while allowing scoring)
+  lockCode            String?      // 4-digit code that locks teams, null = unlocked
+
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 
