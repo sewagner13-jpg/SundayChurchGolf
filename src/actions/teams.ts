@@ -83,15 +83,37 @@ function balanceTeams(
   );
 
   // Greedy assignment with randomness: when multiple teams have similar totals, pick randomly
+  // But ensure all teams end up with exactly teamSize players
   for (const player of shuffledPlayers) {
-    // Find all teams with totals within 2 strokes of minimum
-    const minTotal = teamTotals.reduce((min, t) => t.lt(min) ? t : min, teamTotals[0]);
-    const threshold = 2;
-
-    const eligibleIndices: number[] = [];
+    // First, filter to only teams that aren't full yet
+    const notFullIndices: number[] = [];
     for (let i = 0; i < teamCount; i++) {
-      if (teamTotals[i].sub(minTotal).toNumber() <= threshold) {
-        eligibleIndices.push(i);
+      if (teams[i].length < teamSize) {
+        notFullIndices.push(i);
+      }
+    }
+
+    // If only one team has room, put the player there
+    if (notFullIndices.length === 1) {
+      const idx = notFullIndices[0];
+      teams[idx].push(player);
+      teamTotals[idx] = teamTotals[idx].add(player.effectiveHandicap);
+      continue;
+    }
+
+    // Find minimum total among teams that aren't full
+    let minTotal = teamTotals[notFullIndices[0]];
+    for (const idx of notFullIndices) {
+      if (teamTotals[idx].lt(minTotal)) {
+        minTotal = teamTotals[idx];
+      }
+    }
+
+    const threshold = 2;
+    const eligibleIndices: number[] = [];
+    for (const idx of notFullIndices) {
+      if (teamTotals[idx].sub(minTotal).toNumber() <= threshold) {
+        eligibleIndices.push(idx);
       }
     }
 
