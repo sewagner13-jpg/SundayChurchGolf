@@ -213,35 +213,25 @@ export default function RoundSetupPage({
   };
 
   const handlePlayerSwapClick = (playerId: string) => {
-    console.log("[Swap] Click detected:", { playerId, swapMode, swapPlayer1, actionLoading });
     if (!swapMode) return;
 
     if (!swapPlayer1) {
-      console.log("[Swap] Setting first player:", playerId);
       setSwapPlayer1(playerId);
     } else if (swapPlayer1 === playerId) {
-      console.log("[Swap] Same player clicked, deselecting");
       setSwapPlayer1(null);
     } else {
-      console.log("[Swap] Performing swap between:", swapPlayer1, "and", playerId);
-      // Perform swap
       performSwap(swapPlayer1, playerId);
     }
   };
 
   const performSwap = async (p1: string, p2: string) => {
-    console.log("[Swap] performSwap called with:", { p1, p2 });
     setActionLoading(true);
     try {
-      console.log("[Swap] Calling swapTeamMembers...");
       await swapTeamMembers(id, p1, p2);
-      console.log("[Swap] swapTeamMembers succeeded, reloading data...");
       await loadData();
       setSwapPlayer1(null);
       setSwapMode(false);
-      console.log("[Swap] Swap complete");
     } catch (err) {
-      console.error("[Swap] Error:", err);
       setError(err instanceof Error ? err.message : "Failed to swap players");
     }
     setActionLoading(false);

@@ -88,7 +88,15 @@ interface Round {
     name: string;
     holes: { holeNumber: number; par: number; handicapRank: number }[];
   };
-  teams: { id: string; teamNumber: number }[];
+  teams: {
+    id: string;
+    teamNumber: number;
+    roundPlayers: {
+      id: string;
+      playerId: string;
+      player: { id: string; fullName: string; nickname: string | null };
+    }[];
+  }[];
 }
 
 export default function LiveScoringPage({
@@ -390,19 +398,31 @@ export default function LiveScoringPage({
         <div className="bg-white rounded-lg p-6 m-4 max-w-sm w-full">
           <h2 className="text-xl font-bold mb-4">Which team are you scoring for?</h2>
           <div className="space-y-2">
-            {round.teams.map((team) => (
-              <button
-                key={team.id}
-                onClick={() => {
-                  handleTeamSelect(team.id);
-                  setShowTeamSelect(false);
-                }}
-                className="w-full p-4 border rounded hover:bg-gray-50 text-left"
-              >
-                <span className="font-bold">Team {team.teamNumber}</span>
-              </button>
-            ))}
+            {round.teams.map((team) => {
+              const playerNames = team.roundPlayers
+                .map((rp) => rp.player.nickname || rp.player.fullName)
+                .join(", ");
+              return (
+                <button
+                  key={team.id}
+                  onClick={() => {
+                    handleTeamSelect(team.id);
+                    setShowTeamSelect(false);
+                  }}
+                  className="w-full p-4 border rounded hover:bg-gray-50 text-left"
+                >
+                  <span className="font-bold">Team {team.teamNumber}</span>
+                  <p className="text-sm text-gray-600 mt-1">{playerNames}</p>
+                </button>
+              );
+            })}
           </div>
+          <button
+            onClick={() => router.push("/")}
+            className="w-full mt-4 p-3 text-gray-600 border rounded hover:bg-gray-50"
+          >
+            ← Back to Home
+          </button>
         </div>
       </div>
     );
