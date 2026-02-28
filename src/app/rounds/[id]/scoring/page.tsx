@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/button";
 import { Card } from "@/components/card";
 import { ConfirmModal } from "@/components/modal";
-import { getRound } from "@/actions/rounds";
+import { getRound, revertToDraft } from "@/actions/rounds";
 import {
   upsertHoleScore,
   getHoleView,
@@ -116,6 +116,9 @@ export default function LiveScoringPage({
   const [skinsStatus, setSkinsStatus] = useState<SkinStatus[]>([]);
   const [showSkinsStatus, setShowSkinsStatus] = useState(false);
   const [showMarkFinishedModal, setShowMarkFinishedModal] = useState(false);
+  const [showEditTeamsModal, setShowEditTeamsModal] = useState(false);
+  const [unlockCode, setUnlockCode] = useState("");
+  const [unlockError, setUnlockError] = useState<string | null>(null);
 
   const isLive = round?.status === "LIVE";
 
@@ -360,6 +363,22 @@ export default function LiveScoringPage({
     }
   };
 
+  const handleRevertToDraft = async () => {
+    if (!unlockCode.trim()) {
+      setUnlockError("Please enter the unlock code");
+      return;
+    }
+    setSaving(true);
+    setUnlockError(null);
+    try {
+      await revertToDraft(id, unlockCode.trim());
+      router.push(`/rounds/${id}/setup`);
+    } catch (err) {
+      setUnlockError(err instanceof Error ? err.message : "Failed to unlock");
+      setSaving(false);
+    }
+  };
+
   // Check if all teams have completed all holes
   const allTeamsComplete = teamsProgress.every((t) => t.holesScored === 18);
 
@@ -405,13 +424,73 @@ export default function LiveScoringPage({
               );
             })}
           </div>
-          <button
-            onClick={() => router.push("/")}
-            className="w-full mt-4 p-3 text-gray-600 border rounded hover:bg-gray-50"
-          >
-            ← Back to Home
-          </button>
+          <div className="flex gap-2 mt-4">
+            <button
+              onClick={() => router.push("/")}
+              className="flex-1 p-3 text-gray-600 border rounded hover:bg-gray-50"
+            >
+              ← Home
+            </button>
+            <button
+              onClick={() => setShowEditTeamsModal(true)}
+              className="flex-1 p-3 text-orange-600 border border-orange-300 rounded hover:bg-orange-50"
+            >
+              Edit Teams
+            </button>
+          </div>
         </div>
+
+        {/* Edit Teams Unlock Modal */}
+        {showEditTeamsModal && (
+          <div className="fixed inset-0 z-60 flex items-center justify-center">
+            <div
+              className="absolute inset-0 bg-black/50"
+              onClick={() => {
+                setShowEditTeamsModal(false);
+                setUnlockCode("");
+                setUnlockError(null);
+              }}
+            />
+            <div className="relative bg-white rounded-lg shadow-xl p-6 max-w-sm w-full mx-4">
+              <h2 className="text-lg font-bold mb-2">Edit Teams</h2>
+              <p className="text-sm text-gray-600 mb-4">
+                Enter the unlock code to go back to team setup. This will clear all scores.
+              </p>
+              <input
+                type="text"
+                placeholder="Unlock code"
+                value={unlockCode}
+                onChange={(e) => setUnlockCode(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg mb-3"
+                autoFocus
+              />
+              {unlockError && (
+                <p className="text-red-600 text-sm mb-3">{unlockError}</p>
+              )}
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  className="flex-1"
+                  onClick={() => {
+                    setShowEditTeamsModal(false);
+                    setUnlockCode("");
+                    setUnlockError(null);
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  className="flex-1"
+                  onClick={handleRevertToDraft}
+                  disabled={saving}
+                >
+                  {saving ? "..." : "Unlock"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

@@ -347,6 +347,51 @@ export async function startRound(id: string, startingHole: 1 | 10) {
   return updated;
 }
 
+// Revert a LIVE round back to DRAFT (requires unlock code)
+export async function revertToDraft(id: string, unlockCode: string) {
+  const round = await prisma.round.findUnique({
+    where: { id },
+    include: {
+      teams: true,
+    },
+  });
+
+  if (!round) throw new Error("Round not found");
+  if (round.status !== "LIVE") {
+    throw new Error("Can only revert rounds that are LIVE");
+  }
+  if (!round.lockCode) {
+    throw new Error("Round has no lock code set");
+  }
+  if (round.lockCode !== unlockCode) {
+    throw new Error("Invalid unlock code");
+  }
+
+  // Clear all hole scores
+  await prisma.holeScore.deleteMany({ where: { roundId: id } });
+
+  // Reset team finishedScoring flags
+  await prisma.team.updateMany({
+    where: { roundId: id },
+    data: { finishedScoring: false },
+  });
+
+  // Revert round to DRAFT and clear pot/baseSkinValue
+  await prisma.round.update({
+    where: { id },
+    data: {
+      status: "DRAFT",
+      pot: null,
+      baseSkinValue: null,
+      startingHole: 1,
+    },
+  });
+
+  revalidatePath("/");
+  revalidatePath(`/rounds/${id}`);
+  revalidatePath(`/rounds/${id}/setup`);
+}
+
 export async function listRounds(year?: number) {
   const where = year
     ? {

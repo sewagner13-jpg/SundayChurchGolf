@@ -7,7 +7,7 @@ import { Card, CardHeader, CardContent } from "@/components/card";
 import { Select } from "@/components/select";
 import { Modal, ConfirmModal } from "@/components/modal";
 import { getRound, setRoundPlayers, startRound, deleteRound } from "@/actions/rounds";
-import { generateTeams, swapTeamMembers, getTeamsWithMissingHandicaps, lockTeams, unlockTeams, getTeamLockStatus } from "@/actions/teams";
+import { generateTeams, swapTeamMembers, getTeamsWithMissingHandicaps, lockTeams, unlockTeams, getTeamLockStatus, getTeammateHistoryForRound } from "@/actions/teams";
 interface Player {
   id: string;
   fullName: string;
@@ -71,6 +71,7 @@ export default function RoundSetupPage({
   const [showLockModal, setShowLockModal] = useState(false);
   const [showUnlockModal, setShowUnlockModal] = useState(false);
   const [lockCodeInput, setLockCodeInput] = useState("");
+  const [teammateHistory, setTeammateHistory] = useState<Record<string, { partnerName: string; weeksAgo: number }[]>>({});
 
   useEffect(() => {
     loadData();
