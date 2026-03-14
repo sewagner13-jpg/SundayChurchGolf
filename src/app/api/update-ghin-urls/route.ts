@@ -10,7 +10,7 @@ const GHIN_PROFILE_URLS: Record<string, string> = {
     "https://www.ghin.com/golfer-lookup/golfer/53616c7465645f5fae4dec7f520c41bcac36eb42f7f22fa59dde5ec194b94295/club/29070",
   "Albert Bueno":
     "https://www.ghin.com/golfer-lookup/golfer/53616c7465645f5fe34332b73ce4549d97fc4253925e993a/club/29070",
-  "David Hamilton":
+  "Dave Hamilton":
     "https://www.ghin.com/golfer-lookup/golfer/53616c7465645f5f860ac35768a4e8f89c6fff8be6c2354661a5aeec89f54fc4/club/29070",
   "Eddie Dennis":
     "https://www.ghin.com/golfer-lookup/golfer/53616c7465645f5f1d0497074dcde7c585ee4efe2a485a2d/club/29070",
@@ -42,7 +42,7 @@ const GHIN_PROFILE_URLS: Record<string, string> = {
     "https://www.ghin.com/golfer-lookup/golfer/53616c7465645f5f67329788d983a6baa583ab397a2c9004/club/29070",
   "Steve Zeady":
     "https://www.ghin.com/golfer-lookup/golfer/53616c7465645f5ffdf47efc23290ce1a940af33e7c02d72/club/29070",
-  "Tony Wiest":
+  "Tony Weist":
     "https://www.ghin.com/golfer-lookup/golfer/53616c7465645f5fb8c516880b7fe46173c32e83b0e781bd2a39c1172e447574/club/29070",
 };
 
