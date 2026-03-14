@@ -126,11 +126,19 @@ export async function savePar3ContestResults(
   previousResults.forEach((result) => applyResultDelta(result, -1));
   results.forEach((result) => applyResultDelta(result, 1));
 
-  const updatedFormatConfig = {
-    ...(round.formatConfig as Record<string, unknown> | null),
+  const jsonResults = results.map(
+    (result) =>
+      ({
+        holeNumber: result.holeNumber,
+        winnerPlayerId: result.winnerPlayerId,
+      }) satisfies Prisma.JsonObject
+  );
+
+  const updatedFormatConfig: Prisma.InputJsonValue = {
+    ...((round.formatConfig as Prisma.JsonObject | null) ?? {}),
     par3Contest: {
       ...par3ContestConfig,
-      results,
+      results: jsonResults,
     },
   };
 
@@ -170,7 +178,7 @@ export async function savePar3ContestResults(
     await tx.round.update({
       where: { id: roundId },
       data: {
-        formatConfig: updatedFormatConfig as Prisma.InputJsonValue,
+        formatConfig: updatedFormatConfig,
       },
     });
 
