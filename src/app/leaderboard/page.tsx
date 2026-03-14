@@ -16,6 +16,7 @@ interface LeaderboardEntry {
   netWinnings: number;
   roundsPlayed: number;
   topTeamAppearances: number;
+  countedScoresUsed: number;
 }
 
 export default function LeaderboardPage() {
@@ -81,6 +82,7 @@ export default function LeaderboardPage() {
                 <div className="flex-1">Player</div>
                 <div className="w-20 text-right">Net</div>
                 <div className="w-16 text-right">Payout</div>
+                <div className="w-14 text-right">Used</div>
                 <div className="w-10 text-center">Rds</div>
               </div>
 
@@ -114,6 +116,9 @@ export default function LeaderboardPage() {
                     <div className="w-16 text-right text-sm text-gray-500">
                       ${Math.round(entry.totalWinnings)}
                     </div>
+                    <div className="w-14 text-right text-sm text-gray-500">
+                      {entry.countedScoresUsed}
+                    </div>
                     <div className="w-10 text-center text-sm text-gray-600">
                       {entry.roundsPlayed}
                     </div>
@@ -126,7 +131,7 @@ export default function LeaderboardPage() {
       </Card>
 
       <div className="text-xs text-gray-500 text-center">
-        <p>Net = Winnings - Buy-ins | Payout = Total from pot | Rds = Rounds</p>
+        <p>Net = Winnings - Buy-ins | Payout = Total from pot | Used = Counted scores | Rds = Rounds</p>
       </div>
     </div>
   );

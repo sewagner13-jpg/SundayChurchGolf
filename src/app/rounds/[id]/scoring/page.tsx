@@ -129,6 +129,8 @@ interface ChatMessage {
   id: string;
   body: string;
   isImportant: boolean;
+  imageDataUrl: string | null;
+  imageName: string | null;
   createdAt: string;
   senderTeamId: string;
   senderTeamNumber: number;
@@ -138,6 +140,8 @@ interface ChatMessage {
 interface PendingImportantMessage {
   id: string;
   body: string;
+  imageDataUrl: string | null;
+  imageName: string | null;
   createdAt: string;
   senderTeamNumber: number;
 }
@@ -174,6 +178,11 @@ export default function LiveScoringPage({
   const [chatDraft, setChatDraft] = useState("");
   const [chatImportant, setChatImportant] = useState(false);
   const [chatSending, setChatSending] = useState(false);
+  const [chatImage, setChatImage] = useState<{
+    dataUrl: string;
+    mimeType: string;
+    fileName: string;
+  } | null>(null);
   const [pendingImportantMessage, setPendingImportantMessage] =
     useState<PendingImportantMessage | null>(null);
   const [playerInputs, setPlayerInputs] = useState<PlayerHoleInputState[]>([]);
@@ -688,14 +697,40 @@ export default function LiveScoringPage({
 
     setChatSending(true);
     try {
-      await postRoundMessage(id, myTeamId, chatDraft, chatImportant);
+      await postRoundMessage(id, myTeamId, chatDraft, chatImportant, chatImage ?? undefined);
       setChatDraft("");
       setChatImportant(false);
+      setChatImage(null);
       await loadChat();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to send message");
     }
     setChatSending(false);
+  };
+
+  const handleChatImageChange = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error("Failed to read image"));
+        reader.readAsDataURL(file);
+      });
+
+      setChatImage({
+        dataUrl,
+        mimeType: file.type,
+        fileName: file.name,
+      });
+      event.target.value = "";
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load image");
+    }
   };
 
   const handleAcknowledgeImportant = async () => {
@@ -929,6 +964,13 @@ export default function LiveScoringPage({
                   Team {pendingImportantMessage.senderTeamNumber}:
                 </p>
                 <p className="mt-1">{pendingImportantMessage.body}</p>
+                {pendingImportantMessage.imageDataUrl && (
+                  <img
+                    src={pendingImportantMessage.imageDataUrl}
+                    alt={pendingImportantMessage.imageName ?? "Important message image"}
+                    className="mt-3 max-h-64 rounded-lg border border-amber-200"
+                  />
+                )}
                 <p className="mt-2 text-xs text-amber-700">
                   {formatChatTime(pendingImportantMessage.createdAt)}
                 </p>
@@ -1297,6 +1339,13 @@ export default function LiveScoringPage({
                       </span>
                     </div>
                     <p className="mt-1 text-sm text-gray-800">{message.body}</p>
+                    {message.imageDataUrl && (
+                      <img
+                        src={message.imageDataUrl}
+                        alt={message.imageName ?? "Round chat image"}
+                        className="mt-3 max-h-72 rounded-lg border border-gray-200"
+                      />
+                    )}
                   </div>
                 ))
               )}
@@ -1312,6 +1361,38 @@ export default function LiveScoringPage({
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
               />
               <div className="flex items-center justify-between gap-3">
+                <label className="text-sm text-gray-700">
+                  <span className="inline-flex cursor-pointer items-center rounded-lg border border-gray-300 px-3 py-2">
+                    Add Photo
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleChatImageChange}
+                  />
+                </label>
+                {chatImage && (
+                  <button
+                    type="button"
+                    onClick={() => setChatImage(null)}
+                    className="text-xs text-red-600 underline"
+                  >
+                    Remove photo
+                  </button>
+                )}
+              </div>
+              {chatImage && (
+                <div className="rounded-lg border border-gray-200 p-2">
+                  <img
+                    src={chatImage.dataUrl}
+                    alt={chatImage.fileName}
+                    className="max-h-48 rounded-lg"
+                  />
+                  <p className="mt-2 text-xs text-gray-500">{chatImage.fileName}</p>
+                </div>
+              )}
+              <div className="flex items-center justify-between gap-3">
                 <label className="flex items-center gap-2 text-sm text-gray-700">
                   <input
                     type="checkbox"
@@ -1326,7 +1407,7 @@ export default function LiveScoringPage({
               </div>
               <Button
                 onClick={handleSendChatMessage}
-                disabled={chatSending || !chatDraft.trim() || !myTeamId}
+                disabled={chatSending || (!chatDraft.trim() && !chatImage) || !myTeamId}
                 className="w-full"
               >
                 {chatSending ? "Sending..." : "Send Message"}

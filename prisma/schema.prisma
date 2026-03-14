@@ -271,6 +271,9 @@ model RoundMessage {
   senderTeamId  String
   body          String
   isImportant   Boolean  @default(false)
+  imageDataUrl  String?
+  imageMimeType String?
+  imageName     String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

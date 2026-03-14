@@ -239,6 +239,15 @@ export async function finishRound(roundId: string) {
           tiebreakerSkinsWon: null,
         },
       });
+
+      await tx.roundMessage.updateMany({
+        where: { roundId },
+        data: {
+          imageDataUrl: null,
+          imageMimeType: null,
+          imageName: null,
+        },
+      });
     });
 
     revalidatePath("/");
@@ -391,6 +400,15 @@ export async function finishRound(roundId: string) {
         tiebreakerTeamId: tiebreakerInfo?.winnerTeamId ?? null,
         tiebreakerHoleNum: tiebreakerInfo?.decidingHoleNumber ?? null,
         tiebreakerSkinsWon: tiebreakerInfo?.skinsWon ?? null,
+      },
+    });
+
+    await tx.roundMessage.updateMany({
+      where: { roundId },
+      data: {
+        imageDataUrl: null,
+        imageMimeType: null,
+        imageName: null,
       },
     });
 

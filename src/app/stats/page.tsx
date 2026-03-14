@@ -21,6 +21,7 @@ interface PlayerStat {
   netWinnings: number;
   roundsPlayed: number;
   topTeamAppearances: number;
+  countedScoresUsed: number;
 }
 
 interface TeamCombination {
@@ -162,7 +163,8 @@ export default function StatsPage() {
                             </span>
                             <p className="text-xs text-gray-500">
                               {player.roundsPlayed} rounds &bull;{" "}
-                              {player.topTeamAppearances} wins
+                              {player.topTeamAppearances} wins &bull;{" "}
+                              {player.countedScoresUsed} counted scores
                             </p>
                           </div>
                         </div>

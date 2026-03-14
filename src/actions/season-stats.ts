@@ -3,8 +3,103 @@
 import { prisma } from "@/lib/db";
 import { Decimal } from "@prisma/client/runtime/library";
 import { revalidatePath } from "next/cache";
+import { computeFormatScore, getIrishGolfSegmentFormatId, getMinimumScoresRequired, type PlayerInput } from "@/lib/format-scoring";
+
+async function getCountedScoreUsageByPlayer(year: number) {
+  const rounds = await prisma.round.findMany({
+    where: {
+      status: "FINISHED",
+      date: {
+        gte: new Date(`${year}-01-01`),
+        lt: new Date(`${year + 1}-01-01`),
+      },
+    },
+    include: {
+      course: {
+        include: {
+          holes: true,
+        },
+      },
+      format: true,
+      teams: {
+        include: {
+          roundPlayers: {
+            include: {
+              player: true,
+            },
+          },
+        },
+      },
+      playerScores: true,
+    },
+  });
+
+  const countedUsage = new Map<string, number>();
+
+  for (const round of rounds) {
+    for (const team of round.teams) {
+      team.roundPlayers.forEach((roundPlayer) => {
+        if (!countedUsage.has(roundPlayer.playerId)) {
+          countedUsage.set(roundPlayer.playerId, 0);
+        }
+      });
+    }
+
+    for (const hole of round.course.holes) {
+      for (const team of round.teams) {
+        const teamScores = round.playerScores.filter(
+          (playerScore) =>
+            playerScore.teamId === team.id &&
+            playerScore.holeNumber === hole.holeNumber
+        );
+
+        const players: PlayerInput[] = team.roundPlayers.map((roundPlayer) => {
+          const playerScore = teamScores.find(
+            (score) => score.playerId === roundPlayer.playerId
+          );
+          return {
+            playerId: roundPlayer.playerId,
+            playerName: roundPlayer.player.nickname || roundPlayer.player.fullName,
+            grossScore: playerScore?.grossScore ?? null,
+            driveSelected:
+              (playerScore?.extraData as Record<string, unknown> | null)
+                ?.driveSelected === true,
+          };
+        });
+
+        const effectiveFormatId =
+          round.formatId === "irish_golf_6_6_6"
+            ? getIrishGolfSegmentFormatId(
+                hole.holeNumber,
+                (round.formatConfig as Record<string, unknown>) ?? {}
+              ) ?? round.formatId
+            : round.formatId;
+
+        if (getMinimumScoresRequired(effectiveFormatId) === null) {
+          continue;
+        }
+
+        const result = computeFormatScore(
+          effectiveFormatId,
+          players,
+          hole.holeNumber,
+          hole.par,
+          {},
+          (round.formatConfig as Record<string, unknown>) ?? {}
+        );
+
+        result?.countedPlayerIds.forEach((playerId) => {
+          countedUsage.set(playerId, (countedUsage.get(playerId) ?? 0) + 1);
+        });
+      }
+    }
+  }
+
+  return countedUsage;
+}
 
 export async function getLeaderboard(year: number) {
+  const countedScoreUsage = await getCountedScoreUsageByPlayer(year);
   const stats = await prisma.seasonPlayerStat.findMany({
     where: { year },
     include: {
@@ -50,11 +145,13 @@ export async function getLeaderboard(year: number) {
       netWinnings,
       roundsPlayed: s.roundsPlayed,
       topTeamAppearances: s.topTeamAppearances,
+      countedScoresUsed: countedScoreUsage.get(s.playerId) ?? 0,
     };
   });
 }
 
 export async function getPlayerSeasonDetail(playerId: string, year: number) {
+  const countedScoreUsage = await getCountedScoreUsageByPlayer(year);
   const stat = await prisma.seasonPlayerStat.findUnique({
     where: {
       year_playerId: { year, playerId },
@@ -96,6 +193,7 @@ export async function getPlayerSeasonDetail(playerId: string, year: number) {
           totalWinnings: stat.totalWinnings,
           roundsPlayed: stat.roundsPlayed,
           topTeamAppearances: stat.topTeamAppearances,
+          countedScoresUsed: countedScoreUsage.get(playerId) ?? 0,
         }
       : null,
     rounds: rounds.map((rp) => ({

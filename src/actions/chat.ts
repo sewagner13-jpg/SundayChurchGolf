@@ -3,9 +3,42 @@
 import { prisma } from "@/lib/db";
 
 const MAX_MESSAGE_LENGTH = 280;
+const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+const ALLOWED_IMAGE_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+]);
 
 function normalizeBody(body: string) {
   return body.trim().replace(/\s+/g, " ");
+}
+
+function getApproximateDataUrlBytes(dataUrl: string) {
+  const base64 = dataUrl.split(",")[1] ?? "";
+  return Math.floor((base64.length * 3) / 4);
+}
+
+function validateImagePayload(image?: {
+  dataUrl: string;
+  mimeType: string;
+  fileName: string;
+}) {
+  if (!image) return;
+
+  if (!image.dataUrl.startsWith("data:image/")) {
+    throw new Error("Invalid image payload");
+  }
+
+  if (!ALLOWED_IMAGE_TYPES.has(image.mimeType)) {
+    throw new Error("Only JPG, PNG, WEBP, and HEIC images are allowed");
+  }
+
+  if (getApproximateDataUrlBytes(image.dataUrl) > MAX_IMAGE_BYTES) {
+    throw new Error("Image must be 2MB or smaller");
+  }
 }
 
 export async function getRoundChat(roundId: string, teamId?: string) {
@@ -69,6 +102,8 @@ export async function getRoundChat(roundId: string, teamId?: string) {
       id: message.id,
       body: message.body,
       isImportant: message.isImportant,
+      imageDataUrl: message.imageDataUrl,
+      imageName: message.imageName,
       createdAt: message.createdAt.toISOString(),
       senderTeamId: message.senderTeamId,
       senderTeamNumber: message.senderTeam.teamNumber,
@@ -81,6 +116,8 @@ export async function getRoundChat(roundId: string, teamId?: string) {
       ? {
           id: pendingImportantMessage.id,
           body: pendingImportantMessage.body,
+          imageDataUrl: pendingImportantMessage.imageDataUrl,
+          imageName: pendingImportantMessage.imageName,
           createdAt: pendingImportantMessage.createdAt.toISOString(),
           senderTeamNumber: pendingImportantMessage.senderTeam.teamNumber,
         }
@@ -92,11 +129,17 @@ export async function postRoundMessage(
   roundId: string,
   senderTeamId: string,
   body: string,
-  isImportant: boolean
+  isImportant: boolean,
+  image?: {
+    dataUrl: string;
+    mimeType: string;
+    fileName: string;
+  }
 ) {
   const normalizedBody = normalizeBody(body);
+  validateImagePayload(image);
 
-  if (!normalizedBody) {
+  if (!normalizedBody && !image) {
     throw new Error("Message cannot be empty");
   }
 
@@ -125,6 +168,9 @@ export async function postRoundMessage(
       senderTeamId,
       body: normalizedBody,
       isImportant,
+      imageDataUrl: image?.dataUrl,
+      imageMimeType: image?.mimeType,
+      imageName: image?.fileName,
       acknowledgements: isImportant
         ? {
             create: {
@@ -144,6 +190,8 @@ export async function postRoundMessage(
     id: message.id,
     body: message.body,
     isImportant: message.isImportant,
+    imageDataUrl: message.imageDataUrl,
+    imageName: message.imageName,
     createdAt: message.createdAt.toISOString(),
     senderTeamNumber: message.senderTeam.teamNumber,
   };
