@@ -17,6 +17,7 @@ export interface CreateRoundData {
   buyInPerPlayer: number;
   visibility: VisibilityMode;
   blindRevealMode?: BlindRevealMode;
+  formatConfig?: Record<string, unknown>;
 }
 
 export interface UpdateRoundDraftData {
@@ -60,6 +61,7 @@ export async function createRound(data: CreateRoundData) {
       buyInPerPlayer: new Decimal(data.buyInPerPlayer),
       visibility: data.visibility,
       blindRevealMode: data.blindRevealMode ?? "REVEAL_AFTER_ROUND",
+      formatConfig: data.formatConfig ?? null,
       status: "DRAFT",
     },
     include: {

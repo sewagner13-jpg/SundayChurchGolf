@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { FORMAT_DEFINITIONS } from "../src/lib/format-definitions";
 
 const prisma = new PrismaClient();
 
@@ -66,24 +67,23 @@ async function main() {
     console.log("Timberlake Country Club updated.");
   }
 
-  // Seed Sunday Church Scramble Skins format (idempotent)
-  const existingFormat = await prisma.format.findUnique({
-    where: { name: "Sunday Church Scramble Skins" },
-  });
-
-  if (!existingFormat) {
-    console.log("Creating Sunday Church Scramble Skins format...");
-    await prisma.format.create({
-      data: {
-        name: "Sunday Church Scramble Skins",
-        description:
-          "Scramble tee-to-green. All players putt out. The recorded score is the total strokes under par made on the hole. If the team scores par or worse, record an X. Par and worse cannot win skins.",
+  // Seed all 14 formats from FORMAT_DEFINITIONS (idempotent via upsert)
+  console.log(`Seeding ${FORMAT_DEFINITIONS.length} formats...`);
+  for (const def of FORMAT_DEFINITIONS) {
+    await prisma.format.upsert({
+      where: { name: def.name },
+      update: {
+        description: def.gameDescription,
+        defaultTeamSize: def.defaultTeamSize,
+      },
+      create: {
+        name: def.name,
+        description: def.gameDescription,
+        defaultTeamSize: def.defaultTeamSize,
       },
     });
-    console.log("Sunday Church Scramble Skins format created.");
-  } else {
-    console.log("Sunday Church Scramble Skins format already exists.");
   }
+  console.log("All formats seeded.");
 
   console.log("Seeding complete.");
 }
