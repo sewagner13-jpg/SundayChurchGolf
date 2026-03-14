@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client'
+import { FORMAT_DEFINITIONS } from '../lib/format-definitions'
 
 const prisma = new PrismaClient()
 
@@ -26,18 +27,24 @@ const timberlakeCourseData = [
 async function main() {
   console.log('Starting seed...')
 
-  // Create default format
-  const defaultFormat = await prisma.format.upsert({
-    where: { id: 'default-sunday-church' },
-    update: {},
-    create: {
-      id: 'default-sunday-church',
-      name: 'Sunday Church Scramble Skins',
-      description: 'Scramble tee-to-green, all players putt out, score is total under-par makes',
-      defaultTeamSize: 4,
-    },
-  })
-  console.log('Created format:', defaultFormat.name)
+  // Seed all formats from the format definitions catalog
+  for (const def of FORMAT_DEFINITIONS) {
+    const format = await prisma.format.upsert({
+      where: { id: def.id },
+      update: {
+        name: def.name,
+        description: def.gameDescription,
+        defaultTeamSize: def.defaultTeamSize,
+      },
+      create: {
+        id: def.id,
+        name: def.name,
+        description: def.gameDescription,
+        defaultTeamSize: def.defaultTeamSize,
+      },
+    })
+    console.log('Upserted format:', format.name)
+  }
 
   // Create Timberlake Country Club
   const timberlake = await prisma.course.upsert({

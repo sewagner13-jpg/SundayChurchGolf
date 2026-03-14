@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { saveRoundResults } from '@/lib/game-logic'
+import { FORMAT_MAP } from '@/lib/format-definitions'
 
 export async function GET(
   request: NextRequest,
@@ -44,7 +45,23 @@ export async function GET(
       return NextResponse.json({ error: 'Round not found' }, { status: 404 })
     }
 
-    return NextResponse.json(round)
+    // Enrich the format with code-defined metadata
+    const def = FORMAT_MAP.get(round.format.id)
+    const enrichedRound = {
+      ...round,
+      format: {
+        ...round.format,
+        shortLabel: def?.shortLabel ?? round.format.name,
+        gameDescription: def?.gameDescription ?? round.format.description,
+        formatCategory: def?.formatCategory ?? 'skins',
+        requiresIndividualScores: def?.requiresIndividualScores ?? false,
+        requiresDesignatedPlayer: def?.requiresDesignatedPlayer ?? false,
+        requiresDriveTracking: def?.requiresDriveTracking ?? false,
+        configOptions: def?.configOptions ?? [],
+      },
+    }
+
+    return NextResponse.json(enrichedRound)
   } catch (error) {
     return NextResponse.json(
       { error: 'Failed to fetch round' },

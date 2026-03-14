@@ -1,13 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/auth-helpers'
+import { FORMAT_MAP, FORMAT_DEFINITIONS } from '@/lib/format-definitions'
 
 export async function GET() {
   try {
-    const formats = await prisma.format.findMany({
+    const dbFormats = await prisma.format.findMany({
       orderBy: { name: 'asc' },
     })
-    return NextResponse.json(formats)
+
+    // Merge DB records with code-defined metadata
+    const enriched = dbFormats.map((dbFmt) => {
+      const def = FORMAT_MAP.get(dbFmt.id)
+      return {
+        ...dbFmt,
+        shortLabel: def?.shortLabel ?? dbFmt.name.slice(0, 8),
+        gameDescription: def?.gameDescription ?? dbFmt.description,
+        formatCategory: def?.formatCategory ?? 'stroke',
+        supportedTeamSizes: def?.supportedTeamSizes ?? [dbFmt.defaultTeamSize],
+        configOptions: def?.configOptions ?? [],
+        requiresIndividualScores: def?.requiresIndividualScores ?? false,
+        requiresDesignatedPlayer: def?.requiresDesignatedPlayer ?? false,
+        requiresDriveTracking: def?.requiresDriveTracking ?? false,
+      }
+    })
+
+    return NextResponse.json(enriched)
   } catch (error) {
     return NextResponse.json(
       { error: 'Failed to fetch formats' },

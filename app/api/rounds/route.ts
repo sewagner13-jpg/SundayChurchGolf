@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { seasonId, courseId, formatId, date, buyInPerPlayer, teams } = body
+    const { seasonId, courseId, formatId, date, buyInPerPlayer, teams, formatConfig } = body
 
     if (!seasonId || !courseId || !formatId || !date || !teams) {
       return NextResponse.json(
@@ -65,6 +65,7 @@ export async function POST(request: NextRequest) {
         formatId,
         date: new Date(date),
         buyInPerPlayer: buyInPerPlayer || 30,
+        formatConfig: formatConfig ?? null,
         teams: {
           create: teams.map((team: any) => ({
             name: team.name,
