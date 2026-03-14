@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  compute1BestBall,
   compute2BestBalls,
   computeFormatScore,
   computeMoneyBall,
@@ -23,6 +24,12 @@ test("compute2BestBalls counts the two lowest gross scores", () => {
   assert.deepEqual(result.countedPlayerIds, ["p1", "p2"]);
 });
 
+test("compute1BestBall counts only the lowest gross score", () => {
+  const result = compute1BestBall(samplePlayers);
+  assert.equal(result.teamGrossScore, 4);
+  assert.deepEqual(result.countedPlayerIds, ["p1"]);
+});
+
 test("computeMoneyBall applies penalty only to the money ball total", () => {
   const result = computeMoneyBall(samplePlayers, "p1", true, 4);
   assert.equal(result.teamGrossScore, 9);
@@ -41,6 +48,17 @@ test("computeFormatScore supports Vegas team numbers", () => {
   assert.ok(result);
   assert.equal(result?.teamGrossScore, 45);
   assert.equal(result?.teamDisplayScore, "45");
+});
+
+test("computeFormatScore supports 1 Best Ball of 4", () => {
+  const result = computeFormatScore(
+    "one_best_ball_of_four",
+    samplePlayers,
+    1,
+    4
+  );
+  assert.ok(result);
+  assert.equal(result?.teamGrossScore, 4);
 });
 
 test("computeVegasMatchRound carries points on ties when enabled", () => {

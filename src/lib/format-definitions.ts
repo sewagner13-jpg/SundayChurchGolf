@@ -76,6 +76,20 @@ export const FORMAT_DEFINITIONS: FormatDefinition[] = [
     requiresDriveTracking: true,
   },
   {
+    id: 'one_best_ball_of_four',
+    name: '1 Best Ball of 4',
+    shortLabel: '1BB',
+    gameDescription:
+      'Each player plays their own ball for the entire hole. At the end of the hole, only the single lowest individual score from the team counts as the team score. This is the simplest best-ball team format and heavily rewards one great score each hole.',
+    formatCategory: 'stroke',
+    defaultTeamSize: 4,
+    supportedTeamSizes: [4],
+    configOptions: [],
+    requiresIndividualScores: true,
+    requiresDesignatedPlayer: false,
+    requiresDriveTracking: false,
+  },
+  {
     id: 'two_best_balls_of_four',
     name: '2 Best Balls of 4',
     shortLabel: '2BB',
@@ -331,6 +345,7 @@ export function getFormatById(id: string): FormatDefinition | undefined {
 
 /** IDs for formats that can be used as Irish Golf 6-6-6 segments */
 export const IRISH_GOLF_ELIGIBLE_SEGMENT_FORMATS = [
+  'one_best_ball_of_four',
   'two_best_balls_of_four',
   'three_best_balls_of_four',
   'lone_ranger',

@@ -107,6 +107,16 @@ export function compute2BestBalls(players: PlayerInput[]): ScoringResult {
   };
 }
 
+export function compute1BestBall(players: PlayerInput[]): ScoringResult {
+  const counted = rankedValidScores(players).slice(0, 1);
+  return {
+    teamGrossScore:
+      counted.length === 1 ? counted.reduce((sum, player) => sum + player.score, 0) : null,
+    countedPlayerIds: counted.map((player) => player.playerId),
+    extraData: {},
+  };
+}
+
 export function compute3BestBalls(players: PlayerInput[]): ScoringResult {
   const counted = rankedValidScores(players).slice(0, 3);
   return {
@@ -577,6 +587,8 @@ export function computeFormatScore(
         (holeMetadata.partnerPlayerId as string | null | undefined) ?? null;
       return computeWolfTeam(players, designatedPlayerId, partnerPlayerId);
     }
+    case "one_best_ball_of_four":
+      return compute1BestBall(players);
     case "two_best_balls_of_four":
       return compute2BestBalls(players);
     case "three_best_balls_of_four":
