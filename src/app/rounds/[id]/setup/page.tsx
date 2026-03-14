@@ -6,7 +6,13 @@ import { Button } from "@/components/button";
 import { Card, CardHeader, CardContent } from "@/components/card";
 import { Select } from "@/components/select";
 import { Modal, ConfirmModal } from "@/components/modal";
-import { getRound, setRoundPlayers, startRound, deleteRound } from "@/actions/rounds";
+import {
+  getRound,
+  setRoundPlayers,
+  startRound,
+  deleteRound,
+  updateRoundDraft,
+} from "@/actions/rounds";
 import { generateTeams, swapTeamMembers, getTeamsWithMissingHandicaps, lockTeams, unlockTeams, getTeamLockStatus, getTeammateHistoryForRound } from "@/actions/teams";
 interface Player {
   id: string;
@@ -35,6 +41,8 @@ interface Round {
   status: string;
   teamSize: number | null;
   teamMode: string | null;
+  formatId?: string;
+  formatConfig?: Record<string, unknown> | null;
   course: { name: string };
   format: { name: string };
   date: Date;
@@ -49,6 +57,11 @@ interface PriorWeekTeammateHistory {
     string,
     { playerId: string; name: string }[]
   >;
+}
+
+interface VegasMatchup {
+  teamId: string;
+  opponentTeamId: string;
 }
 
 export default function RoundSetupPage({
@@ -84,6 +97,7 @@ export default function RoundSetupPage({
       previousRoundDate: null,
       teammatesByPlayerId: {},
     });
+  const [vegasMatchups, setVegasMatchups] = useState<Record<string, string>>({});
 
   useEffect(() => {
     loadData();
@@ -137,6 +151,35 @@ export default function RoundSetupPage({
         if (roundData.teamSize) setTeamSize(String(roundData.teamSize));
         if (roundData.teamMode)
           setTeamMode(roundData.teamMode as "RANDOM" | "BALANCED");
+      } else if (roundData.format?.name === "Vegas") {
+        setTeamSize("2");
+      }
+
+      const existingMatchups =
+        ((roundData.formatConfig as { vegasMatchups?: VegasMatchup[] } | null)
+          ?.vegasMatchups ?? []) as VegasMatchup[];
+      if (existingMatchups.length > 0) {
+        setVegasMatchups(
+          Object.fromEntries(
+            existingMatchups.map((matchup) => [
+              matchup.teamId,
+              matchup.opponentTeamId,
+            ])
+          )
+        );
+      } else if (roundData.format?.name === "Vegas" && roundData.teams.length > 0) {
+        const defaultMatchups: Record<string, string> = {};
+        for (let index = 0; index < roundData.teams.length; index += 2) {
+          const team = roundData.teams[index];
+          const opponent = roundData.teams[index + 1];
+          if (team && opponent) {
+            defaultMatchups[team.id] = opponent.id;
+            defaultMatchups[opponent.id] = team.id;
+          }
+        }
+        setVegasMatchups(defaultMatchups);
+      } else {
+        setVegasMatchups({});
       }
 
       // Check for missing handicaps
@@ -197,7 +240,7 @@ export default function RoundSetupPage({
   };
 
   const handleGenerateTeams = async () => {
-    const size = Number(teamSize);
+    const size = isVegasRound ? 2 : Number(teamSize);
     console.log("Generate teams called:", { size, selectedCount: selectedPlayerIds.size, teamMode });
 
     if (selectedPlayerIds.size % size !== 0) {
@@ -258,6 +301,12 @@ export default function RoundSetupPage({
     setActionLoading(true);
     setError(null);
     try {
+      if (isVegasRound) {
+        if (!hasValidVegasMatchups) {
+          throw new Error("Select an opponent for every Vegas team before starting");
+        }
+        await saveVegasMatchups();
+      }
       await startRound(id, startingHole);
       router.push(`/rounds/${id}/scoring`);
     } catch (err) {
@@ -319,6 +368,73 @@ export default function RoundSetupPage({
         <Button onClick={() => router.push("/")}>Go Home</Button>
       </div>
     );
+  }
+
+  const currentRound = round;
+  const isVegasRound = currentRound.format.name === "Vegas";
+
+  const setVegasOpponent = (teamId: string, opponentTeamId: string) => {
+    setVegasMatchups((current) => {
+      const next = { ...current };
+      const previousOpponentId = next[teamId];
+      if (!opponentTeamId) {
+        delete next[teamId];
+        if (previousOpponentId) {
+          delete next[previousOpponentId];
+        }
+        return next;
+      }
+      const displacedTeamId = Object.entries(next).find(
+        ([currentTeamId, currentOpponentId]) =>
+          currentTeamId !== teamId && currentOpponentId === opponentTeamId
+      )?.[0];
+
+      next[teamId] = opponentTeamId;
+      next[opponentTeamId] = teamId;
+
+      if (previousOpponentId && previousOpponentId !== opponentTeamId) {
+        delete next[previousOpponentId];
+      }
+
+      if (
+        displacedTeamId &&
+        displacedTeamId !== opponentTeamId &&
+        displacedTeamId !== teamId
+      ) {
+        delete next[displacedTeamId];
+      }
+
+      return next;
+    });
+  };
+
+  const buildVegasMatchupEntries = (): VegasMatchup[] =>
+    currentRound.teams.map((team) => ({
+      teamId: team.id,
+      opponentTeamId: vegasMatchups[team.id] ?? "",
+    }));
+
+  const hasValidVegasMatchups =
+    !isVegasRound ||
+    (currentRound.teams.length > 0 &&
+      currentRound.teams.every((team) => {
+        const opponentTeamId = vegasMatchups[team.id];
+        return (
+          !!opponentTeamId &&
+          opponentTeamId !== team.id &&
+          vegasMatchups[opponentTeamId] === team.id
+        );
+      }));
+
+  async function saveVegasMatchups() {
+    if (!isVegasRound) return;
+
+    await updateRoundDraft(id, {
+      formatConfig: {
+        ...(currentRound.formatConfig ?? {}),
+        vegasMatchups: buildVegasMatchupEntries(),
+      },
+    });
   }
 
   const formatDate = (date: Date) =>
@@ -462,12 +578,19 @@ export default function RoundSetupPage({
                   label="Team Size"
                   value={teamSize}
                   onChange={(e) => setTeamSize(e.target.value)}
+                  disabled={isVegasRound}
                   options={[
                     { value: "2", label: "2 players per team" },
                     { value: "3", label: "3 players per team" },
                     { value: "4", label: "4 players per team" },
                   ]}
                 />
+
+                {isVegasRound && (
+                  <p className="text-sm text-amber-700">
+                    Vegas requires 2-player teams.
+                  </p>
+                )}
 
                 <Select
                   label="Team Mode"
@@ -651,10 +774,73 @@ export default function RoundSetupPage({
                 })}
               </div>
 
+              {isVegasRound && (
+                <Card>
+                  <CardHeader>Vegas Matchups</CardHeader>
+                  <CardContent className="space-y-3">
+                    <p className="text-sm text-gray-600">
+                      Choose the opponent for each team. Pairings must be reciprocal before the round can start.
+                    </p>
+                    {round.teams.map((team) => (
+                      <Select
+                        key={team.id}
+                        label={`Team ${team.teamNumber} opponent`}
+                        value={vegasMatchups[team.id] ?? ""}
+                        onChange={(e) =>
+                          setVegasOpponent(team.id, e.target.value)
+                        }
+                        options={[
+                          { value: "", label: "Select opponent" },
+                          ...round.teams
+                            .filter((candidate) => candidate.id !== team.id)
+                            .map((candidate) => ({
+                              value: candidate.id,
+                              label: `Team ${candidate.teamNumber}`,
+                            })),
+                        ]}
+                        disabled={isLocked || actionLoading}
+                      />
+                    ))}
+                    {!hasValidVegasMatchups && (
+                      <p className="text-sm text-red-600">
+                        Every team must be paired with exactly one opposing team.
+                      </p>
+                    )}
+                    <Button
+                      variant="secondary"
+                      onClick={async () => {
+                        setActionLoading(true);
+                        setError(null);
+                        try {
+                          if (!hasValidVegasMatchups) {
+                            throw new Error(
+                              "Every team must be paired with exactly one opponent"
+                            );
+                          }
+                          await saveVegasMatchups();
+                          await loadData();
+                        } catch (err) {
+                          setError(
+                            err instanceof Error
+                              ? err.message
+                              : "Failed to save Vegas matchups"
+                          );
+                        }
+                        setActionLoading(false);
+                      }}
+                      disabled={isLocked || actionLoading || !hasValidVegasMatchups}
+                    >
+                      Save Matchups
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
+
               <Button
                 onClick={() => setShowStartModal(true)}
                 className="w-full"
                 size="lg"
+                disabled={isVegasRound && !hasValidVegasMatchups}
               >
                 Start Round
               </Button>

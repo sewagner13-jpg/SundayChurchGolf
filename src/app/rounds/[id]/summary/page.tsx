@@ -199,9 +199,27 @@ export default function RoundSummaryPage({
 
   if (!isSkins && playerScores.length > 0) {
     if (isVegasFormat) {
+      const matchupMap = new Map<string, string>(
+        (
+          (round.formatConfig as {
+            vegasMatchups?: Array<{ teamId: string; opponentTeamId: string }>;
+          } | null)?.vegasMatchups ?? []
+        ).map((matchup) => [matchup.teamId, matchup.opponentTeamId])
+      );
       const pairedTeams: Team[][] = [];
-      for (let index = 0; index < round.teams.length; index += 2) {
-        pairedTeams.push(round.teams.slice(index, index + 2));
+      const handledTeamIds = new Set<string>();
+
+      for (const team of round.teams) {
+        if (handledTeamIds.has(team.id)) continue;
+        const opponentTeamId = matchupMap.get(team.id);
+        const opponent = round.teams.find(
+          (candidate) => candidate.id === opponentTeamId
+        );
+        if (opponent) {
+          pairedTeams.push([team, opponent]);
+          handledTeamIds.add(team.id);
+          handledTeamIds.add(opponent.id);
+        }
       }
 
       for (const pair of pairedTeams) {

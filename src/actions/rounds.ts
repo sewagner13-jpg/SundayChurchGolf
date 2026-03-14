@@ -29,6 +29,7 @@ export interface UpdateRoundDraftData {
   buyInPerPlayer?: number;
   visibility?: VisibilityMode;
   blindRevealMode?: BlindRevealMode;
+  formatConfig?: Record<string, unknown>;
 }
 
 // Check if an active round (DRAFT or LIVE) exists
@@ -100,6 +101,11 @@ export async function updateRoundDraft(id: string, data: UpdateRoundDraftData) {
         : undefined,
       visibility: data.visibility,
       blindRevealMode: data.blindRevealMode,
+      formatConfig:
+        data.formatConfig === undefined
+          ? undefined
+          : ((data.formatConfig as Prisma.InputJsonValue | undefined) ??
+            Prisma.JsonNull),
     },
     include: {
       course: true,
@@ -311,6 +317,49 @@ export async function startRound(id: string, startingHole: 1 | 10) {
   }
   if (round.teams.length === 0) {
     throw new Error("Teams must be generated before starting");
+  }
+
+  if (round.formatId === "vegas") {
+    if (round.teamSize !== 2) {
+      throw new Error("Vegas requires teams of 2");
+    }
+
+    const vegasMatchups = (round.formatConfig as {
+      vegasMatchups?: Array<{ teamId: string; opponentTeamId: string }>;
+    } | null)?.vegasMatchups;
+
+    if (!vegasMatchups || vegasMatchups.length !== round.teams.length) {
+      throw new Error("Vegas requires explicit team matchups before starting");
+    }
+
+    const teamIds = new Set(round.teams.map((team) => team.id));
+    const seenTeams = new Set<string>();
+
+    for (const matchup of vegasMatchups) {
+      if (
+        !matchup.teamId ||
+        !matchup.opponentTeamId ||
+        matchup.teamId === matchup.opponentTeamId
+      ) {
+        throw new Error("Vegas matchups must pair each team with another team");
+      }
+      if (!teamIds.has(matchup.teamId) || !teamIds.has(matchup.opponentTeamId)) {
+        throw new Error("Vegas matchups include a team that is not in this round");
+      }
+      seenTeams.add(matchup.teamId);
+      const reverse = vegasMatchups.find(
+        (entry) =>
+          entry.teamId === matchup.opponentTeamId &&
+          entry.opponentTeamId === matchup.teamId
+      );
+      if (!reverse) {
+        throw new Error("Vegas matchups must be reciprocal");
+      }
+    }
+
+    if (seenTeams.size !== round.teams.length) {
+      throw new Error("Vegas matchups must include every team exactly once");
+    }
   }
 
   // Verify all players are assigned to teams
