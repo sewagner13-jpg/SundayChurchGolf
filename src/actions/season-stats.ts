@@ -139,7 +139,8 @@ export async function getLeaderboard(year: number) {
     return {
       playerId: s.playerId,
       playerName: s.player.nickname || s.player.fullName,
-      handicapIndex: s.player.handicapIndex ? Number(s.player.handicapIndex) : null,
+      handicapIndex:
+        s.player.handicapIndex !== null ? Number(s.player.handicapIndex) : null,
       totalWinnings,
       totalBuyInsPaid,
       netWinnings,

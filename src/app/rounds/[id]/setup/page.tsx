@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, use } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/button";
 import { Card, CardHeader, CardContent } from "@/components/card";
@@ -27,11 +28,13 @@ import {
   type Par3FundingType,
   type Par3PayoutTarget,
 } from "@/lib/par3-contests";
+import { isHandicapStale } from "@/lib/ghin";
 interface Player {
   id: string;
   fullName: string;
   nickname: string | null;
   handicapIndex: number | string | null;
+  lastVerifiedDate?: Date | string | null;
   isActive: boolean;
 }
 
@@ -39,6 +42,8 @@ interface RoundPlayer {
   id: string;
   playerId: string;
   teamId: string | null;
+  eventHandicapIndex?: number | null;
+  eventHandicapLockedAt?: Date | null;
   player: Player;
 }
 
@@ -402,6 +407,13 @@ export default function RoundSetupPage({
     .filter((hole) => hole.par === 3)
     .map((hole) => hole.holeNumber);
   const activePar3Contests = getActivePar3Contests(par3ContestConfig);
+  const staleRoundPlayers = currentRound.roundPlayers.filter((roundPlayer) =>
+    isHandicapStale(
+      roundPlayer.eventHandicapLockedAt
+        ? roundPlayer.eventHandicapLockedAt
+        : roundPlayer.player.lastVerifiedDate
+    )
+  );
 
   const setVegasOpponent = (teamId: string, opponentTeamId: string) => {
     setVegasMatchups((current) => {
@@ -517,6 +529,20 @@ export default function RoundSetupPage({
           <p className="text-sm text-gray-600">
             ${round.buyInPerPlayer} buy-in • {round.format.name}
           </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Link href={`/rounds/${id}/sunday-setup`}>
+              <Button variant="secondary" size="sm">
+                Sunday Setup
+              </Button>
+            </Link>
+            {staleRoundPlayers.length > 0 && (
+              <span className="text-sm text-amber-700">
+                {staleRoundPlayers.length} selected player
+                {staleRoundPlayers.length === 1 ? "" : "s"} still need handicap
+                verification.
+              </span>
+            )}
+          </div>
         </CardContent>
       </Card>
 

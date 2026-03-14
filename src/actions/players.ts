@@ -3,20 +3,41 @@
 import { prisma } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { Decimal } from "@prisma/client/runtime/library";
+import { isValidGHINNumber, normalizeGHINNumber } from "@/lib/ghin";
 
 export interface PlayerFormData {
   fullName: string;
   nickname?: string | null;
+  ghinNumber?: string | null;
+  ghinProfileUrl?: string | null;
   handicapIndex?: number | null;
 }
 
+function validateHandicapIndex(handicapIndex?: number | null) {
+  if (handicapIndex == null) return;
+  if (Number.isNaN(handicapIndex) || handicapIndex < -10 || handicapIndex > 54) {
+    throw new Error("Handicap index must be between -10 and 54");
+  }
+}
+
 export async function createPlayer(data: PlayerFormData) {
+  validateHandicapIndex(data.handicapIndex);
+  if (!isValidGHINNumber(data.ghinNumber)) {
+    throw new Error("GHIN number must contain only digits");
+  }
+
+  const normalizedGHINNumber = normalizeGHINNumber(data.ghinNumber);
+  const now = new Date();
   const player = await prisma.player.create({
     data: {
       fullName: data.fullName,
       nickname: data.nickname || null,
-      handicapIndex: data.handicapIndex ? new Decimal(data.handicapIndex) : null,
-      handicapLastUpdatedAt: data.handicapIndex ? new Date() : null,
+      ghinNumber: normalizedGHINNumber,
+      ghinProfileUrl: data.ghinProfileUrl?.trim() || null,
+      handicapIndex:
+        data.handicapIndex != null ? new Decimal(data.handicapIndex) : null,
+      handicapLastUpdatedAt: data.handicapIndex != null ? now : null,
+      lastVerifiedDate: data.handicapIndex != null ? now : null,
     },
   });
 
@@ -27,6 +48,10 @@ export async function createPlayer(data: PlayerFormData) {
 export async function updatePlayer(id: string, data: PlayerFormData) {
   const existing = await prisma.player.findUnique({ where: { id } });
   if (!existing) throw new Error("Player not found");
+  validateHandicapIndex(data.handicapIndex);
+  if (!isValidGHINNumber(data.ghinNumber)) {
+    throw new Error("GHIN number must contain only digits");
+  }
 
   // Check if handicap changed
   const handicapChanged =
@@ -39,13 +64,20 @@ export async function updatePlayer(id: string, data: PlayerFormData) {
     data: {
       fullName: data.fullName,
       nickname: data.nickname || null,
+      ghinNumber:
+        data.ghinNumber !== undefined ? normalizeGHINNumber(data.ghinNumber) : undefined,
+      ghinProfileUrl:
+        data.ghinProfileUrl !== undefined
+          ? data.ghinProfileUrl?.trim() || null
+          : undefined,
       handicapIndex:
         data.handicapIndex !== undefined
-          ? data.handicapIndex
+          ? data.handicapIndex != null
             ? new Decimal(data.handicapIndex)
             : null
           : undefined,
       handicapLastUpdatedAt: handicapChanged ? new Date() : undefined,
+      lastVerifiedDate: handicapChanged ? new Date() : undefined,
     },
   });
 
@@ -90,7 +122,7 @@ export async function listPlayers(includeInactive = false) {
   // Convert Decimal to number for client serialization
   return players.map((p) => ({
     ...p,
-    handicapIndex: p.handicapIndex ? Number(p.handicapIndex) : null,
+    handicapIndex: p.handicapIndex !== null ? Number(p.handicapIndex) : null,
   }));
 }
 

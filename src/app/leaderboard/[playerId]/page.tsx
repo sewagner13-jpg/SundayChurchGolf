@@ -4,6 +4,8 @@ import { getPlayerSeasonDetail, getAvailableYears } from "@/actions/season-stats
 import { getPlayer } from "@/actions/players";
 import { Card, CardHeader, CardContent } from "@/components/card";
 import { Button } from "@/components/button";
+import { GHINLinkButton } from "@/components/ghin-link-button";
+import { HandicapStatusBadge } from "@/components/handicap-status-badge";
 
 export const dynamic = "force-dynamic";
 
@@ -55,11 +57,23 @@ export default async function PlayerDetailPage({
           {playerData.nickname && (
             <p className="text-gray-600">{playerData.fullName}</p>
           )}
-          {playerData.handicapIndex && (
+          {playerData.handicapIndex != null && (
             <p className="text-sm text-gray-500 mt-1">
               Handicap: {playerData.handicapIndex.toString()}
             </p>
           )}
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {playerData.ghinNumber && (
+              <span className="text-sm text-gray-500">
+                GHIN #{playerData.ghinNumber}
+              </span>
+            )}
+            <HandicapStatusBadge lastVerifiedDate={playerData.lastVerifiedDate} />
+            <GHINLinkButton
+              ghinNumber={playerData.ghinNumber}
+              ghinProfileUrl={playerData.ghinProfileUrl}
+            />
+          </div>
         </CardContent>
       </Card>
 

@@ -5,6 +5,9 @@ import { Button } from "@/components/button";
 import { Card, CardHeader, CardContent } from "@/components/card";
 import { Input } from "@/components/input";
 import { Modal, ConfirmModal } from "@/components/modal";
+import { GHINLinkButton } from "@/components/ghin-link-button";
+import { HandicapStatusBadge } from "@/components/handicap-status-badge";
+import { HandicapRefreshModal } from "@/components/handicap-refresh-modal";
 import {
   createPlayer,
   updatePlayer,
@@ -16,8 +19,12 @@ interface Player {
   id: string;
   fullName: string;
   nickname: string | null;
+  ghinNumber: string | null;
+  ghinProfileUrl: string | null;
   handicapIndex: number | null;
-  handicapLastUpdatedAt: Date | null;
+  handicapLastUpdatedAt: Date | string | null;
+  lastVerifiedDate: Date | string | null;
+  handicapSource: string | null;
   isActive: boolean;
 }
 
@@ -32,8 +39,11 @@ export default function PlayersPage() {
   // Form state
   const [fullName, setFullName] = useState("");
   const [nickname, setNickname] = useState("");
+  const [ghinNumber, setGHINNumber] = useState("");
+  const [ghinProfileUrl, setGHINProfileUrl] = useState("");
   const [handicapIndex, setHandicapIndex] = useState("");
   const [formLoading, setFormLoading] = useState(false);
+  const [refreshingPlayer, setRefreshingPlayer] = useState<Player | null>(null);
 
   useEffect(() => {
     loadPlayers();
@@ -54,6 +64,8 @@ export default function PlayersPage() {
     setEditingPlayer(null);
     setFullName("");
     setNickname("");
+    setGHINNumber("");
+    setGHINProfileUrl("");
     setHandicapIndex("");
     setShowModal(true);
     setError(null);
@@ -63,6 +75,8 @@ export default function PlayersPage() {
     setEditingPlayer(player);
     setFullName(player.fullName);
     setNickname(player.nickname || "");
+    setGHINNumber(player.ghinNumber || "");
+    setGHINProfileUrl(player.ghinProfileUrl || "");
     setHandicapIndex(player.handicapIndex != null ? String(player.handicapIndex) : "");
     setShowModal(true);
     setError(null);
@@ -80,7 +94,9 @@ export default function PlayersPage() {
       const data = {
         fullName: fullName.trim(),
         nickname: nickname.trim() || null,
-        handicapIndex: handicapIndex ? parseFloat(handicapIndex) : null,
+        ghinNumber: ghinNumber.trim() || null,
+        ghinProfileUrl: ghinProfileUrl.trim() || null,
+        handicapIndex: handicapIndex === "" ? null : parseFloat(handicapIndex),
       };
 
       if (editingPlayer) {
@@ -164,6 +180,10 @@ export default function PlayersPage() {
                     {player.nickname && (
                       <p className="text-xs text-gray-500">{player.fullName}</p>
                     )}
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                      {player.ghinNumber && <span>GHIN #{player.ghinNumber}</span>}
+                      <HandicapStatusBadge lastVerifiedDate={player.lastVerifiedDate} />
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-gray-500">
@@ -171,6 +191,17 @@ export default function PlayersPage() {
                         ? `${player.handicapIndex} HCP`
                         : "-"}
                     </span>
+                    <GHINLinkButton
+                      ghinNumber={player.ghinNumber}
+                      ghinProfileUrl={player.ghinProfileUrl}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setRefreshingPlayer(player)}
+                    >
+                      Refresh
+                    </Button>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -245,6 +276,20 @@ export default function PlayersPage() {
             placeholder="Display name (optional)"
           />
           <Input
+            label="GHIN Number"
+            inputMode="numeric"
+            value={ghinNumber}
+            onChange={(e) => setGHINNumber(e.target.value.replace(/\D/g, ""))}
+            placeholder="Digits only"
+          />
+          <Input
+            label="GHIN Profile URL"
+            type="url"
+            value={ghinProfileUrl}
+            onChange={(e) => setGHINProfileUrl(e.target.value)}
+            placeholder="Optional direct GHIN profile link"
+          />
+          <Input
             label="Handicap Index"
             type="number"
             step="0.1"
@@ -281,6 +326,16 @@ export default function PlayersPage() {
         }? This cannot be undone.`}
         confirmText="Delete"
         confirmVariant="danger"
+      />
+
+      <HandicapRefreshModal
+        isOpen={!!refreshingPlayer}
+        player={refreshingPlayer}
+        onClose={() => setRefreshingPlayer(null)}
+        onSaved={async () => {
+          setRefreshingPlayer(null);
+          await loadPlayers();
+        }}
       />
     </div>
   );

@@ -312,7 +312,7 @@ export async function startRound(id: string, startingHole: 1 | 10) {
     where: { id },
     include: {
       teams: { include: { roundPlayers: true } },
-      roundPlayers: true,
+      roundPlayers: { include: { player: true } },
     },
   });
 
@@ -398,6 +398,23 @@ export async function startRound(id: string, startingHole: 1 | 10) {
 
   const pot = round.buyInPerPlayer.mul(playerCount).sub(includedPar3Pot);
   const baseSkinValue = pot.div(18);
+
+  await prisma.$transaction(
+    round.roundPlayers
+      .filter((roundPlayer) => roundPlayer.eventHandicapLockedAt === null)
+      .map((roundPlayer) =>
+        prisma.roundPlayer.update({
+          where: { id: roundPlayer.id },
+          data: {
+            eventHandicapIndex:
+              roundPlayer.player.handicapIndex === null
+                ? null
+                : new Decimal(roundPlayer.player.handicapIndex),
+            eventHandicapLockedAt: new Date(),
+          },
+        })
+      )
+  );
 
   // Update round to LIVE
   const updated = await prisma.round.update({
@@ -517,7 +534,7 @@ export async function getRound(id: string) {
   // Helper to convert player Decimal fields
   const serializePlayer = (player: typeof round.roundPlayers[0]["player"]) => ({
     ...player,
-    handicapIndex: player.handicapIndex ? Number(player.handicapIndex) : null,
+    handicapIndex: player.handicapIndex !== null ? Number(player.handicapIndex) : null,
   });
 
   // Convert Decimal values to numbers for client-side serialization
@@ -537,6 +554,8 @@ export async function getRound(id: string) {
     })),
     roundPlayers: round.roundPlayers.map((rp) => ({
       ...rp,
+      eventHandicapIndex:
+        rp.eventHandicapIndex !== null ? Number(rp.eventHandicapIndex) : null,
       payoutAmount: Number(rp.payoutAmount),
       player: serializePlayer(rp.player),
     })),

@@ -42,8 +42,12 @@ model Player {
   id                     String   @id @default(cuid())
   fullName               String
   nickname               String?
+  ghinNumber             String?
+  ghinProfileUrl         String?
   handicapIndex          Decimal? @db.Decimal(4, 1)
   handicapLastUpdatedAt  DateTime?
+  lastVerifiedDate       DateTime?
+  handicapSource         String?
   isActive               Boolean  @default(true)
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
@@ -182,6 +186,8 @@ model RoundPlayer {
   roundId             String
   playerId            String
   teamId              String?
+  eventHandicapIndex  Decimal? @db.Decimal(4, 1)
+  eventHandicapLockedAt DateTime?
   payoutAmount        Decimal  @default(0) @db.Decimal(10, 2)
   wasOnTopPayingTeam  Boolean  @default(false)
   createdAt           DateTime @default(now())
