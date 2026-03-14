@@ -25,7 +25,10 @@ import {
   markTeamFinished,
 } from "@/actions/scoring";
 import { FORMAT_DEFINITIONS } from "@/lib/format-definitions";
-import { getIrishGolfSegmentFormatId } from "@/lib/format-scoring";
+import {
+  getIrishGolfSegmentFormatId,
+  getMinimumScoresRequired,
+} from "@/lib/format-scoring";
 import { getScoringOrder } from "@/lib/scoring-order";
 import { HoleEntryType } from "@prisma/client";
 
@@ -389,6 +392,9 @@ export default function LiveScoringPage({
     : null;
   const usesIndividualScores = !!effectiveFormat?.requiresIndividualScores;
   const usesDriveTracking = !!effectiveFormat?.requiresDriveTracking;
+  const minimumScoresRequired = effectiveFormat
+    ? getMinimumScoresRequired(effectiveFormat.id)
+    : null;
   const designatedPlayer =
     myTeamId && round && effectiveFormat?.requiresDesignatedPlayer
       ? round.teams
@@ -480,7 +486,19 @@ export default function LiveScoringPage({
       return;
     }
 
-    if (playerInputs.some((input) => input.grossScore.trim() === "")) {
+    if (minimumScoresRequired !== null) {
+      const enteredScores = playerInputs.filter(
+        (input) => input.grossScore.trim() !== ""
+      ).length;
+      if (enteredScores < minimumScoresRequired) {
+        setError(
+          `Enter at least ${minimumScoresRequired} score${
+            minimumScoresRequired === 1 ? "" : "s"
+          } for this format. Blank scores will be treated as higher than the counted scores.`
+        );
+        return;
+      }
+    } else if (playerInputs.some((input) => input.grossScore.trim() === "")) {
       setError("Enter a gross score for every player on your team.");
       return;
     }
@@ -951,6 +969,14 @@ export default function LiveScoringPage({
                     {designatedPlayer.player.nickname ||
                       designatedPlayer.player.fullName}
                   </strong>
+                </div>
+              )}
+
+              {minimumScoresRequired !== null && (
+                <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                  Enter at least {minimumScoresRequired} counting score
+                  {minimumScoresRequired === 1 ? "" : "s"}. Any blank player score is
+                  treated as worse than the counted score{minimumScoresRequired === 1 ? "" : "s"}.
                 </div>
               )}
 

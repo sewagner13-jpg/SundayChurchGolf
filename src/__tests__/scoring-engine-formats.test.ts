@@ -7,6 +7,7 @@ import {
   computeMoneyBall,
   computeTrainGame,
   computeVegasMatchRound,
+  getMinimumScoresRequired,
   getIrishGolfSegmentFormatId,
   type PlayerInput,
 } from "@/lib/format-scoring";
@@ -24,10 +25,32 @@ test("compute2BestBalls counts the two lowest gross scores", () => {
   assert.deepEqual(result.countedPlayerIds, ["p1", "p2"]);
 });
 
+test("compute2BestBalls credits ties at the cutoff to both players", () => {
+  const result = compute2BestBalls([
+    { playerId: "p1", playerName: "One", grossScore: 4 },
+    { playerId: "p2", playerName: "Two", grossScore: 5 },
+    { playerId: "p3", playerName: "Three", grossScore: 5 },
+    { playerId: "p4", playerName: "Four", grossScore: null },
+  ]);
+  assert.equal(result.teamGrossScore, 9);
+  assert.deepEqual(result.countedPlayerIds, ["p1", "p2", "p3"]);
+});
+
 test("compute1BestBall counts only the lowest gross score", () => {
   const result = compute1BestBall(samplePlayers);
   assert.equal(result.teamGrossScore, 4);
   assert.deepEqual(result.countedPlayerIds, ["p1"]);
+});
+
+test("best ball formats only require the counted number of scores", () => {
+  const result = compute2BestBalls([
+    { playerId: "p1", playerName: "One", grossScore: 4 },
+    { playerId: "p2", playerName: "Two", grossScore: 5 },
+    { playerId: "p3", playerName: "Three", grossScore: null },
+    { playerId: "p4", playerName: "Four", grossScore: null },
+  ]);
+  assert.equal(result.teamGrossScore, 9);
+  assert.equal(getMinimumScoresRequired("two_best_balls_of_four"), 2);
 });
 
 test("computeMoneyBall applies penalty only to the money ball total", () => {

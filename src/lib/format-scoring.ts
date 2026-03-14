@@ -97,34 +97,60 @@ function rankedValidScores(
     .sort((a, b) => a.score - b.score);
 }
 
-export function compute2BestBalls(players: PlayerInput[]): ScoringResult {
-  const counted = rankedValidScores(players).slice(0, 2);
+function computeBestBallScores(
+  players: PlayerInput[],
+  count: number
+): ScoringResult {
+  const ranked = rankedValidScores(players);
+  const counted = ranked.slice(0, count);
+
+  if (counted.length < count) {
+    return {
+      teamGrossScore: null,
+      countedPlayerIds: [],
+      extraData: { requiredScores: count },
+    };
+  }
+
+  const cutoffScore = counted[count - 1].score;
+  const creditedPlayerIds = ranked
+    .filter((player) => player.score <= cutoffScore)
+    .map((player) => player.playerId);
+
   return {
-    teamGrossScore:
-      counted.length === 2 ? counted.reduce((sum, player) => sum + player.score, 0) : null,
-    countedPlayerIds: counted.map((player) => player.playerId),
-    extraData: {},
+    teamGrossScore: counted.reduce((sum, player) => sum + player.score, 0),
+    countedPlayerIds: creditedPlayerIds,
+    extraData: {
+      requiredScores: count,
+      cutoffScore,
+      creditedPlayerIds,
+    },
   };
+}
+
+export function compute2BestBalls(players: PlayerInput[]): ScoringResult {
+  return computeBestBallScores(players, 2);
 }
 
 export function compute1BestBall(players: PlayerInput[]): ScoringResult {
-  const counted = rankedValidScores(players).slice(0, 1);
-  return {
-    teamGrossScore:
-      counted.length === 1 ? counted.reduce((sum, player) => sum + player.score, 0) : null,
-    countedPlayerIds: counted.map((player) => player.playerId),
-    extraData: {},
-  };
+  return computeBestBallScores(players, 1);
 }
 
 export function compute3BestBalls(players: PlayerInput[]): ScoringResult {
-  const counted = rankedValidScores(players).slice(0, 3);
-  return {
-    teamGrossScore:
-      counted.length === 3 ? counted.reduce((sum, player) => sum + player.score, 0) : null,
-    countedPlayerIds: counted.map((player) => player.playerId),
-    extraData: {},
-  };
+  return computeBestBallScores(players, 3);
+}
+
+export function getMinimumScoresRequired(formatId: string): number | null {
+  switch (formatId) {
+    case "one_best_ball_of_four":
+      return 1;
+    case "two_best_balls_of_four":
+      return 2;
+    case "three_best_balls_of_four":
+      return 3;
+    default:
+      return null;
+  }
 }
 
 export function computeLoneRanger(

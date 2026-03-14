@@ -14,6 +14,7 @@ import { FORMAT_DEFINITIONS } from "@/lib/format-definitions";
 import {
   computeFormatScore,
   computeVegasMatchRound,
+  getMinimumScoresRequired,
   getIrishGolfSegmentFormatId,
   type PlayerInput,
 } from "@/lib/format-scoring";
@@ -180,6 +181,8 @@ export default function RoundSummaryPage({
     formatDef?.formatCategory === "match";
   const isMoneyBallFormat = formatDef?.id === "money_ball";
   const isVegasFormat = formatDef?.id === "vegas";
+  const isBestBallFormat =
+    !!formatDef && getMinimumScoresRequired(formatDef.id) !== null;
 
   interface TeamTotal {
     total: number | null;
@@ -368,6 +371,52 @@ export default function RoundSummaryPage({
     holeScoresMap.set(`${hs.teamId}-${hs.holeNumber}`, hs);
   });
 
+  const countedScoreUsage = new Map<string, number>();
+  if (!isSkins && isBestBallFormat && playerScores.length > 0) {
+    for (const score of playerScores) {
+      countedScoreUsage.set(score.playerId, 0);
+    }
+
+    for (const hole of round.course.holes) {
+      for (const team of round.teams) {
+        const teamPs = playerScores.filter(
+          (ps) => ps.teamId === team.id && ps.holeNumber === hole.holeNumber
+        );
+        const players: PlayerInput[] = team.roundPlayers.map((rp) => {
+          const ps = teamPs.find((s) => s.playerId === rp.playerId);
+          return {
+            playerId: rp.playerId,
+            playerName: rp.player.fullName,
+            grossScore: ps?.grossScore ?? null,
+          };
+        });
+
+        const effectiveFormatId =
+          formatDef?.id === "irish_golf_6_6_6"
+            ? getIrishGolfSegmentFormatId(hole.holeNumber, round.formatConfig ?? {}) ??
+              formatDef.id
+            : (formatDef?.id ?? "");
+
+        if (getMinimumScoresRequired(effectiveFormatId) === null) {
+          continue;
+        }
+
+        const result = computeFormatScore(
+          effectiveFormatId,
+          players,
+          hole.holeNumber,
+          hole.par,
+          {},
+          round.formatConfig ?? {}
+        );
+
+        result?.countedPlayerIds.forEach((playerId) => {
+          countedScoreUsage.set(playerId, (countedScoreUsage.get(playerId) ?? 0) + 1);
+        });
+      }
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -524,6 +573,38 @@ export default function RoundSummaryPage({
                 </tbody>
               </table>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {!isSkins && isBestBallFormat && countedScoreUsage.size > 0 && (
+        <Card>
+          <CardHeader>Counted Score Usage</CardHeader>
+          <CardContent className="space-y-2">
+            {round.roundPlayers
+              .slice()
+              .sort(
+                (a, b) =>
+                  (countedScoreUsage.get(b.playerId) ?? 0) -
+                  (countedScoreUsage.get(a.playerId) ?? 0)
+              )
+              .map((roundPlayer) => (
+                <div
+                  key={roundPlayer.id}
+                  className="flex items-center justify-between rounded-lg border border-gray-200 p-3"
+                >
+                  <span className="font-medium">
+                    {roundPlayer.player.nickname || roundPlayer.player.fullName}
+                  </span>
+                  <span className="text-sm text-gray-600">
+                    Counted on {countedScoreUsage.get(roundPlayer.playerId) ?? 0} hole
+                    {(countedScoreUsage.get(roundPlayer.playerId) ?? 0) === 1 ? "" : "s"}
+                  </span>
+                </div>
+              ))}
+            <p className="text-xs text-gray-500">
+              Tied scores at the counting cutoff credit every tied player.
+            </p>
           </CardContent>
         </Card>
       )}
