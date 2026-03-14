@@ -4,6 +4,7 @@ import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/button";
 import { Card, CardHeader, CardContent } from "@/components/card";
+import { Input } from "@/components/input";
 import { Select } from "@/components/select";
 import { Modal, ConfirmModal } from "@/components/modal";
 import {
@@ -14,6 +15,18 @@ import {
   updateRoundDraft,
 } from "@/actions/rounds";
 import { generateTeams, swapTeamMembers, getTeamsWithMissingHandicaps, lockTeams, unlockTeams, getTeamLockStatus, getTeammateHistoryForRound } from "@/actions/teams";
+import {
+  PAR3_CONTEST_TYPE_OPTIONS,
+  PAR3_FUNDING_OPTIONS,
+  PAR3_PAYOUT_TARGET_OPTIONS,
+  createDefaultPar3ContestConfig,
+  getActivePar3Contests,
+  getPar3ContestConfig,
+  type Par3ContestConfig,
+  type Par3ContestType,
+  type Par3FundingType,
+  type Par3PayoutTarget,
+} from "@/lib/par3-contests";
 interface Player {
   id: string;
   fullName: string;
@@ -43,7 +56,7 @@ interface Round {
   teamMode: string | null;
   formatId?: string;
   formatConfig?: Record<string, unknown> | null;
-  course: { name: string };
+  course: { name: string; holes: { holeNumber: number; par: number }[] };
   format: { name: string };
   date: Date;
   buyInPerPlayer: number;
@@ -98,6 +111,8 @@ export default function RoundSetupPage({
       teammatesByPlayerId: {},
     });
   const [vegasMatchups, setVegasMatchups] = useState<Record<string, string>>({});
+  const [par3ContestConfig, setPar3ContestConfig] =
+    useState<Par3ContestConfig | null>(null);
 
   useEffect(() => {
     loadData();
@@ -181,6 +196,16 @@ export default function RoundSetupPage({
       } else {
         setVegasMatchups({});
       }
+
+      const par3HoleNumbers = (roundData.course?.holes ?? [])
+        .filter((hole) => hole.par === 3)
+        .map((hole) => hole.holeNumber);
+      const existingPar3Config = getPar3ContestConfig(
+        roundData.formatConfig as Record<string, unknown> | null
+      );
+      setPar3ContestConfig(
+        existingPar3Config ?? createDefaultPar3ContestConfig(par3HoleNumbers)
+      );
 
       // Check for missing handicaps
       const missing = await getTeamsWithMissingHandicaps(id);
@@ -301,6 +326,7 @@ export default function RoundSetupPage({
     setActionLoading(true);
     setError(null);
     try {
+      await savePar3ContestConfig();
       if (isVegasRound) {
         if (!hasValidVegasMatchups) {
           throw new Error("Select an opponent for every Vegas team before starting");
@@ -372,6 +398,10 @@ export default function RoundSetupPage({
 
   const currentRound = round;
   const isVegasRound = currentRound.format.name === "Vegas";
+  const par3HoleNumbers = currentRound.course.holes
+    .filter((hole) => hole.par === 3)
+    .map((hole) => hole.holeNumber);
+  const activePar3Contests = getActivePar3Contests(par3ContestConfig);
 
   const setVegasOpponent = (teamId: string, opponentTeamId: string) => {
     setVegasMatchups((current) => {
@@ -414,6 +444,12 @@ export default function RoundSetupPage({
       opponentTeamId: vegasMatchups[team.id] ?? "",
     }));
 
+  const buildDraftFormatConfig = () => ({
+    ...(currentRound.formatConfig ?? {}),
+    ...(par3ContestConfig ? { par3Contest: par3ContestConfig } : {}),
+    ...(isVegasRound ? { vegasMatchups: buildVegasMatchupEntries() } : {}),
+  });
+
   const hasValidVegasMatchups =
     !isVegasRound ||
     (currentRound.teams.length > 0 &&
@@ -430,11 +466,18 @@ export default function RoundSetupPage({
     if (!isVegasRound) return;
 
     await updateRoundDraft(id, {
-      formatConfig: {
-        ...(currentRound.formatConfig ?? {}),
-        vegasMatchups: buildVegasMatchupEntries(),
-      },
+      formatConfig: buildDraftFormatConfig(),
     });
+  }
+
+  async function savePar3ContestConfig() {
+    if (!par3ContestConfig) return;
+
+    const updatedRound = await updateRoundDraft(id, {
+      formatConfig: buildDraftFormatConfig(),
+    });
+
+    setRound(updatedRound as Round);
   }
 
   const formatDate = (date: Date) =>
@@ -773,6 +816,166 @@ export default function RoundSetupPage({
                   );
                 })}
               </div>
+
+              {par3HoleNumbers.length > 0 && par3ContestConfig && (
+                <Card>
+                  <CardHeader>Par 3 Contest</CardHeader>
+                  <CardContent className="space-y-4">
+                    <label className="flex items-center justify-between rounded border border-gray-200 px-3 py-2">
+                      <div>
+                        <p className="font-medium">Enable Par 3 contest</p>
+                        <p className="text-sm text-gray-500">
+                          Pick the side game for each par 3 and how it pays out.
+                        </p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={par3ContestConfig.enabled}
+                        onChange={(e) =>
+                          setPar3ContestConfig((current) =>
+                            current
+                              ? { ...current, enabled: e.target.checked }
+                              : current
+                          )
+                        }
+                        className="h-5 w-5"
+                        disabled={isLocked || actionLoading}
+                      />
+                    </label>
+
+                    {par3ContestConfig.enabled && (
+                      <>
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <Select
+                            label="Funding"
+                            value={par3ContestConfig.fundingType}
+                            onChange={(e) =>
+                              setPar3ContestConfig((current) =>
+                                current
+                                  ? {
+                                      ...current,
+                                      fundingType: e.target.value as Par3FundingType,
+                                    }
+                                  : current
+                              )
+                            }
+                            options={PAR3_FUNDING_OPTIONS}
+                            disabled={isLocked || actionLoading}
+                          />
+                          <Input
+                            label="Amount Per Player"
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={par3ContestConfig.amountPerPlayer}
+                            onChange={(e) =>
+                              setPar3ContestConfig((current) =>
+                                current
+                                  ? {
+                                      ...current,
+                                      amountPerPlayer: Number(e.target.value) || 0,
+                                    }
+                                  : current
+                              )
+                            }
+                            disabled={isLocked || actionLoading}
+                          />
+                        </div>
+
+                        <div className="space-y-3">
+                          {par3ContestConfig.holes.map((holeConfig) => (
+                            <div
+                              key={holeConfig.holeNumber}
+                              className="rounded-lg border border-gray-200 p-3"
+                            >
+                              <p className="mb-3 font-medium">
+                                Hole {holeConfig.holeNumber}
+                              </p>
+                              <div className="grid gap-4 md:grid-cols-2">
+                                <Select
+                                  label="Competition"
+                                  value={holeConfig.contestType}
+                                  onChange={(e) =>
+                                    setPar3ContestConfig((current) =>
+                                      current
+                                        ? {
+                                            ...current,
+                                            holes: current.holes.map((hole) =>
+                                              hole.holeNumber === holeConfig.holeNumber
+                                                ? {
+                                                    ...hole,
+                                                    contestType: e.target.value as
+                                                      | Par3ContestType
+                                                      | "NONE",
+                                                  }
+                                                : hole
+                                            ),
+                                          }
+                                        : current
+                                    )
+                                  }
+                                  options={PAR3_CONTEST_TYPE_OPTIONS}
+                                  disabled={isLocked || actionLoading}
+                                />
+                                <Select
+                                  label="Payout Applies To"
+                                  value={holeConfig.payoutTarget}
+                                  onChange={(e) =>
+                                    setPar3ContestConfig((current) =>
+                                      current
+                                        ? {
+                                            ...current,
+                                            holes: current.holes.map((hole) =>
+                                              hole.holeNumber === holeConfig.holeNumber
+                                                ? {
+                                                    ...hole,
+                                                    payoutTarget: e.target.value as Par3PayoutTarget,
+                                                  }
+                                                : hole
+                                            ),
+                                          }
+                                        : current
+                                    )
+                                  }
+                                  options={PAR3_PAYOUT_TARGET_OPTIONS}
+                                  disabled={isLocked || actionLoading}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        <p className="rounded bg-gray-50 px-3 py-2 text-sm text-gray-600">
+                          {activePar3Contests.length > 0
+                            ? `${activePar3Contests.length} par 3 contest hole${activePar3Contests.length === 1 ? "" : "s"} configured. Enter winners after the round on the summary page.`
+                            : "Choose at least one par 3 hole competition if this side game is enabled."}
+                        </p>
+                      </>
+                    )}
+
+                    <Button
+                      variant="secondary"
+                      onClick={async () => {
+                        setActionLoading(true);
+                        setError(null);
+                        try {
+                          await savePar3ContestConfig();
+                        } catch (err) {
+                          setError(
+                            err instanceof Error
+                              ? err.message
+                              : "Failed to save Par 3 contest"
+                          );
+                        }
+                        setActionLoading(false);
+                      }}
+                      disabled={isLocked || actionLoading}
+                    >
+                      {actionLoading ? "Saving..." : "Save Par 3 Contest"}
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
 
               {isVegasRound && (
                 <Card>

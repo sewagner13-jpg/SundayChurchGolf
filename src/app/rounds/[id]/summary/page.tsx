@@ -4,11 +4,13 @@ import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getRound, deleteRound, reopenRound } from "@/actions/rounds";
+import { savePar3ContestResults } from "@/actions/par3-contests";
 import { getTopTeamHistory } from "@/actions/season-stats";
 import { getPlayerScores, type PlayerScoreRecord } from "@/actions/player-scores";
 import { Card, CardHeader, CardContent } from "@/components/card";
 import { Button } from "@/components/button";
 import { ConfirmModal } from "@/components/modal";
+import { Select } from "@/components/select";
 import { getScoringOrder } from "@/lib/scoring-order";
 import { FORMAT_DEFINITIONS } from "@/lib/format-definitions";
 import {
@@ -18,6 +20,12 @@ import {
   getIrishGolfSegmentFormatId,
   type PlayerInput,
 } from "@/lib/format-scoring";
+import {
+  getActivePar3Contests,
+  getPar3ContestConfig,
+  getPar3ContestPrizePerHole,
+  type Par3HoleContestResult,
+} from "@/lib/par3-contests";
 interface Team {
   id: string;
   teamNumber: number;
@@ -92,6 +100,8 @@ export default function RoundSummaryPage({
   const [deleting, setDeleting] = useState(false);
   const [showReopenModal, setShowReopenModal] = useState(false);
   const [reopening, setReopening] = useState(false);
+  const [par3Results, setPar3Results] = useState<Par3HoleContestResult[]>([]);
+  const [savingPar3Results, setSavingPar3Results] = useState(false);
 
   useEffect(() => {
     loadRound();
@@ -115,6 +125,10 @@ export default function RoundSummaryPage({
     }
 
     setRound(data as Round);
+    const par3Config = getPar3ContestConfig(
+      data.formatConfig as Record<string, unknown> | null
+    );
+    setPar3Results(par3Config?.results ?? []);
 
     // Load player scores if this format requires individual scores
     const formatDef = FORMAT_DEFINITIONS.find((d) => d.name === data.format.name);
@@ -156,6 +170,21 @@ export default function RoundSummaryPage({
       alert(err instanceof Error ? err.message : "Failed to reopen round");
       setReopening(false);
     }
+  };
+
+  const handleSavePar3Results = async () => {
+    setSavingPar3Results(true);
+    try {
+      await savePar3ContestResults(id, par3Results);
+      await loadRound();
+    } catch (err) {
+      alert(
+        err instanceof Error ? err.message : "Failed to save Par 3 contest winners"
+      );
+      setSavingPar3Results(false);
+      return;
+    }
+    setSavingPar3Results(false);
   };
 
   if (loading || !round) {
@@ -417,6 +446,22 @@ export default function RoundSummaryPage({
     }
   }
 
+  const par3ContestConfig = getPar3ContestConfig(round.formatConfig);
+  const activePar3Contests = getActivePar3Contests(par3ContestConfig);
+  const par3PrizePerHole = getPar3ContestPrizePerHole(
+    par3ContestConfig,
+    round.roundPlayers.length
+  );
+  const par3ResultsMap = new Map(
+    par3Results.map((result) => [result.holeNumber, result.winnerPlayerId])
+  );
+  const playerTeamMap = new Map<string, number>();
+  round.teams.forEach((team) => {
+    team.roundPlayers.forEach((roundPlayer) => {
+      playerTeamMap.set(roundPlayer.playerId, team.teamNumber);
+    });
+  });
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -463,6 +508,89 @@ export default function RoundSummaryPage({
           </div>
         </CardContent>
       </Card>
+
+      {activePar3Contests.length > 0 && (
+        <Card>
+          <CardHeader>Par 3 Contest</CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-2 text-sm text-gray-600 md:grid-cols-3">
+              <p>
+                Funding:{" "}
+                <strong>
+                  {par3ContestConfig?.fundingType === "INCLUDED_IN_MAIN_BUY_IN"
+                    ? "From main buy-in"
+                    : "Separate buy-in"}
+                </strong>
+              </p>
+              <p>
+                Amount per player:{" "}
+                <strong>${par3ContestConfig?.amountPerPlayer ?? 0}</strong>
+              </p>
+              <p>
+                Prize per hole:{" "}
+                <strong>${par3PrizePerHole.toDecimalPlaces(2).toString()}</strong>
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              {activePar3Contests.map((contest) => (
+                <div
+                  key={contest.holeNumber}
+                  className="rounded-lg border border-gray-200 p-3"
+                >
+                  <div className="mb-3">
+                    <p className="font-medium">Hole {contest.holeNumber}</p>
+                    <p className="text-sm text-gray-500">
+                      {
+                        {
+                          CLOSEST_TO_PIN: "Closest to the hole",
+                          FURTHEST_ON_GREEN:
+                            "Furthest from the hole while still on the green",
+                          LONGEST_PUTT: "Longest putt",
+                          MOST_PUTTS_USED_SCORE:
+                            "Most putts on a counted score",
+                        }[contest.contestType]
+                      }{" "}
+                      •{" "}
+                      {contest.payoutTarget === "TEAM"
+                        ? "Adds to team total"
+                        : "Adds to individual total"}
+                    </p>
+                  </div>
+                  <Select
+                    label="Winner"
+                    value={par3ResultsMap.get(contest.holeNumber) ?? ""}
+                    onChange={(e) =>
+                      setPar3Results((current) => {
+                        const next = current.filter(
+                          (result) => result.holeNumber !== contest.holeNumber
+                        );
+                        next.push({
+                          holeNumber: contest.holeNumber,
+                          winnerPlayerId: e.target.value || null,
+                        });
+                        return next.sort((a, b) => a.holeNumber - b.holeNumber);
+                      })
+                    }
+                    options={[
+                      { value: "", label: "No winner entered yet" },
+                      ...round.roundPlayers.map((roundPlayer) => ({
+                        value: roundPlayer.playerId,
+                        label: `${roundPlayer.player.nickname || roundPlayer.player.fullName} (Team ${playerTeamMap.get(roundPlayer.playerId) ?? "—"})`,
+                      })),
+                    ]}
+                    disabled={savingPar3Results}
+                  />
+                </div>
+              ))}
+            </div>
+
+            <Button onClick={handleSavePar3Results} disabled={savingPar3Results}>
+              {savingPar3Results ? "Saving..." : "Save Par 3 Winners"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Non-skins: Team Leaderboard */}
       {!isSkins && playerScores.length > 0 && (

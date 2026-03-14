@@ -6,6 +6,11 @@ import { Decimal } from "@prisma/client/runtime/library";
 import { Prisma } from "@prisma/client";
 import { RoundStatus, VisibilityMode, BlindRevealMode } from "@prisma/client";
 import { validateEvenTeams } from "@/lib/scoring-engine";
+import {
+  getActivePar3Contests,
+  getPar3ContestConfig,
+  getPar3ContestTotalPot,
+} from "@/lib/par3-contests";
 
 const MAX_PLAYERS_PER_ROUND = 12;
 const MIN_PLAYERS_PER_ROUND = 2;
@@ -374,7 +379,24 @@ export async function startRound(id: string, startingHole: 1 | 10) {
 
   // Calculate pot and base skin value
   const playerCount = round.roundPlayers.length;
-  const pot = round.buyInPerPlayer.mul(playerCount);
+  const par3ContestConfig = getPar3ContestConfig(
+    round.formatConfig as Record<string, unknown> | null
+  );
+  const includedPar3Pot =
+    par3ContestConfig?.enabled &&
+    par3ContestConfig.fundingType === "INCLUDED_IN_MAIN_BUY_IN"
+      ? getPar3ContestTotalPot(par3ContestConfig, playerCount)
+      : new Decimal(0);
+
+  if (includedPar3Pot.gt(round.buyInPerPlayer.mul(playerCount))) {
+    throw new Error("Par 3 contest amount cannot exceed the main buy-in pot");
+  }
+
+  if (par3ContestConfig?.enabled && getActivePar3Contests(par3ContestConfig).length === 0) {
+    throw new Error("Enable at least one par 3 contest or turn the par 3 contest off");
+  }
+
+  const pot = round.buyInPerPlayer.mul(playerCount).sub(includedPar3Pot);
   const baseSkinValue = pot.div(18);
 
   // Update round to LIVE
