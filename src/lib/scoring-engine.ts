@@ -393,6 +393,15 @@ export interface VegasHoleResult {
   winner: "team1" | "team2" | "tie";
 }
 
+export interface WolfHoleResult extends ScoringResult {
+  wolfPlayerId: string;
+  partnerPlayerId: string | null;
+  wolfSideBestBall: number | null;
+  fieldSideBestBall: number | null;
+  holePoints: number | null;
+  result: "wolf" | "field" | "tie" | "incomplete";
+}
+
 export interface ChicagoHoleResult {
   totalPoints: number;
   playerPoints: Record<string, number>;
@@ -450,6 +459,18 @@ export function compute2BestBalls(players: PlayerInput[]): ScoringResult {
   const counted = ranked.slice(0, 2);
   const teamScore =
     counted.length === 2 ? counted.reduce((s, p) => s + p.score, 0) : null;
+  return {
+    teamGrossScore: teamScore,
+    countedPlayerIds: counted.map((p) => p.playerId),
+    extraData: {},
+  };
+}
+
+export function compute1BestBall(players: PlayerInput[]): ScoringResult {
+  const ranked = rankedValidScores(players);
+  const counted = ranked.slice(0, 1);
+  const teamScore =
+    counted.length === 1 ? counted.reduce((s, p) => s + p.score, 0) : null;
   return {
     teamGrossScore: teamScore,
     countedPlayerIds: counted.map((p) => p.playerId),
@@ -560,6 +581,79 @@ export function computeShamble(
       selectedDrivePlayerId: drivePlayer?.playerId ?? null,
       countMode,
     },
+  };
+}
+
+export function computeWolfTeam(
+  players: PlayerInput[],
+  wolfPlayerId: string,
+  partnerPlayerId: string | null
+): WolfHoleResult {
+  const wolfPlayer = players.find((p) => p.playerId === wolfPlayerId);
+  if (!wolfPlayer || wolfPlayer.grossScore === null) {
+    return {
+      teamGrossScore: null,
+      countedPlayerIds: [],
+      extraData: { wolfPlayerId, partnerPlayerId, holePoints: null, result: "incomplete" },
+      wolfPlayerId,
+      partnerPlayerId,
+      wolfSideBestBall: null,
+      fieldSideBestBall: null,
+      holePoints: null,
+      result: "incomplete",
+    };
+  }
+
+  const partnerPlayer = partnerPlayerId
+    ? players.find((p) => p.playerId === partnerPlayerId)
+    : null;
+  const wolfSide = [wolfPlayer, partnerPlayer].filter(Boolean) as PlayerInput[];
+  const fieldSide = players.filter(
+    (p) => p.playerId !== wolfPlayerId && p.playerId !== partnerPlayerId
+  );
+
+  const wolfBestBall = rankedValidScores(wolfSide)[0]?.score ?? null;
+  const fieldBestBall = rankedValidScores(fieldSide)[0]?.score ?? null;
+
+  if (wolfBestBall === null || fieldBestBall === null) {
+    return {
+      teamGrossScore: null,
+      countedPlayerIds: wolfSide.map((p) => p.playerId),
+      extraData: { wolfPlayerId, partnerPlayerId, holePoints: null, result: "incomplete" },
+      wolfPlayerId,
+      partnerPlayerId,
+      wolfSideBestBall: wolfBestBall,
+      fieldSideBestBall: fieldBestBall,
+      holePoints: null,
+      result: "incomplete",
+    };
+  }
+
+  const isLoneWolf = !partnerPlayerId;
+  const winValue = isLoneWolf ? 2 : 1;
+  const loseValue = isLoneWolf ? -2 : -1;
+  const result =
+    wolfBestBall < fieldBestBall ? "wolf" : fieldBestBall < wolfBestBall ? "field" : "tie";
+  const holePoints = result === "wolf" ? winValue : result === "field" ? loseValue : 0;
+
+  return {
+    teamGrossScore: holePoints,
+    teamDisplayScore: holePoints > 0 ? `+${holePoints}` : `${holePoints}`,
+    countedPlayerIds: players.map((p) => p.playerId),
+    extraData: {
+      wolfPlayerId,
+      partnerPlayerId,
+      holePoints,
+      result,
+      wolfSideBestBall: wolfBestBall,
+      fieldSideBestBall: fieldBestBall,
+    },
+    wolfPlayerId,
+    partnerPlayerId,
+    wolfSideBestBall: wolfBestBall,
+    fieldSideBestBall: fieldBestBall,
+    holePoints,
+    result,
   };
 }
 
@@ -742,8 +836,12 @@ export function computeFormatScore(
       const designatedId =
         (holeMetadata.designatedPlayerId as string) ||
         getRotatingDesignatedPlayerId(players, holeNumber);
-      return computeLoneRanger(players, designatedId);
+      const partnerId =
+        (holeMetadata.partnerPlayerId as string | null | undefined) ?? null;
+      return computeWolfTeam(players, designatedId, partnerId);
     }
+    case "one_best_ball_of_four":
+      return compute1BestBall(players);
     case "two_best_balls_of_four":
       return compute2BestBalls(players);
     case "three_best_balls_of_four":
