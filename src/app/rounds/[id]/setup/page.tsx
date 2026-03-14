@@ -69,12 +69,31 @@ interface Round {
   roundPlayers: RoundPlayer[];
 }
 
-interface PriorWeekTeammateHistory {
-  previousRoundDate: string | null;
+interface HistoricalTeammateRound {
+  roundDate: string;
   teammatesByPlayerId: Record<
     string,
     { playerId: string; name: string }[]
   >;
+}
+
+interface TeamPairHistory {
+  playerIds: [string, string];
+  playerNames: [string, string];
+  roundsTogether: number;
+  winsTogether: number;
+}
+
+interface TeamHistoryInsight {
+  teamId: string;
+  exactTeamRoundsPlayed: number;
+  exactTeamWins: number;
+  pairHistories: TeamPairHistory[];
+}
+
+interface TeamSetupHistory {
+  recentRounds: HistoricalTeammateRound[];
+  teamInsightsByTeamId: Record<string, TeamHistoryInsight>;
 }
 
 interface VegasMatchup {
@@ -111,9 +130,9 @@ export default function RoundSetupPage({
   const [showUnlockModal, setShowUnlockModal] = useState(false);
   const [lockCodeInput, setLockCodeInput] = useState("");
   const [teammateHistory, setTeammateHistory] =
-    useState<PriorWeekTeammateHistory>({
-      previousRoundDate: null,
-      teammatesByPlayerId: {},
+    useState<TeamSetupHistory>({
+      recentRounds: [],
+      teamInsightsByTeamId: {},
     });
   const [vegasMatchups, setVegasMatchups] = useState<Record<string, string>>({});
   const [par3ContestConfig, setPar3ContestConfig] =
@@ -782,6 +801,7 @@ export default function RoundSetupPage({
                   }, 0);
                   const storedTotal = team.handicapTotal != null ? Number(team.handicapTotal) : null;
                   const displayTotal = storedTotal ?? calculatedTotal;
+                  const teamInsight = teammateHistory.teamInsightsByTeamId[team.id];
 
                   return (
                   <Card key={team.id}>
@@ -794,13 +814,33 @@ export default function RoundSetupPage({
                     <CardContent>
                       <div className="space-y-2">
                         {team.roundPlayers.map((rp) => {
-                          const priorWeekPartners =
-                            teammateHistory.teammatesByPlayerId[rp.playerId] ?? [];
-                          const repeatPartners = priorWeekPartners.filter((partner) =>
-                            team.roundPlayers.some(
-                              (teamPlayer) => teamPlayer.playerId === partner.playerId
-                            )
-                          );
+                          const repeatHistory = teammateHistory.recentRounds
+                            .map((historyRound) => {
+                              const historicalPartners =
+                                historyRound.teammatesByPlayerId[rp.playerId] ?? [];
+                              const repeatPartners = historicalPartners.filter((partner) =>
+                                team.roundPlayers.some(
+                                  (teamPlayer) => teamPlayer.playerId === partner.playerId
+                                )
+                              );
+
+                              if (repeatPartners.length === 0) {
+                                return null;
+                              }
+
+                              return {
+                                roundDate: historyRound.roundDate,
+                                repeatPartners,
+                              };
+                            })
+                            .filter(
+                              (
+                                entry
+                              ): entry is {
+                                roundDate: string;
+                                repeatPartners: { playerId: string; name: string }[];
+                              } => entry !== null
+                            );
 
                           return (
                             <div
@@ -820,15 +860,17 @@ export default function RoundSetupPage({
                                 <span>
                                   {rp.player.nickname || rp.player.fullName}
                                 </span>
-                                {repeatPartners.length > 0 &&
-                                  teammateHistory.previousRoundDate && (
-                                    <p className="text-xs text-amber-700">
-                                      Prior week ({formatShortDate(teammateHistory.previousRoundDate)}):{" "}
-                                      {repeatPartners
+                                {repeatHistory.map((history) => (
+                                    <p
+                                      key={`${rp.playerId}-${history.roundDate}`}
+                                      className="text-xs text-amber-700"
+                                    >
+                                      {formatShortDate(history.roundDate)}:{" "}
+                                      {history.repeatPartners
                                         .map((partner) => partner.name)
                                         .join(", ")}
                                     </p>
-                                  )}
+                                  ))}
                               </div>
                               <span className="text-sm text-gray-500">
                                 {rp.player.handicapIndex ?? "-"}
@@ -837,6 +879,49 @@ export default function RoundSetupPage({
                           );
                         })}
                       </div>
+                      {teamInsight && (
+                        <div className="mt-3 space-y-2 border-t border-gray-200 pt-3">
+                          {(teamInsight.exactTeamRoundsPlayed > 0 ||
+                            teamInsight.exactTeamWins > 0) && (
+                            <p className="text-xs text-gray-600">
+                              This exact team has played together{" "}
+                              <span className="font-semibold">
+                                {teamInsight.exactTeamRoundsPlayed}
+                              </span>{" "}
+                              time
+                              {teamInsight.exactTeamRoundsPlayed === 1 ? "" : "s"}{" "}
+                              and finished top team{" "}
+                              <span className="font-semibold">
+                                {teamInsight.exactTeamWins}
+                              </span>{" "}
+                              time{teamInsight.exactTeamWins === 1 ? "" : "s"}.
+                            </p>
+                          )}
+                          {teamInsight.pairHistories.filter((pair) => pair.roundsTogether > 0)
+                            .length > 0 && (
+                            <div className="space-y-1">
+                              <p className="text-xs font-medium text-gray-600">
+                                Pair history on this team
+                              </p>
+                              {teamInsight.pairHistories
+                                .filter((pair) => pair.roundsTogether > 0)
+                                .slice(0, 4)
+                                .map((pair) => (
+                                  <p
+                                    key={pair.playerIds.join("|")}
+                                    className="text-xs text-gray-500"
+                                  >
+                                    {pair.playerNames.join(" + ")}:{" "}
+                                    {pair.roundsTogether} round
+                                    {pair.roundsTogether === 1 ? "" : "s"}{" "}
+                                    together, {pair.winsTogether} top-team finish
+                                    {pair.winsTogether === 1 ? "" : "es"}
+                                  </p>
+                                ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                   );

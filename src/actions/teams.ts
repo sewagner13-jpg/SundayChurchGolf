@@ -530,13 +530,51 @@ export async function getTeamLockStatus(roundId: string) {
   };
 }
 
-// Get prior-week teammate history for display on setup page.
-// Returns only teammates from the most recent finished round before this round.
+interface HistoricalTeammateRound {
+  roundDate: string;
+  teammatesByPlayerId: Record<
+    string,
+    { playerId: string; name: string }[]
+  >;
+}
+
+interface TeamPairHistory {
+  playerIds: [string, string];
+  playerNames: [string, string];
+  roundsTogether: number;
+  winsTogether: number;
+}
+
+interface TeamHistoryInsight {
+  teamId: string;
+  exactTeamRoundsPlayed: number;
+  exactTeamWins: number;
+  pairHistories: TeamPairHistory[];
+}
+
+// Get recent teammate history plus winning-combination signals for setup page.
+// Returns the last three finished rounds before this round and current-team combo stats.
 export async function getTeammateHistoryForRound(roundId: string) {
   const round = await prisma.round.findUnique({
     where: { id: roundId },
     select: {
       date: true,
+      teams: {
+        select: {
+          id: true,
+          roundPlayers: {
+            select: {
+              playerId: true,
+              player: {
+                select: {
+                  fullName: true,
+                  nickname: true,
+                },
+              },
+            },
+          },
+        },
+      },
       roundPlayers: {
         select: {
           playerId: true,
@@ -553,20 +591,20 @@ export async function getTeammateHistoryForRound(roundId: string) {
 
   if (!round) throw new Error("Round not found");
 
-  const previousRound = await prisma.round.findFirst({
+  const previousRounds = await prisma.round.findMany({
     where: {
       status: "FINISHED",
       date: {
         lt: round.date,
       },
     },
-    orderBy: {
-      date: "desc",
-    },
+    orderBy: [{ date: "desc" }],
     select: {
       date: true,
       teams: {
         select: {
+          id: true,
+          isTopPayingTeam: true,
           roundPlayers: {
             select: {
               playerId: true,
@@ -583,39 +621,153 @@ export async function getTeammateHistoryForRound(roundId: string) {
     },
   });
 
-  if (!previousRound) {
+  if (previousRounds.length === 0) {
     return {
-      previousRoundDate: null,
-      teammatesByPlayerId: {} as Record<
-        string,
-        { playerId: string; name: string }[]
-      >,
+      recentRounds: [] as HistoricalTeammateRound[],
+      teamInsightsByTeamId: {} as Record<string, TeamHistoryInsight>,
     };
   }
 
   const currentPlayerIds = new Set(round.roundPlayers.map((rp) => rp.playerId));
-  const teammatesByPlayerId: Record<
+  const recentRounds: HistoricalTeammateRound[] = previousRounds
+    .slice(0, 3)
+    .map((previousRound) => {
+      const teammatesByPlayerId: Record<
+        string,
+        { playerId: string; name: string }[]
+      > = {};
+
+      for (const team of previousRound.teams) {
+        const relevantPlayers = team.roundPlayers.filter((rp) =>
+          currentPlayerIds.has(rp.playerId)
+        );
+
+        for (const player of relevantPlayers) {
+          teammatesByPlayerId[player.playerId] = relevantPlayers
+            .filter((partner) => partner.playerId !== player.playerId)
+            .map((partner) => ({
+              playerId: partner.playerId,
+              name: partner.player.nickname || partner.player.fullName,
+            }));
+        }
+      }
+
+      return {
+        roundDate: previousRound.date.toISOString(),
+        teammatesByPlayerId,
+      };
+    });
+
+  const pairHistoryByKey = new Map<
     string,
-    { playerId: string; name: string }[]
-  > = {};
+    {
+      playerIds: [string, string];
+      playerNames: [string, string];
+      roundsTogether: number;
+      winsTogether: number;
+    }
+  >();
+  const exactTeamHistoryByKey = new Map<
+    string,
+    { roundsPlayed: number; wins: number }
+  >();
 
-  for (const team of previousRound.teams) {
-    const relevantPlayers = team.roundPlayers.filter((rp) =>
-      currentPlayerIds.has(rp.playerId)
-    );
+  for (const previousRound of previousRounds) {
+    for (const team of previousRound.teams) {
+      const relevantPlayers = team.roundPlayers.filter((rp) =>
+        currentPlayerIds.has(rp.playerId)
+      );
 
-    for (const player of relevantPlayers) {
-      teammatesByPlayerId[player.playerId] = relevantPlayers
-        .filter((partner) => partner.playerId !== player.playerId)
-        .map((partner) => ({
-          playerId: partner.playerId,
-          name: partner.player.nickname || partner.player.fullName,
-        }));
+      if (relevantPlayers.length >= 2) {
+        const sortedPlayers = [...relevantPlayers].sort((a, b) =>
+          a.playerId.localeCompare(b.playerId)
+        );
+        const exactKey = sortedPlayers.map((player) => player.playerId).join("|");
+        const existingTeamHistory = exactTeamHistoryByKey.get(exactKey) ?? {
+          roundsPlayed: 0,
+          wins: 0,
+        };
+        existingTeamHistory.roundsPlayed += 1;
+        if (team.isTopPayingTeam) {
+          existingTeamHistory.wins += 1;
+        }
+        exactTeamHistoryByKey.set(exactKey, existingTeamHistory);
+
+        for (let index = 0; index < sortedPlayers.length; index += 1) {
+          for (
+            let partnerIndex = index + 1;
+            partnerIndex < sortedPlayers.length;
+            partnerIndex += 1
+          ) {
+            const player = sortedPlayers[index];
+            const partner = sortedPlayers[partnerIndex];
+            const pairKey = `${player.playerId}|${partner.playerId}`;
+            const existingPairHistory = pairHistoryByKey.get(pairKey) ?? {
+              playerIds: [player.playerId, partner.playerId] as [string, string],
+              playerNames: [
+                player.player.nickname || player.player.fullName,
+                partner.player.nickname || partner.player.fullName,
+              ] as [string, string],
+              roundsTogether: 0,
+              winsTogether: 0,
+            };
+            existingPairHistory.roundsTogether += 1;
+            if (team.isTopPayingTeam) {
+              existingPairHistory.winsTogether += 1;
+            }
+            pairHistoryByKey.set(pairKey, existingPairHistory);
+          }
+        }
+      }
     }
   }
 
+  const teamInsightsByTeamId: Record<string, TeamHistoryInsight> = {};
+
+  for (const team of round.teams) {
+    const sortedPlayers = [...team.roundPlayers].sort((a, b) =>
+      a.playerId.localeCompare(b.playerId)
+    );
+    const exactKey = sortedPlayers.map((player) => player.playerId).join("|");
+    const exactTeamHistory = exactTeamHistoryByKey.get(exactKey) ?? {
+      roundsPlayed: 0,
+      wins: 0,
+    };
+    const pairHistories: TeamPairHistory[] = [];
+
+    for (let index = 0; index < sortedPlayers.length; index += 1) {
+      for (
+        let partnerIndex = index + 1;
+        partnerIndex < sortedPlayers.length;
+        partnerIndex += 1
+      ) {
+        const player = sortedPlayers[index];
+        const partner = sortedPlayers[partnerIndex];
+        const pairKey = `${player.playerId}|${partner.playerId}`;
+        const pairHistory = pairHistoryByKey.get(pairKey);
+        if (pairHistory) {
+          pairHistories.push(pairHistory);
+        }
+      }
+    }
+
+    pairHistories.sort((a, b) => {
+      if (b.winsTogether !== a.winsTogether) {
+        return b.winsTogether - a.winsTogether;
+      }
+      return b.roundsTogether - a.roundsTogether;
+    });
+
+    teamInsightsByTeamId[team.id] = {
+      teamId: team.id,
+      exactTeamRoundsPlayed: exactTeamHistory.roundsPlayed,
+      exactTeamWins: exactTeamHistory.wins,
+      pairHistories,
+    };
+  }
+
   return {
-    previousRoundDate: previousRound.date.toISOString(),
-    teammatesByPlayerId,
+    recentRounds,
+    teamInsightsByTeamId,
   };
 }
