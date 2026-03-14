@@ -7,9 +7,9 @@ import { prisma } from "@/lib/db";
 import {
   getActivePar3Contests,
   getPar3ContestConfig,
-  getPar3ContestPrizePerHole,
   type Par3HoleContestResult,
 } from "@/lib/par3-contests";
+import { getPar3ContestPrizePerHoleDecimal } from "@/lib/par3-contests.server";
 
 interface TeamMemberMapValue {
   roundPlayerId: string;
@@ -58,7 +58,7 @@ export async function savePar3ContestResults(
     throw new Error("No par 3 contests are configured for this round");
   }
 
-  const prizePerHole = getPar3ContestPrizePerHole(
+  const prizePerHole = getPar3ContestPrizePerHoleDecimal(
     par3ContestConfig,
     round.roundPlayers.length
   );

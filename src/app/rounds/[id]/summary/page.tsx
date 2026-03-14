@@ -528,7 +528,7 @@ export default function RoundSummaryPage({
               </p>
               <p>
                 Prize per hole:{" "}
-                <strong>${par3PrizePerHole.toDecimalPlaces(2).toString()}</strong>
+                <strong>${par3PrizePerHole.toFixed(2)}</strong>
               </p>
             </div>
 

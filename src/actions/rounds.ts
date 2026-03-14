@@ -9,8 +9,8 @@ import { validateEvenTeams } from "@/lib/scoring-engine";
 import {
   getActivePar3Contests,
   getPar3ContestConfig,
-  getPar3ContestTotalPot,
 } from "@/lib/par3-contests";
+import { getPar3ContestTotalPotDecimal } from "@/lib/par3-contests.server";
 
 const MAX_PLAYERS_PER_ROUND = 12;
 const MIN_PLAYERS_PER_ROUND = 2;
@@ -385,7 +385,7 @@ export async function startRound(id: string, startingHole: 1 | 10) {
   const includedPar3Pot =
     par3ContestConfig?.enabled &&
     par3ContestConfig.fundingType === "INCLUDED_IN_MAIN_BUY_IN"
-      ? getPar3ContestTotalPot(par3ContestConfig, playerCount)
+      ? getPar3ContestTotalPotDecimal(par3ContestConfig, playerCount)
       : new Decimal(0);
 
   if (includedPar3Pot.gt(round.buyInPerPlayer.mul(playerCount))) {

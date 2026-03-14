@@ -1,5 +1,3 @@
-import { Decimal } from "@prisma/client/runtime/library";
-
 export type Par3ContestType =
   | "CLOSEST_TO_PIN"
   | "FURTHEST_ON_GREEN"
@@ -77,22 +75,22 @@ export function getActivePar3Contests(config: Par3ContestConfig | null | undefin
 export function getPar3ContestTotalPot(
   config: Par3ContestConfig | null | undefined,
   playerCount: number
-): Decimal {
+) {
   if (!config?.enabled || config.amountPerPlayer <= 0) {
-    return new Decimal(0);
+    return 0;
   }
-  return new Decimal(config.amountPerPlayer).mul(playerCount);
+  return config.amountPerPlayer * playerCount;
 }
 
 export function getPar3ContestPrizePerHole(
   config: Par3ContestConfig | null | undefined,
   playerCount: number
-): Decimal {
+) {
   const activeContests = getActivePar3Contests(config);
   if (activeContests.length === 0) {
-    return new Decimal(0);
+    return 0;
   }
-  return getPar3ContestTotalPot(config, playerCount).div(activeContests.length);
+  return getPar3ContestTotalPot(config, playerCount) / activeContests.length;
 }
 
 export function createDefaultPar3ContestConfig(
