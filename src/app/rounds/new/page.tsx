@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/button";
 import { Card, CardHeader, CardContent } from "@/components/card";
@@ -76,8 +76,7 @@ function NewRoundForm() {
     useState<BlindRevealMode>("REVEAL_AFTER_ROUND");
   const [formatConfig, setFormatConfig] = useState<Record<string, unknown>>({});
 
-  // Load data on mount
-  useState(() => {
+  useEffect(() => {
     async function loadData() {
       try {
         const [coursesRes, formatsRes] = await Promise.all([
@@ -114,7 +113,7 @@ function NewRoundForm() {
       }
     }
     loadData();
-  });
+  }, []);
 
   const selectedFormat = formats.find((f) => f.id === formatId) ?? null;
   const isVegas = selectedFormat?.name === "Vegas";

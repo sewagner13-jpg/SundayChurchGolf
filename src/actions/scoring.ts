@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { Decimal } from "@prisma/client/runtime/library";
 import { HoleEntryType, RoundStatus } from "@prisma/client";
+import { FORMAT_DEFINITIONS } from "@/lib/format-definitions";
 import {
   calculateRoundResults,
   areAllHolesComplete,
@@ -174,6 +175,7 @@ export async function finishRound(roundId: string) {
   const round = await prisma.round.findUnique({
     where: { id: roundId },
     include: {
+      format: true,
       course: { include: { holes: true } },
       teams: { include: { roundPlayers: { include: { player: true } } } },
       holeScores: true,
@@ -187,6 +189,63 @@ export async function finishRound(roundId: string) {
   }
   if (!round.startingHole || !round.pot || !round.baseSkinValue) {
     throw new Error("Round is missing required data");
+  }
+
+  const formatDefinition =
+    FORMAT_DEFINITIONS.find((definition) => definition.id === round.formatId) ??
+    FORMAT_DEFINITIONS.find((definition) => definition.name === round.format.name) ??
+    null;
+
+  if (formatDefinition && formatDefinition.formatCategory !== "skins") {
+    const allTeamsComplete = round.teams.every((team) => {
+      const completedScores = round.holeScores.filter(
+        (holeScore) =>
+          holeScore.teamId === team.id && holeScore.entryType !== "BLANK"
+      );
+      return completedScores.length === 18;
+    });
+
+    if (!allTeamsComplete) {
+      throw new Error("All teams must have 18 completed holes before finishing");
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.team.updateMany({
+        where: { roundId },
+        data: {
+          totalPayout: new Decimal(0),
+          isTopPayingTeam: false,
+        },
+      });
+
+      await tx.roundPlayer.updateMany({
+        where: { roundId },
+        data: {
+          payoutAmount: new Decimal(0),
+          wasOnTopPayingTeam: false,
+        },
+      });
+
+      await tx.holeResult.deleteMany({
+        where: { roundId },
+      });
+
+      await tx.round.update({
+        where: { id: roundId },
+        data: {
+          status: "FINISHED",
+          tiebreakerTeamId: null,
+          tiebreakerHoleNum: null,
+          tiebreakerSkinsWon: null,
+        },
+      });
+    });
+
+    revalidatePath("/");
+    revalidatePath(`/rounds/${roundId}`);
+    revalidatePath(`/rounds/${roundId}/summary`);
+    revalidatePath("/leaderboard");
+    return;
   }
 
   // Verify all holes are complete
@@ -445,6 +504,8 @@ export async function getHoleView(
       })),
       entryType: showValue ? score?.entryType ?? "BLANK" : null,
       value: showValue ? score?.value ?? null : null,
+      grossScore: showValue ? score?.grossScore ?? null : null,
+      holeData: showValue ? (score?.holeData as Record<string, unknown> | null) ?? null : null,
       wasEdited: showValue ? score?.wasEdited ?? false : false,
       hasEntry: score ? score.entryType !== "BLANK" : false,
     };
@@ -488,6 +549,8 @@ export async function getTeamScorecard(roundId: string, teamId: string) {
       par: hole.par,
       entryType: score?.entryType ?? null,
       value: score?.value ?? null,
+      grossScore: score?.grossScore ?? null,
+      displayScore: (score?.holeData as { displayScore?: string } | null)?.displayScore ?? null,
     };
   });
 }

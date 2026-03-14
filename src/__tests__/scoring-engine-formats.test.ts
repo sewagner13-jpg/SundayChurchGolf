@@ -1,0 +1,55 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  compute2BestBalls,
+  computeFormatScore,
+  computeMoneyBall,
+  computeTrainGame,
+  getIrishGolfSegmentFormatId,
+  type PlayerInput,
+} from "@/lib/format-scoring";
+
+const samplePlayers: PlayerInput[] = [
+  { playerId: "p1", playerName: "One", grossScore: 4 },
+  { playerId: "p2", playerName: "Two", grossScore: 5 },
+  { playerId: "p3", playerName: "Three", grossScore: 6 },
+  { playerId: "p4", playerName: "Four", grossScore: 7 },
+];
+
+test("compute2BestBalls counts the two lowest gross scores", () => {
+  const result = compute2BestBalls(samplePlayers);
+  assert.equal(result.teamGrossScore, 9);
+  assert.deepEqual(result.countedPlayerIds, ["p1", "p2"]);
+});
+
+test("computeMoneyBall applies penalty only to the money ball total", () => {
+  const result = computeMoneyBall(samplePlayers, "p1", true, 4);
+  assert.equal(result.teamGrossScore, 9);
+  assert.equal(result.moneyBallAdjustedScore, 8);
+  assert.equal(result.moneyBallPenalty, 4);
+});
+
+test("computeTrainGame builds a three-digit train number", () => {
+  const result = computeTrainGame(samplePlayers);
+  assert.equal(result.teamGrossScore, 456);
+  assert.equal(result.teamDisplayScore, "456");
+});
+
+test("computeFormatScore supports Vegas team numbers", () => {
+  const result = computeFormatScore("vegas", samplePlayers.slice(0, 2), 1, 4);
+  assert.ok(result);
+  assert.equal(result?.teamGrossScore, 45);
+  assert.equal(result?.teamDisplayScore, "45");
+});
+
+test("irish golf segment selection uses the configured six-hole blocks", () => {
+  const formatConfig = {
+    segment1FormatId: "two_best_balls_of_four",
+    segment2FormatId: "money_ball",
+    segment3FormatId: "train_game",
+  };
+
+  assert.equal(getIrishGolfSegmentFormatId(3, formatConfig), "two_best_balls_of_four");
+  assert.equal(getIrishGolfSegmentFormatId(9, formatConfig), "money_ball");
+  assert.equal(getIrishGolfSegmentFormatId(16, formatConfig), "train_game");
+});

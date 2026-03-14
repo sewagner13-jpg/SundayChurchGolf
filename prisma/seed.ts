@@ -70,13 +70,43 @@ async function main() {
   // Seed all 14 formats from FORMAT_DEFINITIONS (idempotent via upsert)
   console.log(`Seeding ${FORMAT_DEFINITIONS.length} formats...`);
   for (const def of FORMAT_DEFINITIONS) {
-    await prisma.format.upsert({
-      where: { name: def.name },
-      update: {
-        description: def.gameDescription,
-        defaultTeamSize: def.defaultTeamSize,
-      },
-      create: {
+    const existingById = await prisma.format.findUnique({
+      where: { id: def.id },
+    });
+    const existingByName = existingById
+      ? null
+      : await prisma.format.findUnique({
+          where: { name: def.name },
+        });
+
+    if (existingById) {
+      await prisma.format.update({
+        where: { id: def.id },
+        data: {
+          name: def.name,
+          description: def.gameDescription,
+          defaultTeamSize: def.defaultTeamSize,
+        },
+      });
+      continue;
+    }
+
+    if (existingByName) {
+      await prisma.format.update({
+        where: { id: existingByName.id },
+        data: {
+          id: def.id,
+          name: def.name,
+          description: def.gameDescription,
+          defaultTeamSize: def.defaultTeamSize,
+        },
+      });
+      continue;
+    }
+
+    await prisma.format.create({
+      data: {
+        id: def.id,
         name: def.name,
         description: def.gameDescription,
         defaultTeamSize: def.defaultTeamSize,

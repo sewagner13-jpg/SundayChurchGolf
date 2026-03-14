@@ -641,6 +641,27 @@ export function computeVegas(
   return { team1Number: t1Num, team2Number: t2Num, holePoints: diff, winner };
 }
 
+export function computeVegasTeamNumber(players: PlayerInput[]): ScoringResult {
+  const ranked = rankedValidScores(players).slice(0, 2);
+  if (ranked.length < 2) {
+    return {
+      teamGrossScore: null,
+      countedPlayerIds: [],
+      extraData: { vegasDigits: [] },
+    };
+  }
+
+  const digits = ranked.map((entry) => entry.score);
+  const teamNumber = digits[0] * 10 + digits[1];
+
+  return {
+    teamGrossScore: teamNumber,
+    teamDisplayScore: digits.join(""),
+    countedPlayerIds: ranked.map((entry) => entry.playerId),
+    extraData: { vegasDigits: digits },
+  };
+}
+
 export function computeDriveMinimumStatus(
   driveLog: Array<{ holeNumber: number; drivingPlayerId: string }>,
   teamPlayerIds: string[],
@@ -717,6 +738,12 @@ export function computeFormatScore(
   formatConfig: Record<string, unknown> = {}
 ): ScoringResult | MoneyBallResult | null {
   switch (formatId) {
+    case "wolf_team": {
+      const designatedId =
+        (holeMetadata.designatedPlayerId as string) ||
+        getRotatingDesignatedPlayerId(players, holeNumber);
+      return computeLoneRanger(players, designatedId);
+    }
     case "two_best_balls_of_four":
       return compute2BestBalls(players);
     case "three_best_balls_of_four":
@@ -748,8 +775,17 @@ export function computeFormatScore(
     }
     case "train_game":
       return computeTrainGame(players);
-    case "chicago_points_team":
-      return { ...computeChicagoTeamPoints(players, par), countedPlayerIds: [], extraData: {} };
+    case "vegas":
+      return computeVegasTeamNumber(players);
+    case "chicago_points_team": {
+      const result = computeChicagoTeamPoints(players, par);
+      return {
+        teamGrossScore: result.totalPoints,
+        teamDisplayScore: result.totalPoints.toString(),
+        countedPlayerIds: Object.keys(result.playerPoints),
+        extraData: { playerPoints: result.playerPoints },
+      };
+    }
     case "irish_golf_6_6_6": {
       const segmentId = getIrishGolfSegmentFormatId(holeNumber, formatConfig);
       if (segmentId)

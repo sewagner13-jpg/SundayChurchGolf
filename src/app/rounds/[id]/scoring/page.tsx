@@ -6,6 +6,10 @@ import { Button } from "@/components/button";
 import { Card } from "@/components/card";
 import { ConfirmModal } from "@/components/modal";
 import {
+  getPlayerScores,
+  upsertPlayerScoresForHole,
+} from "@/actions/player-scores";
+import {
   acknowledgeImportantMessage,
   getRoundChat,
   postRoundMessage,
@@ -20,6 +24,8 @@ import {
   getLiveSkinsStatus,
   markTeamFinished,
 } from "@/actions/scoring";
+import { FORMAT_DEFINITIONS } from "@/lib/format-definitions";
+import { getIrishGolfSegmentFormatId } from "@/lib/format-scoring";
 import { getScoringOrder } from "@/lib/scoring-order";
 import { HoleEntryType } from "@prisma/client";
 
@@ -29,6 +35,8 @@ interface TeamScore {
   players: { id: string; name: string }[];
   entryType: HoleEntryType | null;
   value: number | null;
+  grossScore: number | null;
+  holeData: Record<string, unknown> | null;
   wasEdited: boolean;
   hasEntry: boolean;
 }
@@ -48,6 +56,8 @@ interface ScorecardHole {
   par: number;
   entryType: string | null;
   value: number | null;
+  grossScore: number | null;
+  displayScore: string | null;
 }
 
 interface TeamProgress {
@@ -81,6 +91,12 @@ interface Round {
   visibility: string;
   blindRevealMode: string;
   startingHole: number;
+  formatId: string;
+  formatConfig: Record<string, unknown> | null;
+  format: {
+    id: string;
+    name: string;
+  };
   course: {
     name: string;
     holes: { holeNumber: number; par: number; handicapRank: number }[];
@@ -94,6 +110,14 @@ interface Round {
       player: { id: string; fullName: string; nickname: string | null };
     }[];
   }[];
+}
+
+interface PlayerHoleInputState {
+  playerId: string;
+  name: string;
+  grossScore: string;
+  driveSelected: boolean;
+  moneyBallLost: boolean;
 }
 
 interface ChatMessage {
@@ -147,6 +171,7 @@ export default function LiveScoringPage({
   const [chatSending, setChatSending] = useState(false);
   const [pendingImportantMessage, setPendingImportantMessage] =
     useState<PendingImportantMessage | null>(null);
+  const [playerInputs, setPlayerInputs] = useState<PlayerHoleInputState[]>([]);
 
   const isLive = round?.status === "LIVE";
 
@@ -159,6 +184,7 @@ export default function LiveScoringPage({
       loadHoleData();
       loadTeamsProgress();
       loadChat();
+      loadPlayerInputs();
     }
   }, [round, currentHole, myTeamId]);
 
@@ -275,6 +301,51 @@ export default function LiveScoringPage({
     }
   }
 
+  async function loadPlayerInputs() {
+    if (!round || !myTeamId || !effectiveFormat?.requiresIndividualScores) {
+      setPlayerInputs([]);
+      return;
+    }
+
+    try {
+      const team = round.teams.find((currentTeam) => currentTeam.id === myTeamId);
+      if (!team) return;
+
+      const savedScores = await getPlayerScores(id, {
+        holeNumber: currentHole,
+        teamId: myTeamId,
+      });
+
+      const designatedPlayerId =
+        effectiveFormat.requiresDesignatedPlayer && team.roundPlayers.length > 0
+          ? team.roundPlayers[(currentHole - 1) % team.roundPlayers.length]?.playerId
+          : null;
+
+      setPlayerInputs(
+        team.roundPlayers.map((roundPlayer) => {
+          const saved = savedScores.find(
+            (score) => score.playerId === roundPlayer.playerId
+          );
+          return {
+            playerId: roundPlayer.playerId,
+            name: roundPlayer.player.nickname || roundPlayer.player.fullName,
+            grossScore:
+              saved?.grossScore === null || saved?.grossScore === undefined
+                ? ""
+                : String(saved.grossScore),
+            driveSelected:
+              (saved?.extraData?.driveSelected as boolean) ??
+              roundPlayer.playerId === designatedPlayerId,
+            moneyBallLost:
+              (saved?.extraData?.moneyBallLost as boolean) ?? false,
+          };
+        })
+      );
+    } catch (err) {
+      setError("Failed to load player scores");
+    }
+  }
+
   const scoringOrder = round ? getScoringOrder(round.startingHole) : [];
   const currentIndex = scoringOrder.indexOf(currentHole);
   const isFirstHole = currentIndex === 0;
@@ -286,6 +357,32 @@ export default function LiveScoringPage({
 
   const myTeamNumber = round?.teams.find((t) => t.id === myTeamId)?.teamNumber;
   const scoreEntryBlocked = !!pendingImportantMessage;
+  const formatDefinition = round
+    ? FORMAT_DEFINITIONS.find((definition) => definition.id === round.formatId) ??
+      FORMAT_DEFINITIONS.find((definition) => definition.name === round.format.name) ??
+      null
+    : null;
+  const effectiveFormat = round
+    ? formatDefinition?.id === "irish_golf_6_6_6"
+      ? FORMAT_DEFINITIONS.find(
+          (definition) =>
+            definition.id ===
+            getIrishGolfSegmentFormatId(
+              currentHole,
+              round.formatConfig ?? {}
+            )
+        ) ?? formatDefinition
+      : formatDefinition
+    : null;
+  const usesIndividualScores = !!effectiveFormat?.requiresIndividualScores;
+  const usesDriveTracking = !!effectiveFormat?.requiresDriveTracking;
+  const designatedPlayer =
+    myTeamId && round && effectiveFormat?.requiresDesignatedPlayer
+      ? round.teams
+          .find((team) => team.id === myTeamId)
+          ?.roundPlayers[(currentHole - 1) %
+            (round.teams.find((team) => team.id === myTeamId)?.roundPlayers.length ?? 1)]
+      : null;
 
   const handleScoreEntry = async (
     teamId: string,
@@ -330,6 +427,72 @@ export default function LiveScoringPage({
 
   const handleClear = async (teamId: string) => {
     await handleScoreEntry(teamId, "BLANK");
+  };
+
+  const updatePlayerInput = (
+    playerId: string,
+    updates: Partial<PlayerHoleInputState>
+  ) => {
+    setPlayerInputs((current) =>
+      current.map((input) =>
+        input.playerId === playerId ? { ...input, ...updates } : input
+      )
+    );
+  };
+
+  const handleDriveSelection = (playerId: string) => {
+    setPlayerInputs((current) =>
+      current.map((input) => ({
+        ...input,
+        driveSelected: input.playerId === playerId,
+      }))
+    );
+  };
+
+  const handleSavePlayerScores = async () => {
+    if (!myTeamId || !usesIndividualScores) return;
+    if (scoreEntryBlocked) {
+      setError("Acknowledge the important alert before entering a score.");
+      return;
+    }
+
+    if (playerInputs.some((input) => input.grossScore.trim() === "")) {
+      setError("Enter a gross score for every player on your team.");
+      return;
+    }
+
+    if (
+      usesDriveTracking &&
+      !playerInputs.some((input) => input.driveSelected)
+    ) {
+      setError("Select the player whose drive was used.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await upsertPlayerScoresForHole(
+        id,
+        myTeamId,
+        currentHole,
+        playerInputs.map((input) => ({
+          playerId: input.playerId,
+          grossScore: Number.parseInt(input.grossScore, 10),
+          extraData: {
+            driveSelected: input.driveSelected,
+            moneyBallLost: input.moneyBallLost,
+          },
+        }))
+      );
+      await loadHoleData();
+      await loadTeamsProgress();
+      setError(null);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to save player scores"
+      );
+    }
+    setSaving(false);
   };
 
   const handlePrevHole = () => {
@@ -614,6 +777,15 @@ export default function LiveScoringPage({
   }
 
   const holeInfo = round.course.holes.find((h) => h.holeNumber === currentHole);
+  const currentDisplayScore =
+    (myTeamScore?.holeData?.displayScore as string | undefined) ?? null;
+  const currentScoreLabel = usesIndividualScores
+    ? effectiveFormat?.formatCategory === "points"
+      ? "points"
+      : effectiveFormat?.id === "vegas"
+      ? "team number"
+      : "team score"
+    : "under par";
 
   return (
     <div className="flex flex-col min-h-[calc(100vh-56px)]">
@@ -721,6 +893,22 @@ export default function LiveScoringPage({
                 {myTeamScore.players.map((p) => p.name).join(", ")}
               </p>
 
+              {effectiveFormat && effectiveFormat.id !== formatDefinition?.id && (
+                <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+                  Irish Golf segment: <strong>{effectiveFormat.name}</strong>
+                </div>
+              )}
+
+              {designatedPlayer && effectiveFormat?.requiresDesignatedPlayer && (
+                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  Designated player on this hole:{" "}
+                  <strong>
+                    {designatedPlayer.player.nickname ||
+                      designatedPlayer.player.fullName}
+                  </strong>
+                </div>
+              )}
+
               {/* Current Score Display */}
               <div className="text-center mb-6">
                 <div className="text-6xl font-bold h-20 flex items-center justify-center">
@@ -728,6 +916,10 @@ export default function LiveScoringPage({
                     <span className="text-gray-300">-</span>
                   ) : myTeamScore.entryType === "X" ? (
                     <span className="text-gray-500">X</span>
+                  ) : currentDisplayScore ? (
+                    <span className="text-green-600">{currentDisplayScore}</span>
+                  ) : usesIndividualScores ? (
+                    <span className="text-green-600">{myTeamScore.value}</span>
                   ) : (
                     <span className="text-green-600">+{myTeamScore.value}</span>
                   )}
@@ -735,71 +927,166 @@ export default function LiveScoringPage({
                 <p className="text-sm text-gray-500 mt-1">
                   {myTeamScore.entryType === "X"
                     ? "Par or worse"
+                    : currentDisplayScore
+                    ? `${currentScoreLabel}: ${currentDisplayScore}`
+                    : usesIndividualScores
+                    ? myTeamScore.value === null
+                      ? "Enter player scores"
+                      : `${myTeamScore.value} ${currentScoreLabel}`
                     : myTeamScore.entryType === "VALUE"
                     ? `${myTeamScore.value} under par`
                     : "Enter your score"}
                 </p>
               </div>
 
-              {/* Quick Score Buttons */}
-              <div className="grid grid-cols-4 gap-3 mb-4">
-                {[1, 2, 3, 4].map((num) => (
-                  <Button
-                    key={num}
-                    variant={myTeamScore.value === num ? "primary" : "secondary"}
-                    size="lg"
-                    onClick={() => handleScoreEntry(myTeamId, "VALUE", num)}
-                    disabled={saving || scoreEntryBlocked}
-                    className="text-2xl h-14"
-                  >
-                    +{num}
-                  </Button>
-                ))}
-              </div>
+              {usesIndividualScores ? (
+                <div className="space-y-4">
+                  {playerInputs.map((input) => {
+                    const isDesignated =
+                      effectiveFormat?.requiresDesignatedPlayer &&
+                      designatedPlayer?.playerId === input.playerId;
 
-              {/* Custom Score Input */}
-              <div className="flex gap-2 mb-4">
-                <input
-                  type="number"
-                  min="1"
-                  placeholder="Other score..."
-                  value={customScore}
-                  onChange={(e) => setCustomScore(e.target.value)}
-                  disabled={scoreEntryBlocked}
-                  className="flex-1 px-4 py-3 border border-gray-300 rounded-lg text-lg"
-                />
-                <Button
-                  variant="secondary"
-                  size="lg"
-                  onClick={handleCustomScoreSubmit}
-                  disabled={saving || !customScore || scoreEntryBlocked}
-                  className="px-6"
-                >
-                  Set
-                </Button>
-              </div>
+                    return (
+                      <div
+                        key={input.playerId}
+                        className="rounded-lg border border-gray-200 p-3"
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <p className="font-medium">{input.name}</p>
+                            {isDesignated && (
+                              <p className="text-xs text-amber-700">
+                                Designated player this hole
+                              </p>
+                            )}
+                          </div>
+                          <input
+                            type="number"
+                            min="1"
+                            value={input.grossScore}
+                            onChange={(e) =>
+                              updatePlayerInput(input.playerId, {
+                                grossScore: e.target.value,
+                              })
+                            }
+                            disabled={scoreEntryBlocked}
+                            className="w-24 rounded-lg border border-gray-300 px-3 py-2 text-right text-lg"
+                          />
+                        </div>
+                        <div className="mt-3 space-y-2">
+                          {usesDriveTracking && (
+                            <label className="flex items-center gap-2 text-sm text-gray-700">
+                              <input
+                                type="radio"
+                                name={`drive-${currentHole}`}
+                                checked={input.driveSelected}
+                                onChange={() => handleDriveSelection(input.playerId)}
+                                disabled={scoreEntryBlocked}
+                              />
+                              Selected drive
+                            </label>
+                          )}
+                          {effectiveFormat?.id === "money_ball" && isDesignated && (
+                            <label className="flex items-center gap-2 text-sm text-gray-700">
+                              <input
+                                type="checkbox"
+                                checked={input.moneyBallLost}
+                                onChange={(e) =>
+                                  updatePlayerInput(input.playerId, {
+                                    moneyBallLost: e.target.checked,
+                                  })
+                                }
+                                disabled={scoreEntryBlocked}
+                              />
+                              Money Ball was lost
+                            </label>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
 
-              {/* X and Clear buttons */}
-              <div className="grid grid-cols-2 gap-3">
-                <Button
-                  variant={myTeamScore.entryType === "X" ? "primary" : "secondary"}
-                  size="lg"
-                  onClick={() => handleScoreEntry(myTeamId, "X")}
-                  disabled={saving || scoreEntryBlocked}
-                  className="text-xl h-12"
-                >
-                  X (Par or worse)
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="lg"
-                  onClick={() => handleClear(myTeamId)}
-                  disabled={saving || myTeamScore.entryType === null || scoreEntryBlocked}
-                  className="text-xl h-12"
-                >
-                  Clear
-                </Button>
-              </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Button
+                      variant="primary"
+                      size="lg"
+                      onClick={handleSavePlayerScores}
+                      disabled={saving || scoreEntryBlocked}
+                      className="text-lg h-12"
+                    >
+                      Save Scores
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="lg"
+                      onClick={() => loadPlayerInputs()}
+                      disabled={saving}
+                      className="text-lg h-12"
+                    >
+                      Reset Inputs
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-4 gap-3 mb-4">
+                    {[1, 2, 3, 4].map((num) => (
+                      <Button
+                        key={num}
+                        variant={myTeamScore.value === num ? "primary" : "secondary"}
+                        size="lg"
+                        onClick={() => handleScoreEntry(myTeamId, "VALUE", num)}
+                        disabled={saving || scoreEntryBlocked}
+                        className="text-2xl h-14"
+                      >
+                        +{num}
+                      </Button>
+                    ))}
+                  </div>
+
+                  <div className="flex gap-2 mb-4">
+                    <input
+                      type="number"
+                      min="1"
+                      placeholder="Other score..."
+                      value={customScore}
+                      onChange={(e) => setCustomScore(e.target.value)}
+                      disabled={scoreEntryBlocked}
+                      className="flex-1 px-4 py-3 border border-gray-300 rounded-lg text-lg"
+                    />
+                    <Button
+                      variant="secondary"
+                      size="lg"
+                      onClick={handleCustomScoreSubmit}
+                      disabled={saving || !customScore || scoreEntryBlocked}
+                      className="px-6"
+                    >
+                      Set
+                    </Button>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <Button
+                      variant={myTeamScore.entryType === "X" ? "primary" : "secondary"}
+                      size="lg"
+                      onClick={() => handleScoreEntry(myTeamId, "X")}
+                      disabled={saving || scoreEntryBlocked}
+                      className="text-xl h-12"
+                    >
+                      X (Par or worse)
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="lg"
+                      onClick={() => handleClear(myTeamId)}
+                      disabled={saving || myTeamScore.entryType === null || scoreEntryBlocked}
+                      className="text-xl h-12"
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                </>
+              )}
             </div>
           </Card>
         )}
@@ -838,13 +1125,14 @@ export default function LiveScoringPage({
           </div>
         </Card>
 
-        {/* Live Skins Status Button */}
-        <button
-          onClick={loadSkinsStatus}
-          className="w-full py-3 bg-yellow-100 text-yellow-800 rounded-lg font-medium text-sm"
-        >
-          View Live Skins Status
-        </button>
+        {effectiveFormat?.formatCategory === "skins" && (
+          <button
+            onClick={loadSkinsStatus}
+            className="w-full py-3 bg-yellow-100 text-yellow-800 rounded-lg font-medium text-sm"
+          >
+            View Live Skins Status
+          </button>
+        )}
 
         <Card>
           <div className="p-4 space-y-4">
@@ -1096,9 +1384,13 @@ export default function LiveScoringPage({
                       <td className="py-2 text-right">
                         {hole?.entryType === "X" ? (
                           <span className="text-gray-500">X</span>
+                        ) : hole?.displayScore ? (
+                          <span className="text-green-600 font-bold">
+                            {hole.displayScore}
+                          </span>
                         ) : hole?.entryType === "VALUE" ? (
                           <span className="text-green-600 font-bold">
-                            +{hole.value}
+                            {usesIndividualScores ? hole.grossScore ?? hole.value : `+${hole.value}`}
                           </span>
                         ) : (
                           <span className="text-gray-300">-</span>

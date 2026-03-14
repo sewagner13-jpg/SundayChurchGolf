@@ -12,19 +12,10 @@ import { ConfirmModal } from "@/components/modal";
 import { getScoringOrder } from "@/lib/scoring-order";
 import { FORMAT_DEFINITIONS } from "@/lib/format-definitions";
 import {
-  compute2BestBalls,
-  compute3BestBalls,
-  computeLoneRanger,
-  computeMoneyBall,
-  computeChaChaCha,
-  computeShamble,
-  computeChicagoTeamPoints,
-  computeTrainGame,
-  getRotatingDesignatedPlayerId,
+  computeFormatScore,
   getIrishGolfSegmentFormatId,
   type PlayerInput,
-  type MoneyBallResult,
-} from "@/lib/scoring-engine";
+} from "@/lib/format-scoring";
 interface Team {
   id: string;
   teamNumber: number;
@@ -186,9 +177,21 @@ export default function RoundSummaryPage({
   const isPoints = formatDef?.formatCategory === "points";
   const isMoneyBallFormat = formatDef?.id === "money_ball";
 
-  interface TeamTotal { total: number | null; mbTotal: number | null; mbLosses: number; displayScores: string[] }
+  interface TeamTotal {
+    total: number | null;
+    mbTotal: number | null;
+    mbLosses: number;
+    displayScores: string[];
+  }
   const teamTotals = new Map<string, TeamTotal>();
-  round.teams.forEach((t) => teamTotals.set(t.id, { total: null, mbTotal: null, mbLosses: 0, displayScores: [] }));
+  round.teams.forEach((team) =>
+    teamTotals.set(team.id, {
+      total: null,
+      mbTotal: null,
+      mbLosses: 0,
+      displayScores: [],
+    })
+  );
 
   if (!isSkins && playerScores.length > 0) {
     for (const hole of round.course.holes) {
@@ -208,32 +211,56 @@ export default function RoundSummaryPage({
 
         const effectiveFormatId =
           formatDef?.id === "irish_golf_6_6_6"
-            ? getIrishGolfSegmentFormatId(hole.holeNumber, round.formatConfig ?? {}) ?? formatDef.id
+            ? getIrishGolfSegmentFormatId(hole.holeNumber, round.formatConfig ?? {}) ??
+              formatDef.id
             : (formatDef?.id ?? "");
 
         const current = teamTotals.get(team.id)!;
         let displayScore = "-";
         let holeScore: number | null = null;
+        const designatedPlayerId =
+          effectiveFormatId === "money_ball" ||
+          effectiveFormatId === "lone_ranger" ||
+          effectiveFormatId === "wolf_team"
+            ? team.roundPlayers[
+                (hole.holeNumber - 1) % team.roundPlayers.length
+              ]?.playerId ?? null
+            : null;
+        const designatedScore = designatedPlayerId
+          ? teamPs.find((score) => score.playerId === designatedPlayerId)
+          : null;
+        const result = computeFormatScore(
+          effectiveFormatId,
+          players,
+          hole.holeNumber,
+          hole.par,
+          {
+            designatedPlayerId,
+            moneyBallPlayerId: designatedPlayerId,
+            moneyBallLost:
+              (designatedScore?.extraData?.moneyBallLost as boolean) ?? false,
+          },
+          round.formatConfig ?? {}
+        );
 
-        switch (effectiveFormatId) {
-          case "two_best_balls_of_four": { const r = compute2BestBalls(players); holeScore = r.teamGrossScore; displayScore = r.teamGrossScore?.toString() ?? "-"; break; }
-          case "three_best_balls_of_four": { const r = compute3BestBalls(players); holeScore = r.teamGrossScore; displayScore = r.teamGrossScore?.toString() ?? "-"; break; }
-          case "lone_ranger": { const did = getRotatingDesignatedPlayerId(players, hole.holeNumber); const r = computeLoneRanger(players, did); holeScore = r.teamGrossScore; displayScore = r.teamGrossScore?.toString() ?? "-"; break; }
-          case "money_ball": {
-            const did = getRotatingDesignatedPlayerId(players, hole.holeNumber);
-            const mbPs = teamPs.find((ps) => ps.playerId === did);
-            const mbLost = (mbPs?.extraData?.moneyBallLost as boolean) ?? false;
-            const penalty = (round.formatConfig?.moneyBallPenaltyStrokes as number) ?? 4;
-            const r = computeMoneyBall(players, did, mbLost, penalty) as MoneyBallResult;
-            holeScore = r.teamGrossScore; displayScore = r.teamGrossScore?.toString() ?? "-";
-            if (r.moneyBallAdjustedScore !== null) current.mbTotal = (current.mbTotal ?? 0) + r.moneyBallAdjustedScore;
-            if (mbLost) current.mbLosses++;
-            break;
+        if (result) {
+          holeScore = result.teamGrossScore;
+          displayScore =
+            result.teamDisplayScore ??
+            result.teamGrossScore?.toString() ??
+            "-";
+          if (
+            effectiveFormatId === "money_ball" &&
+            "moneyBallAdjustedScore" in result
+          ) {
+            if (result.moneyBallAdjustedScore !== null) {
+              current.mbTotal =
+                (current.mbTotal ?? 0) + result.moneyBallAdjustedScore;
+            }
+            if ((result.extraData.moneyBallLost as boolean) ?? false) {
+              current.mbLosses++;
+            }
           }
-          case "cha_cha_cha": { const r = computeChaChaCha(players, hole.holeNumber); holeScore = r.teamGrossScore; displayScore = r.teamGrossScore?.toString() ?? "-"; break; }
-          case "shamble_team": { const mode = (round.formatConfig?.shambleCountMode as string ?? "count_best_2") as "count_best_1"|"count_best_2"|"count_best_3"|"count_all"; const r = computeShamble(players, mode); holeScore = r.teamGrossScore; displayScore = r.teamGrossScore?.toString() ?? "-"; break; }
-          case "chicago_points_team": { const r = computeChicagoTeamPoints(players, hole.par); holeScore = r.totalPoints; displayScore = r.totalPoints.toString(); break; }
-          case "train_game": { const r = computeTrainGame(players); holeScore = r.teamGrossScore; displayScore = r.teamDisplayScore ?? r.teamGrossScore?.toString() ?? "-"; break; }
         }
 
         if (holeScore !== null) current.total = (current.total ?? 0) + holeScore;
@@ -372,8 +399,53 @@ export default function RoundSummaryPage({
         </Card>
       )}
 
+      {/* Non-skins hole-by-hole table */}
+      {!isSkins && playerScores.length > 0 && (
+        <Card>
+          <CardHeader>Hole-by-Hole Scores</CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-xs text-gray-500">
+                    <th className="py-2 text-left font-medium">Hole</th>
+                    {sortedTeams.map((team) => (
+                      <th key={team.id} className="py-2 text-center font-medium">
+                        T{team.teamNumber}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {scoringOrder.map((holeNumber, holeIndex) => {
+                    const holeInfo = round.course.holes.find(
+                      (hole) => hole.holeNumber === holeNumber
+                    );
+                    return (
+                      <tr key={holeNumber} className="border-b">
+                        <td className="py-2 pl-1">
+                          <span className="font-medium">{holeNumber}</span>
+                          <span className="text-gray-400 text-xs ml-1">
+                            P{holeInfo?.par}
+                          </span>
+                        </td>
+                        {sortedTeams.map((team) => (
+                          <td key={team.id} className="py-2 text-center">
+                            {teamTotals.get(team.id)?.displayScores[holeIndex] ?? "-"}
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Top Paying Team(s) */}
-      {topTeams.length > 0 && (
+      {isSkins && topTeams.length > 0 && (
         <Card className="border-2 border-yellow-400 bg-yellow-50">
           <CardHeader>Top Paying Team(s)</CardHeader>
           <CardContent className="space-y-4">
@@ -406,6 +478,7 @@ export default function RoundSummaryPage({
       )}
 
       {/* Payout Summary */}
+      {isSkins && (
       <Card>
         <CardHeader>Payout Summary</CardHeader>
         <CardContent>
@@ -474,8 +547,10 @@ export default function RoundSummaryPage({
           </div>
         </CardContent>
       </Card>
+      )}
 
       {/* Hole-by-Hole Results */}
+      {isSkins && (
       <Card>
         <CardHeader>Hole-by-Hole Results</CardHeader>
         <CardContent>
@@ -579,9 +654,10 @@ export default function RoundSummaryPage({
           </p>
         </CardContent>
       </Card>
+      )}
 
       {/* Tiebreaker Result */}
-      {round.tiebreakerSkinsWon && round.tiebreakerSkinsWon > 0 && (
+      {isSkins && round.tiebreakerSkinsWon && round.tiebreakerSkinsWon > 0 && (
         <Card className="border-2 border-purple-400 bg-purple-50">
           <CardHeader>Carryover Tiebreaker</CardHeader>
           <CardContent>

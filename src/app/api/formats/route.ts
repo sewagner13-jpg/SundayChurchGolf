@@ -2,15 +2,14 @@ import { listFormats } from "@/actions/formats";
 import { NextResponse } from "next/server";
 import { FORMAT_DEFINITIONS } from "@/lib/format-definitions";
 
-// Build a lookup map keyed by format name (DB uses auto-generated IDs, not the
-// string IDs from FORMAT_DEFINITIONS, so we match by name)
+const DEF_BY_ID = new Map(FORMAT_DEFINITIONS.map((d) => [d.id, d]));
 const DEF_BY_NAME = new Map(FORMAT_DEFINITIONS.map((d) => [d.name, d]));
 
 export async function GET() {
   const dbFormats = await listFormats();
 
   const enriched = dbFormats.map((dbFmt) => {
-    const def = DEF_BY_NAME.get(dbFmt.name);
+    const def = DEF_BY_ID.get(dbFmt.id) ?? DEF_BY_NAME.get(dbFmt.name);
     return {
       ...dbFmt,
       shortLabel: def?.shortLabel ?? dbFmt.name.slice(0, 8),
@@ -21,8 +20,7 @@ export async function GET() {
       requiresIndividualScores: def?.requiresIndividualScores ?? false,
       requiresDesignatedPlayer: def?.requiresDesignatedPlayer ?? false,
       requiresDriveTracking: def?.requiresDriveTracking ?? false,
-      // Expose the canonical definition ID so client code can look up FORMAT_MAP
-      definitionId: def?.id ?? null,
+      definitionId: def?.id ?? dbFmt.id,
     };
   });
 

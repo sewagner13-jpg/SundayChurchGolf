@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { Decimal } from "@prisma/client/runtime/library";
+import { Prisma } from "@prisma/client";
 import { RoundStatus, VisibilityMode, BlindRevealMode } from "@prisma/client";
 import { validateEvenTeams } from "@/lib/scoring-engine";
 
@@ -61,7 +62,7 @@ export async function createRound(data: CreateRoundData) {
       buyInPerPlayer: new Decimal(data.buyInPerPlayer),
       visibility: data.visibility,
       blindRevealMode: data.blindRevealMode ?? "REVEAL_AFTER_ROUND",
-      formatConfig: data.formatConfig ?? null,
+      formatConfig: (data.formatConfig as Prisma.InputJsonValue | undefined) ?? undefined,
       status: "DRAFT",
     },
     include: {
