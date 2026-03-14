@@ -166,6 +166,10 @@ export default function LiveScoringPage({
   const [showTeamSelect, setShowTeamSelect] = useState(false);
   const [showScorecard, setShowScorecard] = useState(false);
   const [scorecard, setScorecard] = useState<ScorecardHole[]>([]);
+  const [showOtherTeamScorecards, setShowOtherTeamScorecards] = useState(false);
+  const [selectedScorecardTeamId, setSelectedScorecardTeamId] = useState<string | null>(null);
+  const [selectedScorecardTeamNumber, setSelectedScorecardTeamNumber] = useState<number | null>(null);
+  const [selectedScorecard, setSelectedScorecard] = useState<ScorecardHole[]>([]);
   const [customScore, setCustomScore] = useState<string>("");
   const [teamsProgress, setTeamsProgress] = useState<TeamProgress[]>([]);
   const [skinsStatus, setSkinsStatus] = useState<SkinStatus[]>([]);
@@ -298,6 +302,21 @@ export default function LiveScoringPage({
       setShowScorecard(true);
     } catch (err) {
       setError("Failed to load scorecard");
+    }
+  }
+
+  async function loadOtherTeamScorecard(teamId: string) {
+    if (!round) return;
+    try {
+      const data = await getTeamScorecard(id, teamId);
+      setSelectedScorecard(data);
+      setSelectedScorecardTeamId(teamId);
+      setSelectedScorecardTeamNumber(
+        round.teams.find((team) => team.id === teamId)?.teamNumber ?? null
+      );
+      setShowOtherTeamScorecards(true);
+    } catch (err) {
+      setError("Failed to load team scorecard");
     }
   }
 
@@ -884,6 +903,24 @@ export default function LiveScoringPage({
       ? "team number"
       : "team score"
     : "under par";
+  const isOpenScoringView = round.visibility !== "BLIND";
+
+  const renderScorecardValue = (hole: ScorecardHole | undefined) => {
+    if (hole?.entryType === "X") {
+      return <span className="text-gray-500">X</span>;
+    }
+    if (hole?.displayScore) {
+      return <span className="text-green-600 font-bold">{hole.displayScore}</span>;
+    }
+    if (hole?.entryType === "VALUE") {
+      return (
+        <span className="text-green-600 font-bold">
+          {usesIndividualScores ? hole.grossScore ?? hole.value : `+${hole.value}`}
+        </span>
+      );
+    }
+    return <span className="text-gray-300">-</span>;
+  };
 
   return (
     <div className="flex flex-col min-h-[calc(100vh-56px)]">
@@ -911,6 +948,21 @@ export default function LiveScoringPage({
               >
                 Scorecard
               </button>
+              {isOpenScoringView && (
+                <button
+                  onClick={() => {
+                    const firstOtherTeam = round.teams.find(
+                      (team) => team.id !== myTeamId
+                    );
+                    if (firstOtherTeam) {
+                      loadOtherTeamScorecard(firstOtherTeam.id);
+                    }
+                  }}
+                  className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded text-sm"
+                >
+                  Other Teams
+                </button>
+              )}
               <button
                 onClick={() => setShowHolePicker(true)}
                 disabled={scoreEntryBlocked}
@@ -1256,6 +1308,62 @@ export default function LiveScoringPage({
           </Card>
         )}
 
+        {isOpenScoringView && holeData && (
+          <Card>
+            <div className="p-4">
+              <h3 className="font-medium text-gray-800 mb-3">
+                Current Hole Scores
+              </h3>
+              <div className="space-y-2">
+                {holeData.teamScores.map((teamScore) => {
+                  const displayScore =
+                    (teamScore.holeData?.displayScore as string | undefined) ??
+                    null;
+                  return (
+                    <button
+                      key={teamScore.teamId}
+                      onClick={() => loadOtherTeamScorecard(teamScore.teamId)}
+                      className={`w-full rounded-lg border px-3 py-3 text-left ${
+                        teamScore.teamId === myTeamId
+                          ? "border-green-300 bg-green-50"
+                          : "border-gray-200 bg-white hover:bg-gray-50"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="font-medium">
+                            Team {teamScore.teamNumber}
+                            {teamScore.teamId === myTeamId ? " (You)" : ""}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            {teamScore.players.map((player) => player.name).join(", ")}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-lg font-bold text-green-700">
+                            {teamScore.entryType === "X"
+                              ? "X"
+                              : displayScore
+                              ? displayScore
+                              : teamScore.entryType === "VALUE"
+                              ? usesIndividualScores
+                                ? teamScore.grossScore ?? teamScore.value
+                                : `+${teamScore.value}`
+                              : "-"}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            Tap for full scorecard
+                          </p>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </Card>
+        )}
+
         {/* Other Teams Progress - Just show what hole they're on */}
         <Card>
           <div className="p-4">
@@ -1586,19 +1694,7 @@ export default function LiveScoringPage({
                         {holeInfo?.par}
                       </td>
                       <td className="py-2 text-right">
-                        {hole?.entryType === "X" ? (
-                          <span className="text-gray-500">X</span>
-                        ) : hole?.displayScore ? (
-                          <span className="text-green-600 font-bold">
-                            {hole.displayScore}
-                          </span>
-                        ) : hole?.entryType === "VALUE" ? (
-                          <span className="text-green-600 font-bold">
-                            {usesIndividualScores ? hole.grossScore ?? hole.value : `+${hole.value}`}
-                          </span>
-                        ) : (
-                          <span className="text-gray-300">-</span>
-                        )}
+                        {renderScorecardValue(hole)}
                       </td>
                     </tr>
                   );
@@ -1609,6 +1705,70 @@ export default function LiveScoringPage({
               variant="secondary"
               className="w-full mt-4"
               onClick={() => setShowScorecard(false)}
+            >
+              Close
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {showOtherTeamScorecards && selectedScorecardTeamId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setShowOtherTeamScorecards(false)}
+          />
+          <div className="relative bg-white rounded-lg shadow-xl p-4 max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto">
+            <h2 className="text-lg font-bold mb-4">
+              Team {selectedScorecardTeamNumber} Scorecard
+            </h2>
+            <div className="mb-4 flex flex-wrap gap-2">
+              {round.teams.map((team) => (
+                <Button
+                  key={team.id}
+                  variant={team.id === selectedScorecardTeamId ? "primary" : "secondary"}
+                  size="sm"
+                  onClick={() => loadOtherTeamScorecard(team.id)}
+                >
+                  Team {team.teamNumber}
+                </Button>
+              ))}
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="py-2 text-left">Hole</th>
+                  <th className="py-2 text-center">Par</th>
+                  <th className="py-2 text-right">Score</th>
+                </tr>
+              </thead>
+              <tbody>
+                {scoringOrder.map((holeNum) => {
+                  const hole = selectedScorecard.find((entry) => entry.holeNumber === holeNum);
+                  const holeInfo = round.course.holes.find(
+                    (entry) => entry.holeNumber === holeNum
+                  );
+                  return (
+                    <tr
+                      key={holeNum}
+                      className={`border-b ${
+                        holeNum === currentHole ? "bg-green-50" : ""
+                      }`}
+                    >
+                      <td className="py-2 font-medium">{holeNum}</td>
+                      <td className="py-2 text-center text-gray-500">
+                        {holeInfo?.par}
+                      </td>
+                      <td className="py-2 text-right">{renderScorecardValue(hole)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <Button
+              variant="secondary"
+              className="w-full mt-4"
+              onClick={() => setShowOtherTeamScorecards(false)}
             >
               Close
             </Button>
