@@ -28,6 +28,11 @@ import {
   type Par3FundingType,
   type Par3PayoutTarget,
 } from "@/lib/par3-contests";
+import {
+  FORMAT_DEFINITIONS,
+  IRISH_GOLF_ELIGIBLE_SEGMENT_FORMATS,
+  type FormatConfigOption,
+} from "@/lib/format-definitions";
 import { isHandicapStale } from "@/lib/ghin";
 interface Player {
   id: string;
@@ -56,11 +61,15 @@ interface Team {
 
 interface Round {
   id: string;
+  name?: string | null;
   status: string;
+  courseId: string;
   teamSize: number | null;
   teamMode: string | null;
   formatId?: string;
   formatConfig?: Record<string, unknown> | null;
+  visibility: "OPEN" | "BLIND";
+  blindRevealMode?: "REVEAL_AFTER_ROUND" | "REVEAL_AFTER_HOLE";
   course: { name: string; holes: { holeNumber: number; par: number }[] };
   format: { name: string };
   date: Date;
@@ -101,6 +110,21 @@ interface VegasMatchup {
   opponentTeamId: string;
 }
 
+interface CourseOption {
+  id: string;
+  name: string;
+}
+
+interface EnrichedFormat {
+  id: string;
+  name: string;
+  gameDescription?: string;
+  supportedTeamSizes?: number[];
+  configOptions?: FormatConfigOption[];
+  requiresDriveTracking?: boolean;
+  definitionId?: string | null;
+}
+
 function getDriveMinimumSummary(
   formatConfig: Record<string, unknown> | null | undefined
 ): { enabled: boolean; requiredDrivesPerPlayer: number | null } {
@@ -113,6 +137,28 @@ function getDriveMinimumSummary(
         ? requiredValue
         : null,
   };
+}
+
+function buildDefaultFormatConfig(
+  format: EnrichedFormat | null
+): Record<string, unknown> {
+  const config: Record<string, unknown> = {};
+  for (const option of format?.configOptions ?? []) {
+    if (option.defaultValue !== undefined) {
+      config[option.key] = option.defaultValue;
+    }
+  }
+  return config;
+}
+
+function sanitizeEditableFormatConfig(
+  formatConfig: Record<string, unknown> | null | undefined
+): Record<string, unknown> {
+  if (!formatConfig) return {};
+  const { par3Contest, vegasMatchups, ...editableConfig } = formatConfig;
+  void par3Contest;
+  void vegasMatchups;
+  return editableConfig;
 }
 
 export default function RoundSetupPage({
@@ -136,6 +182,7 @@ export default function RoundSetupPage({
   const [showStartModal, setShowStartModal] = useState(false);
   const [startingHole, setStartingHole] = useState<1 | 10>(1);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showEditRoundModal, setShowEditRoundModal] = useState(false);
   const [swapMode, setSwapMode] = useState(false);
   const [swapPlayer1, setSwapPlayer1] = useState<string | null>(null);
   const [missingHandicaps, setMissingHandicaps] = useState<Player[]>([]);
@@ -148,9 +195,23 @@ export default function RoundSetupPage({
       recentRounds: [],
       teamInsightsByTeamId: {},
     });
+  const [courses, setCourses] = useState<CourseOption[]>([]);
+  const [formats, setFormats] = useState<EnrichedFormat[]>([]);
   const [vegasMatchups, setVegasMatchups] = useState<Record<string, string>>({});
   const [par3ContestConfig, setPar3ContestConfig] =
     useState<Par3ContestConfig | null>(null);
+  const [editRoundName, setEditRoundName] = useState("");
+  const [editRoundDate, setEditRoundDate] = useState("");
+  const [editCourseId, setEditCourseId] = useState("");
+  const [editFormatId, setEditFormatId] = useState("");
+  const [editBuyIn, setEditBuyIn] = useState("");
+  const [editVisibility, setEditVisibility] = useState<"OPEN" | "BLIND">("OPEN");
+  const [editBlindRevealMode, setEditBlindRevealMode] = useState<
+    "REVEAL_AFTER_ROUND" | "REVEAL_AFTER_HOLE"
+  >("REVEAL_AFTER_ROUND");
+  const [editFormatConfig, setEditFormatConfig] = useState<Record<string, unknown>>(
+    {}
+  );
 
   useEffect(() => {
     loadData();
@@ -158,10 +219,18 @@ export default function RoundSetupPage({
 
   async function loadData() {
     try {
-      const [roundData, playersRes] = await Promise.all([
+      const [roundData, playersRes, coursesRes, formatsRes] = await Promise.all([
         getRound(id),
         fetch("/api/players").then((r) => {
           if (!r.ok) throw new Error("Failed to fetch players");
+          return r.json();
+        }),
+        fetch("/api/courses").then((r) => {
+          if (!r.ok) throw new Error("Failed to fetch courses");
+          return r.json();
+        }),
+        fetch("/api/formats").then((r) => {
+          if (!r.ok) throw new Error("Failed to fetch formats");
           return r.json();
         }),
       ]);
@@ -177,6 +246,8 @@ export default function RoundSetupPage({
       }
 
       setRound(roundData as Round);
+      setCourses(coursesRes);
+      setFormats(formatsRes);
       const activePlayers = playersRes.filter((p: Player) => p.isActive);
       setAllPlayers(activePlayers);
 
@@ -243,6 +314,22 @@ export default function RoundSetupPage({
       );
       setPar3ContestConfig(
         existingPar3Config ?? createDefaultPar3ContestConfig(par3HoleNumbers)
+      );
+
+      setEditRoundName(roundData.name ?? "");
+      setEditRoundDate(new Date(roundData.date).toISOString().split("T")[0]);
+      setEditCourseId(roundData.courseId);
+      setEditFormatId(roundData.formatId ?? "");
+      setEditBuyIn(String(roundData.buyInPerPlayer));
+      setEditVisibility(roundData.visibility as "OPEN" | "BLIND");
+      setEditBlindRevealMode(
+        (roundData.blindRevealMode as "REVEAL_AFTER_ROUND" | "REVEAL_AFTER_HOLE") ??
+          "REVEAL_AFTER_ROUND"
+      );
+      setEditFormatConfig(
+        sanitizeEditableFormatConfig(
+          roundData.formatConfig as Record<string, unknown> | null
+        )
       );
 
       // Check for missing handicaps
@@ -436,6 +523,14 @@ export default function RoundSetupPage({
 
   const currentRound = round;
   const isVegasRound = currentRound.format.name === "Vegas";
+  const selectedEditFormat =
+    formats.find((format) => format.id === editFormatId) ?? null;
+  const isEditIrishGolf = selectedEditFormat?.name === "Irish Golf / 6-6-6";
+  const editEligibleSegmentFormats = formats.filter(
+    (format) =>
+      format.definitionId !== null &&
+      IRISH_GOLF_ELIGIBLE_SEGMENT_FORMATS.includes(format.definitionId ?? "")
+  );
   const par3HoleNumbers = currentRound.course.holes
     .filter((hole) => hole.par === 3)
     .map((hole) => hole.holeNumber);
@@ -448,6 +543,107 @@ export default function RoundSetupPage({
     )
   );
   const driveMinimumSummary = getDriveMinimumSummary(currentRound.formatConfig);
+
+  const openEditRoundModal = () => {
+    setEditRoundName(currentRound.name ?? "");
+    setEditRoundDate(new Date(currentRound.date).toISOString().split("T")[0]);
+    setEditCourseId(currentRound.courseId);
+    setEditFormatId(currentRound.formatId ?? "");
+    setEditBuyIn(String(currentRound.buyInPerPlayer));
+    setEditVisibility(currentRound.visibility);
+    setEditBlindRevealMode(
+      currentRound.blindRevealMode ?? "REVEAL_AFTER_ROUND"
+    );
+    setEditFormatConfig(
+      sanitizeEditableFormatConfig(currentRound.formatConfig)
+    );
+    setShowEditRoundModal(true);
+  };
+
+  const handleEditFormatChange = (nextFormatId: string) => {
+    const nextFormat = formats.find((format) => format.id === nextFormatId) ?? null;
+    setEditFormatId(nextFormatId);
+    setEditFormatConfig(buildDefaultFormatConfig(nextFormat));
+  };
+
+  const updateEditFormatConfig = (key: string, value: unknown) => {
+    setEditFormatConfig((current) => ({ ...current, [key]: value }));
+  };
+
+  const buildEditedRoundFormatConfig = (formatDefinitionId: string) => {
+    const editableConfig = { ...editFormatConfig };
+    const mergedConfig: Record<string, unknown> = { ...editableConfig };
+
+    if (par3ContestConfig) {
+      mergedConfig.par3Contest = par3ContestConfig;
+    }
+
+    if (formatDefinitionId === "vegas") {
+      mergedConfig.vegasMatchups = buildVegasMatchupEntries();
+    }
+
+    return mergedConfig;
+  };
+
+  const handleSaveRoundDetails = async () => {
+    if (!editCourseId || !editFormatId) {
+      setError("Course and format are required.");
+      return;
+    }
+
+    const parsedBuyIn = Number(editBuyIn);
+    if (!Number.isFinite(parsedBuyIn) || parsedBuyIn <= 0) {
+      setError("Buy-in must be greater than 0.");
+      return;
+    }
+
+    if (isEditIrishGolf) {
+      if (
+        !editFormatConfig.segment1FormatId ||
+        !editFormatConfig.segment2FormatId ||
+        !editFormatConfig.segment3FormatId
+      ) {
+        setError(
+          "Irish Golf / 6-6-6 requires a format selected for all three segments."
+        );
+        return;
+      }
+    }
+
+    if (hasTeams && selectedEditFormat?.supportedTeamSizes) {
+      const currentTeamSize = currentRound.teamSize;
+      if (
+        currentTeamSize !== null &&
+        !selectedEditFormat.supportedTeamSizes.includes(currentTeamSize)
+      ) {
+        setError(
+          `${selectedEditFormat.name} does not support teams of ${currentTeamSize}. Choose a compatible format or regenerate teams.`
+        );
+        return;
+      }
+    }
+
+    setActionLoading(true);
+    setError(null);
+    try {
+      await updateRoundDraft(id, {
+        name: editRoundName.trim() || undefined,
+        date: new Date(editRoundDate),
+        courseId: editCourseId,
+        formatId: editFormatId,
+        buyInPerPlayer: parsedBuyIn,
+        visibility: editVisibility,
+        blindRevealMode:
+          editVisibility === "BLIND" ? editBlindRevealMode : undefined,
+        formatConfig: buildEditedRoundFormatConfig(editFormatId),
+      });
+      setShowEditRoundModal(false);
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update round");
+    }
+    setActionLoading(false);
+  };
 
   const setVegasOpponent = (teamId: string, opponentTeamId: string) => {
     setVegasMatchups((current) => {
@@ -572,6 +768,9 @@ export default function RoundSetupPage({
             </p>
           )}
           <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button variant="secondary" size="sm" onClick={openEditRoundModal}>
+              Edit Round
+            </Button>
             <Link href={`/rounds/${id}/sunday-setup`}>
               <Button variant="secondary" size="sm">
                 Sunday Setup
@@ -1193,6 +1392,248 @@ export default function RoundSetupPage({
           )}
         </div>
       )}
+
+      <Modal
+        isOpen={showEditRoundModal}
+        onClose={() => setShowEditRoundModal(false)}
+        title="Edit Round"
+      >
+        <div className="space-y-4">
+          <Input
+            label="Round Name (optional)"
+            type="text"
+            value={editRoundName}
+            onChange={(e) => setEditRoundName(e.target.value)}
+            placeholder="e.g., Week 1"
+          />
+
+          <Input
+            label="Date"
+            type="date"
+            value={editRoundDate}
+            onChange={(e) => setEditRoundDate(e.target.value)}
+            required
+          />
+
+          <Select
+            label="Course"
+            value={editCourseId}
+            onChange={(e) => setEditCourseId(e.target.value)}
+            options={courses.map((course) => ({
+              value: course.id,
+              label: course.name,
+            }))}
+            required
+          />
+
+          <Select
+            label="Format"
+            value={editFormatId}
+            onChange={(e) => handleEditFormatChange(e.target.value)}
+            options={formats.map((format) => ({
+              value: format.id,
+              label: format.name,
+            }))}
+            required
+          />
+
+          {selectedEditFormat?.gameDescription && (
+            <div className="rounded border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+              {selectedEditFormat.gameDescription}
+            </div>
+          )}
+
+          {hasTeams &&
+            selectedEditFormat?.supportedTeamSizes &&
+            currentRound.teamSize !== null &&
+            !selectedEditFormat.supportedTeamSizes.includes(currentRound.teamSize) && (
+              <div className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+                This format does not support your current teams of{" "}
+                {currentRound.teamSize}. Save is blocked until you choose a
+                compatible format or regenerate teams.
+              </div>
+            )}
+
+          {selectedEditFormat?.configOptions &&
+            selectedEditFormat.configOptions.length > 0 && (
+              <div className="space-y-3 rounded border border-gray-200 bg-gray-50 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Format Options
+                </p>
+                {selectedEditFormat.configOptions.map((option) => {
+                  if (
+                    isEditIrishGolf &&
+                    [
+                      "segment1FormatId",
+                      "segment2FormatId",
+                      "segment3FormatId",
+                    ].includes(option.key)
+                  ) {
+                    return null;
+                  }
+
+                  if (option.type === "boolean") {
+                    return (
+                      <label
+                        key={option.key}
+                        className="flex items-center gap-2 text-sm"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!!editFormatConfig[option.key]}
+                          onChange={(e) =>
+                            updateEditFormatConfig(option.key, e.target.checked)
+                          }
+                          className="h-4 w-4"
+                        />
+                        <span>{option.label}</span>
+                      </label>
+                    );
+                  }
+
+                  if (option.type === "number") {
+                    return (
+                      <Input
+                        key={option.key}
+                        label={option.label}
+                        type="number"
+                        min="1"
+                        value={String(
+                          editFormatConfig[option.key] ??
+                            option.defaultValue ??
+                            ""
+                        )}
+                        onChange={(e) =>
+                          updateEditFormatConfig(
+                            option.key,
+                            Number(e.target.value)
+                          )
+                        }
+                      />
+                    );
+                  }
+
+                  if (option.type === "select" && option.options) {
+                    return (
+                      <Select
+                        key={option.key}
+                        label={option.label}
+                        value={String(
+                          editFormatConfig[option.key] ??
+                            option.defaultValue ??
+                            ""
+                        )}
+                        onChange={(e) =>
+                          updateEditFormatConfig(option.key, e.target.value)
+                        }
+                        options={option.options.map((choice) => ({
+                          value: choice.value,
+                          label: choice.label,
+                        }))}
+                      />
+                    );
+                  }
+
+                  return null;
+                })}
+              </div>
+            )}
+
+          {isEditIrishGolf && (
+            <div className="space-y-3 rounded border border-amber-200 bg-amber-50 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+                6-6-6 Segment Formats
+              </p>
+              {(
+                [
+                  { key: "segment1FormatId", label: "Holes 1-6 Format" },
+                  { key: "segment2FormatId", label: "Holes 7-12 Format" },
+                  { key: "segment3FormatId", label: "Holes 13-18 Format" },
+                ] as const
+              ).map(({ key, label }) => (
+                <Select
+                  key={key}
+                  label={label}
+                  value={String(editFormatConfig[key] ?? "")}
+                  onChange={(e) =>
+                    updateEditFormatConfig(key, e.target.value)
+                  }
+                  options={[
+                    { value: "", label: "Select a format..." },
+                    ...editEligibleSegmentFormats.map((format) => ({
+                      value: format.definitionId ?? format.id,
+                      label: format.name,
+                    })),
+                  ]}
+                  required
+                />
+              ))}
+            </div>
+          )}
+
+          <Input
+            label="Buy-in per Player ($)"
+            type="number"
+            min="1"
+            value={editBuyIn}
+            onChange={(e) => setEditBuyIn(e.target.value)}
+            required
+          />
+
+          <Select
+            label="Visibility"
+            value={editVisibility}
+            onChange={(e) =>
+              setEditVisibility(e.target.value as "OPEN" | "BLIND")
+            }
+            options={[
+              { value: "OPEN", label: "Open (all teams see scores)" },
+              { value: "BLIND", label: "Blind (hidden until revealed)" },
+            ]}
+          />
+
+          {editVisibility === "BLIND" && (
+            <Select
+              label="Blind Reveal Mode"
+              value={editBlindRevealMode}
+              onChange={(e) =>
+                setEditBlindRevealMode(
+                  e.target.value as
+                    | "REVEAL_AFTER_ROUND"
+                    | "REVEAL_AFTER_HOLE"
+                )
+              }
+              options={[
+                {
+                  value: "REVEAL_AFTER_ROUND",
+                  label: "Reveal after round ends",
+                },
+                {
+                  value: "REVEAL_AFTER_HOLE",
+                  label: "Reveal after each hole",
+                },
+              ]}
+            />
+          )}
+
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              className="flex-1"
+              onClick={() => setShowEditRoundModal(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="flex-1"
+              onClick={handleSaveRoundDetails}
+              disabled={actionLoading}
+            >
+              {actionLoading ? "Saving..." : "Save Changes"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Start Round Modal */}
       <Modal
