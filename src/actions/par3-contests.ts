@@ -16,6 +16,29 @@ interface TeamMemberMapValue {
   playerId: string;
 }
 
+function toInputJsonValue(value: unknown): Prisma.InputJsonValue {
+  if (value === null) return null;
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => toInputJsonValue(item));
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .map(([key, entryValue]) => [key, toInputJsonValue(entryValue)]);
+
+    return Object.fromEntries(entries) as Prisma.InputJsonObject;
+  }
+
+  return null;
+}
+
 function addToMap(
   map: Map<string, Decimal>,
   key: string,
@@ -134,13 +157,13 @@ export async function savePar3ContestResults(
       }) satisfies Prisma.JsonObject
   );
 
-  const updatedFormatConfig: Prisma.InputJsonValue = {
+  const updatedFormatConfig = toInputJsonValue({
     ...((round.formatConfig as Prisma.JsonObject | null) ?? {}),
     par3Contest: {
       ...par3ContestConfig,
       results: jsonResults,
     },
-  };
+  });
 
   await prisma.$transaction(async (tx) => {
     for (const [teamId, delta] of teamDeltas) {
