@@ -49,6 +49,7 @@ model Player {
   updatedAt              DateTime @updatedAt
 
   roundPlayers           RoundPlayer[]
+  playerScores           PlayerScore[]
   seasonStats            SeasonPlayerStat[]
 
   @@index([isActive])
@@ -88,11 +89,12 @@ model CourseHole {
 // ============================================
 
 model Format {
-  id          String   @id @default(cuid())
-  name        String   @unique
-  description String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String   @id @default(cuid())
+  name            String   @unique
+  description     String
+  defaultTeamSize Int      @default(4)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   rounds      Round[]
 }
@@ -123,6 +125,9 @@ model Round {
   // Team lock (4-digit code to prevent team changes while allowing scoring)
   lockCode            String?      // 4-digit code that locks teams, null = unlocked
 
+  // Format-specific config (shambleCountMode, segment formats, moneyBallPenaltyStrokes, etc.)
+  formatConfig     Json?
+
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 
@@ -136,6 +141,7 @@ model Round {
   holeScores       HoleScore[]
   holeResults      HoleResult[]
   messages         RoundMessage[]
+  playerScores     PlayerScore[]
 
   @@index([status])
   @@index([date])
@@ -159,6 +165,7 @@ model Team {
   round           Round    @relation(fields: [roundId], references: [id], onDelete: Cascade)
   roundPlayers    RoundPlayer[]
   holeScores      HoleScore[]
+  playerScores    PlayerScore[]
   sentMessages    RoundMessage[]                @relation("RoundMessageSenderTeam")
   messageAcknowledgements RoundMessageAcknowledgement[]
 
@@ -283,5 +290,29 @@ model RoundMessageAcknowledgement {
   team            Team         @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@unique([roundMessageId, teamId])
+  @@index([teamId])
+}
+
+// ============================================
+// PLAYER SCORE (Per player per hole — for individual-score formats)
+// ============================================
+
+model PlayerScore {
+  id          String   @id @default(cuid())
+  roundId     String
+  teamId      String
+  playerId    String
+  holeNumber  Int
+  grossScore  Int?     // actual strokes taken; null = pick up / no score
+  extraData   Json?    // driveSelected, isMoneyBall, moneyBallLost, wolfRole, etc.
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  round       Round    @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  team        Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  player      Player   @relation(fields: [playerId], references: [id])
+
+  @@unique([roundId, teamId, playerId, holeNumber])
+  @@index([roundId, holeNumber])
   @@index([teamId])
 }

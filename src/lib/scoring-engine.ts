@@ -360,3 +360,441 @@ export function getCurrentHoleIndex(
 
   return 17; // All complete, return last index
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FORMAT SCORING ENGINE — pure functions for all 14 golf formats
+// No database access. Appended to existing skins engine above.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface PlayerInput {
+  playerId: string;
+  playerName: string;
+  grossScore: number | null; // null = pick up / no score recorded
+  driveSelected?: boolean; // for scramble/shamble: was this player's drive chosen?
+}
+
+export interface ScoringResult {
+  teamGrossScore: number | null;
+  teamDisplayScore?: string; // override display (e.g. "344" for Train Game)
+  countedPlayerIds: string[];
+  extraData: Record<string, unknown>;
+}
+
+export interface MoneyBallResult extends ScoringResult {
+  moneyBallRawScore: number | null;
+  moneyBallPenalty: number;
+  moneyBallAdjustedScore: number | null;
+}
+
+export interface VegasHoleResult {
+  team1Number: number | null;
+  team2Number: number | null;
+  holePoints: number;
+  winner: "team1" | "team2" | "tie";
+}
+
+export interface ChicagoHoleResult {
+  totalPoints: number;
+  playerPoints: Record<string, number>;
+}
+
+export interface DriveMinimumStatus {
+  driveCounts: Record<string, number>;
+  shortfalls: Record<string, number>;
+  remainingHoles: number;
+  warnings: string[];
+}
+
+export interface Par3Standing {
+  playerId: string;
+  playerName: string;
+  total: number | null;
+  holesCompleted: number;
+}
+
+export interface MoneyBallRoundTotals {
+  teamCompetitionTotal: number | null;
+  moneyBallTotalScore: number | null;
+  moneyBallLossCount: number;
+  moneyBallPenaltyTotal: number;
+}
+
+/** Returns 0-based index of the designated player for a given hole (1-based). */
+export function getRotatingPlayerIndex(
+  holeNumber: number,
+  teamSize: number
+): number {
+  return (holeNumber - 1) % teamSize;
+}
+
+/** Returns the playerId of the rotating designated player for a given hole. */
+export function getRotatingDesignatedPlayerId(
+  players: PlayerInput[],
+  holeNumber: number
+): string {
+  const idx = getRotatingPlayerIndex(holeNumber, players.length);
+  return players[idx]?.playerId ?? "";
+}
+
+function rankedValidScores(
+  players: PlayerInput[]
+): Array<{ score: number; playerId: string }> {
+  return players
+    .filter((p) => p.grossScore !== null)
+    .map((p) => ({ score: p.grossScore as number, playerId: p.playerId }))
+    .sort((a, b) => a.score - b.score);
+}
+
+export function compute2BestBalls(players: PlayerInput[]): ScoringResult {
+  const ranked = rankedValidScores(players);
+  const counted = ranked.slice(0, 2);
+  const teamScore =
+    counted.length === 2 ? counted.reduce((s, p) => s + p.score, 0) : null;
+  return {
+    teamGrossScore: teamScore,
+    countedPlayerIds: counted.map((p) => p.playerId),
+    extraData: {},
+  };
+}
+
+export function compute3BestBalls(players: PlayerInput[]): ScoringResult {
+  const ranked = rankedValidScores(players);
+  const counted = ranked.slice(0, 3);
+  const teamScore =
+    counted.length === 3 ? counted.reduce((s, p) => s + p.score, 0) : null;
+  return {
+    teamGrossScore: teamScore,
+    countedPlayerIds: counted.map((p) => p.playerId),
+    extraData: {},
+  };
+}
+
+export function computeLoneRanger(
+  players: PlayerInput[],
+  loneRangerPlayerId: string
+): ScoringResult {
+  const loneRanger = players.find((p) => p.playerId === loneRangerPlayerId);
+  const rest = players.filter((p) => p.playerId !== loneRangerPlayerId);
+  const bestOfRest = rankedValidScores(rest)[0];
+  if (!loneRanger || loneRanger.grossScore === null || !bestOfRest) {
+    return {
+      teamGrossScore: null,
+      countedPlayerIds: loneRanger ? [loneRangerPlayerId] : [],
+      extraData: { loneRangerId: loneRangerPlayerId },
+    };
+  }
+  return {
+    teamGrossScore: loneRanger.grossScore + bestOfRest.score,
+    countedPlayerIds: [loneRangerPlayerId, bestOfRest.playerId],
+    extraData: { loneRangerId: loneRangerPlayerId },
+  };
+}
+
+export function computeMoneyBall(
+  players: PlayerInput[],
+  moneyBallPlayerId: string,
+  moneyBallLost: boolean,
+  penaltyStrokes: number = 4
+): MoneyBallResult {
+  const mbPlayer = players.find((p) => p.playerId === moneyBallPlayerId);
+  const rest = players.filter((p) => p.playerId !== moneyBallPlayerId);
+  const bestOfRest = rankedValidScores(rest)[0];
+  const mbRawScore = mbPlayer?.grossScore ?? null;
+  const mbPenalty = moneyBallLost ? penaltyStrokes : 0;
+  const mbAdjustedScore = mbRawScore !== null ? mbRawScore + mbPenalty : null;
+  let teamScore: number | null = null;
+  const counted: string[] = [];
+  if (mbRawScore !== null && bestOfRest) {
+    teamScore = mbRawScore + bestOfRest.score;
+    counted.push(moneyBallPlayerId, bestOfRest.playerId);
+  }
+  return {
+    teamGrossScore: teamScore,
+    countedPlayerIds: counted,
+    moneyBallRawScore: mbRawScore,
+    moneyBallPenalty: mbPenalty,
+    moneyBallAdjustedScore: mbAdjustedScore,
+    extraData: { moneyBallLost, moneyBallPlayerId },
+  };
+}
+
+export function computeChaChaCha(
+  players: PlayerInput[],
+  holeNumber: number
+): ScoringResult {
+  const countMode = ((holeNumber - 1) % 3) + 1;
+  const ranked = rankedValidScores(players);
+  const counted = ranked.slice(0, countMode);
+  const teamScore =
+    counted.length === countMode
+      ? counted.reduce((s, p) => s + p.score, 0)
+      : null;
+  return {
+    teamGrossScore: teamScore,
+    countedPlayerIds: counted.map((p) => p.playerId),
+    extraData: { countMode, holeNumber },
+  };
+}
+
+export function computeShamble(
+  players: PlayerInput[],
+  countMode: "count_best_1" | "count_best_2" | "count_best_3" | "count_all"
+): ScoringResult {
+  const drivePlayer = players.find((p) => p.driveSelected);
+  const ranked = rankedValidScores(players);
+  const countN =
+    countMode === "count_best_1"
+      ? 1
+      : countMode === "count_best_2"
+      ? 2
+      : countMode === "count_best_3"
+      ? 3
+      : players.length;
+  const counted = ranked.slice(0, countN);
+  const teamScore =
+    counted.length === countN ? counted.reduce((s, p) => s + p.score, 0) : null;
+  return {
+    teamGrossScore: teamScore,
+    countedPlayerIds: counted.map((p) => p.playerId),
+    extraData: {
+      selectedDrivePlayerId: drivePlayer?.playerId ?? null,
+      countMode,
+    },
+  };
+}
+
+export function computeChicagoPoints(grossScore: number, par: number): number {
+  const diff = grossScore - par;
+  if (diff <= -3) return 8;
+  if (diff === -2) return 4;
+  if (diff === -1) return 2;
+  if (diff === 0) return 1;
+  return 0;
+}
+
+export function computeChicagoTeamPoints(
+  players: PlayerInput[],
+  par: number
+): ChicagoHoleResult {
+  let totalPoints = 0;
+  const playerPoints: Record<string, number> = {};
+  for (const p of players) {
+    if (p.grossScore !== null) {
+      const pts = computeChicagoPoints(p.grossScore, par);
+      playerPoints[p.playerId] = pts;
+      totalPoints += pts;
+    } else {
+      playerPoints[p.playerId] = 0;
+    }
+  }
+  return { totalPoints, playerPoints };
+}
+
+export function computeTrainGame(
+  players: PlayerInput[]
+): ScoringResult & { trainNumber: number | null } {
+  const ranked = rankedValidScores(players);
+  const best3 = ranked.slice(0, 3);
+  if (best3.length < 3) {
+    return {
+      teamGrossScore: null,
+      trainNumber: null,
+      countedPlayerIds: [],
+      extraData: { trainDigits: [] },
+    };
+  }
+  const digits = best3.map((p) => p.score);
+  const trainNumber = digits.reduce((acc, d) => acc * 10 + d, 0);
+  return {
+    teamGrossScore: trainNumber,
+    teamDisplayScore: digits.join(""),
+    trainNumber,
+    countedPlayerIds: best3.map((p) => p.playerId),
+    extraData: { trainDigits: digits },
+  };
+}
+
+export function computeVegas(
+  team1Scores: [number | null, number | null],
+  team2Scores: [number | null, number | null],
+  par: number,
+  options: { enableBirdieFlip?: boolean } = {}
+): VegasHoleResult {
+  const t1Valid = (team1Scores.filter((s) => s !== null) as number[]).sort(
+    (a, b) => a - b
+  );
+  const t2Valid = (team2Scores.filter((s) => s !== null) as number[]).sort(
+    (a, b) => a - b
+  );
+  if (t1Valid.length < 2 || t2Valid.length < 2) {
+    return { team1Number: null, team2Number: null, holePoints: 0, winner: "tie" };
+  }
+  let t1Num = t1Valid[0] * 10 + t1Valid[1];
+  let t2Num = t2Valid[0] * 10 + t2Valid[1];
+  if (options.enableBirdieFlip) {
+    if (t1Valid.some((s) => s < par)) t2Num = t2Valid[1] * 10 + t2Valid[0];
+    if (t2Valid.some((s) => s < par)) t1Num = t1Valid[1] * 10 + t1Valid[0];
+  }
+  const diff = Math.abs(t1Num - t2Num);
+  const winner: "team1" | "team2" | "tie" =
+    t1Num < t2Num ? "team1" : t2Num < t1Num ? "team2" : "tie";
+  return { team1Number: t1Num, team2Number: t2Num, holePoints: diff, winner };
+}
+
+export function computeDriveMinimumStatus(
+  driveLog: Array<{ holeNumber: number; drivingPlayerId: string }>,
+  teamPlayerIds: string[],
+  requiredDrives: number,
+  totalHoles: number
+): DriveMinimumStatus {
+  const driveCounts: Record<string, number> = {};
+  teamPlayerIds.forEach((id) => (driveCounts[id] = 0));
+  for (const entry of driveLog) {
+    if (driveCounts[entry.drivingPlayerId] !== undefined)
+      driveCounts[entry.drivingPlayerId]++;
+  }
+  const holesPlayed = driveLog.length;
+  const remainingHoles = totalHoles - holesPlayed;
+  const warnings: string[] = [];
+  const shortfalls: Record<string, number> = {};
+  for (const [playerId, count] of Object.entries(driveCounts)) {
+    if (count < requiredDrives) {
+      const needed = requiredDrives - count;
+      shortfalls[playerId] = needed;
+      if (needed > remainingHoles)
+        warnings.push(
+          `Player ${playerId} cannot meet drive minimum (needs ${needed} more, only ${remainingHoles} holes remain)`
+        );
+    }
+  }
+  return { driveCounts, shortfalls, remainingHoles, warnings };
+}
+
+export function computePar3ContestStandings(
+  playerScores: Array<{
+    playerId: string;
+    playerName: string;
+    par3GrossScores: (number | null)[];
+  }>
+): Par3Standing[] {
+  return playerScores
+    .map((p) => {
+      const valid = p.par3GrossScores.filter((s): s is number => s !== null);
+      return {
+        playerId: p.playerId,
+        playerName: p.playerName,
+        total: valid.length > 0 ? valid.reduce((a, b) => a + b, 0) : null,
+        holesCompleted: valid.length,
+      };
+    })
+    .sort((a, b) => {
+      if (a.total === null && b.total === null) return 0;
+      if (a.total === null) return 1;
+      if (b.total === null) return -1;
+      return a.total - b.total;
+    });
+}
+
+export function getIrishGolfSegmentFormatId(
+  holeNumber: number,
+  formatConfig: Record<string, unknown>
+): string | null {
+  if (holeNumber >= 1 && holeNumber <= 6)
+    return (formatConfig.segment1FormatId as string) ?? null;
+  if (holeNumber >= 7 && holeNumber <= 12)
+    return (formatConfig.segment2FormatId as string) ?? null;
+  if (holeNumber >= 13 && holeNumber <= 18)
+    return (formatConfig.segment3FormatId as string) ?? null;
+  return null;
+}
+
+export function computeFormatScore(
+  formatId: string,
+  players: PlayerInput[],
+  holeNumber: number,
+  par: number,
+  holeMetadata: Record<string, unknown> = {},
+  formatConfig: Record<string, unknown> = {}
+): ScoringResult | MoneyBallResult | null {
+  switch (formatId) {
+    case "two_best_balls_of_four":
+      return compute2BestBalls(players);
+    case "three_best_balls_of_four":
+      return compute3BestBalls(players);
+    case "lone_ranger": {
+      const designatedId =
+        (holeMetadata.designatedPlayerId as string) ||
+        getRotatingDesignatedPlayerId(players, holeNumber);
+      return computeLoneRanger(players, designatedId);
+    }
+    case "money_ball": {
+      const mbPlayerId =
+        (holeMetadata.moneyBallPlayerId as string) ||
+        getRotatingDesignatedPlayerId(players, holeNumber);
+      const mbLost = (holeMetadata.moneyBallLost as boolean) ?? false;
+      const penalty = (formatConfig.moneyBallPenaltyStrokes as number) ?? 4;
+      return computeMoneyBall(players, mbPlayerId, mbLost, penalty);
+    }
+    case "cha_cha_cha":
+      return computeChaChaCha(players, holeNumber);
+    case "shamble_team": {
+      const countMode =
+        ((formatConfig.shambleCountMode as string) as
+          | "count_best_1"
+          | "count_best_2"
+          | "count_best_3"
+          | "count_all") ?? "count_best_2";
+      return computeShamble(players, countMode);
+    }
+    case "train_game":
+      return computeTrainGame(players);
+    case "chicago_points_team":
+      return { ...computeChicagoTeamPoints(players, par), countedPlayerIds: [], extraData: {} };
+    case "irish_golf_6_6_6": {
+      const segmentId = getIrishGolfSegmentFormatId(holeNumber, formatConfig);
+      if (segmentId)
+        return computeFormatScore(
+          segmentId,
+          players,
+          holeNumber,
+          par,
+          holeMetadata,
+          formatConfig
+        );
+      return null;
+    }
+    default:
+      return null;
+  }
+}
+
+export function computeMoneyBallRoundTotals(
+  holeResults: Array<{
+    teamGrossScore: number | null;
+    moneyBallAdjustedScore: number | null;
+    moneyBallPenalty: number;
+    moneyBallLost: boolean;
+  }>
+): MoneyBallRoundTotals {
+  let teamCompetitionTotal: number | null = null;
+  let moneyBallTotalScore: number | null = null;
+  let moneyBallLossCount = 0;
+  let moneyBallPenaltyTotal = 0;
+  for (const hole of holeResults) {
+    if (hole.teamGrossScore !== null)
+      teamCompetitionTotal = (teamCompetitionTotal ?? 0) + hole.teamGrossScore;
+    if (hole.moneyBallAdjustedScore !== null)
+      moneyBallTotalScore =
+        (moneyBallTotalScore ?? 0) + hole.moneyBallAdjustedScore;
+    if (hole.moneyBallLost) {
+      moneyBallLossCount++;
+      moneyBallPenaltyTotal += hole.moneyBallPenalty;
+    }
+  }
+  return {
+    teamCompetitionTotal,
+    moneyBallTotalScore,
+    moneyBallLossCount,
+    moneyBallPenaltyTotal,
+  };
+}

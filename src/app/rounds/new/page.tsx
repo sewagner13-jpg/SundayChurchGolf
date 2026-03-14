@@ -8,22 +8,26 @@ import { Input } from "@/components/input";
 import { Select } from "@/components/select";
 import { createRound } from "@/actions/rounds";
 import { VisibilityMode, BlindRevealMode } from "@prisma/client";
+import {
+  IRISH_GOLF_ELIGIBLE_SEGMENT_FORMATS,
+  FORMAT_DEFINITIONS,
+  type FormatConfigOption,
+} from "@/lib/format-definitions";
 
 interface Course {
   id: string;
   name: string;
 }
 
-interface Format {
+interface EnrichedFormat {
   id: string;
   name: string;
-}
-
-interface NewRoundPageClientProps {
-  courses: Course[];
-  formats: Format[];
-  defaultCourseId: string;
-  defaultFormatId: string;
+  gameDescription?: string;
+  formatCategory?: string;
+  supportedTeamSizes?: number[];
+  configOptions?: FormatConfigOption[];
+  requiresIndividualScores?: boolean;
+  definitionId?: string | null;
 }
 
 function getNextSunday(): string {
@@ -32,6 +36,16 @@ function getNextSunday(): string {
   const nextSunday = new Date(today);
   nextSunday.setDate(today.getDate() + daysUntilSunday);
   return nextSunday.toISOString().split("T")[0];
+}
+
+function buildDefaultConfig(
+  format: EnrichedFormat
+): Record<string, unknown> {
+  const config: Record<string, unknown> = {};
+  for (const opt of format.configOptions ?? []) {
+    if (opt.defaultValue !== undefined) config[opt.key] = opt.defaultValue;
+  }
+  return config;
 }
 
 export default function NewRoundPage() {
@@ -48,7 +62,7 @@ function NewRoundForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [courses, setCourses] = useState<Course[]>([]);
-  const [formats, setFormats] = useState<Format[]>([]);
+  const [formats, setFormats] = useState<EnrichedFormat[]>([]);
   const [dataLoaded, setDataLoaded] = useState(false);
 
   // Form state
@@ -60,6 +74,7 @@ function NewRoundForm() {
   const [visibility, setVisibility] = useState<VisibilityMode>("OPEN");
   const [blindRevealMode, setBlindRevealMode] =
     useState<BlindRevealMode>("REVEAL_AFTER_ROUND");
+  const [formatConfig, setFormatConfig] = useState<Record<string, unknown>>({});
 
   // Load data on mount
   useState(() => {
@@ -75,32 +90,69 @@ function NewRoundForm() {
         setCourses(coursesData);
         setFormats(formatsData);
 
-        // Set defaults
         const timberlake = coursesData.find(
           (c: Course) => c.name === "Timberlake Country Club"
         );
         const sundayChurch = formatsData.find(
-          (f: Format) => f.name === "Sunday Church Scramble Skins"
+          (f: EnrichedFormat) => f.name === "Sunday Church Scramble Skins"
         );
 
         if (timberlake) setCourseId(timberlake.id);
         else if (coursesData.length > 0) setCourseId(coursesData[0].id);
 
-        if (sundayChurch) setFormatId(sundayChurch.id);
-        else if (formatsData.length > 0) setFormatId(formatsData[0].id);
+        if (sundayChurch) {
+          setFormatId(sundayChurch.id);
+          setFormatConfig(buildDefaultConfig(sundayChurch));
+        } else if (formatsData.length > 0) {
+          setFormatId(formatsData[0].id);
+          setFormatConfig(buildDefaultConfig(formatsData[0]));
+        }
 
         setDataLoaded(true);
-      } catch (err) {
+      } catch {
         setError("Failed to load data");
       }
     }
     loadData();
   });
 
+  const selectedFormat = formats.find((f) => f.id === formatId) ?? null;
+  const isVegas = selectedFormat?.name === "Vegas";
+  const isIrishGolf = selectedFormat?.name === "Irish Golf / 6-6-6";
+  const eligibleSegmentFormats = formats.filter(
+    (f) =>
+      f.definitionId !== null &&
+      IRISH_GOLF_ELIGIBLE_SEGMENT_FORMATS.includes(f.definitionId ?? "")
+  );
+
+  function handleFormatChange(newFormatId: string) {
+    const fmt = formats.find((f) => f.id === newFormatId);
+    setFormatId(newFormatId);
+    setFormatConfig(fmt ? buildDefaultConfig(fmt) : {});
+  }
+
+  function updateConfig(key: string, value: unknown) {
+    setFormatConfig((prev) => ({ ...prev, [key]: value }));
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+
+    if (isIrishGolf) {
+      if (
+        !formatConfig.segment1FormatId ||
+        !formatConfig.segment2FormatId ||
+        !formatConfig.segment3FormatId
+      ) {
+        setError(
+          "Irish Golf / 6-6-6 requires a format selected for all three segments."
+        );
+        setLoading(false);
+        return;
+      }
+    }
 
     try {
       const round = await createRound({
@@ -111,6 +163,8 @@ function NewRoundForm() {
         buyInPerPlayer: Number(buyIn),
         visibility,
         blindRevealMode: visibility === "BLIND" ? blindRevealMode : undefined,
+        formatConfig:
+          Object.keys(formatConfig).length > 0 ? formatConfig : undefined,
       });
 
       router.push(`/rounds/${round.id}/setup`);
@@ -159,13 +213,126 @@ function NewRoundForm() {
             required
           />
 
+          {/* Format selector */}
           <Select
             label="Format"
             value={formatId}
-            onChange={(e) => setFormatId(e.target.value)}
+            onChange={(e) => handleFormatChange(e.target.value)}
             options={formats.map((f) => ({ value: f.id, label: f.name }))}
             required
           />
+
+          {/* Format description */}
+          {selectedFormat?.gameDescription && (
+            <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-sm text-blue-800">
+              {selectedFormat.gameDescription}
+            </div>
+          )}
+
+          {/* Dynamic configOptions */}
+          {selectedFormat?.configOptions &&
+            selectedFormat.configOptions.length > 0 && (
+              <div className="space-y-3 border border-gray-200 rounded-md p-3 bg-gray-50">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  Format Options
+                </p>
+                {selectedFormat.configOptions.map((opt) => {
+                  // Hide segment dropdowns — handled separately below
+                  if (
+                    isIrishGolf &&
+                    ["segment1FormatId", "segment2FormatId", "segment3FormatId"].includes(
+                      opt.key
+                    )
+                  )
+                    return null;
+
+                  if (opt.type === "boolean") {
+                    return (
+                      <label key={opt.key} className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={!!formatConfig[opt.key]}
+                          onChange={(e) => updateConfig(opt.key, e.target.checked)}
+                          className="h-4 w-4"
+                        />
+                        <span>{opt.label}</span>
+                      </label>
+                    );
+                  }
+
+                  if (opt.type === "number") {
+                    return (
+                      <Input
+                        key={opt.key}
+                        label={opt.label}
+                        type="number"
+                        min="1"
+                        value={String(formatConfig[opt.key] ?? opt.defaultValue ?? "")}
+                        onChange={(e) =>
+                          updateConfig(opt.key, Number(e.target.value))
+                        }
+                      />
+                    );
+                  }
+
+                  if (opt.type === "select" && opt.options) {
+                    return (
+                      <Select
+                        key={opt.key}
+                        label={opt.label}
+                        value={String(formatConfig[opt.key] ?? opt.defaultValue ?? "")}
+                        onChange={(e) => updateConfig(opt.key, e.target.value)}
+                        options={opt.options.map((o) => ({
+                          value: o.value,
+                          label: o.label,
+                        }))}
+                      />
+                    );
+                  }
+
+                  return null;
+                })}
+              </div>
+            )}
+
+          {/* Irish Golf segment selectors */}
+          {isIrishGolf && (
+            <div className="space-y-3 border border-amber-200 rounded-md p-3 bg-amber-50">
+              <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">
+                6-6-6 Segment Formats
+              </p>
+              {(
+                [
+                  { key: "segment1FormatId", label: "Holes 1–6 Format" },
+                  { key: "segment2FormatId", label: "Holes 7–12 Format" },
+                  { key: "segment3FormatId", label: "Holes 13–18 Format" },
+                ] as const
+              ).map(({ key, label }) => (
+                <Select
+                  key={key}
+                  label={label}
+                  value={String(formatConfig[key] ?? "")}
+                  onChange={(e) => updateConfig(key, e.target.value)}
+                  options={[
+                    { value: "", label: "Select a format…" },
+                    ...eligibleSegmentFormats.map((f) => ({
+                      value: f.definitionId ?? f.id,
+                      label: f.name,
+                    })),
+                  ]}
+                  required
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Vegas notice */}
+          {isVegas && (
+            <div className="bg-yellow-50 border border-yellow-300 rounded-md p-3 text-sm text-yellow-800">
+              ⚠️ Vegas requires exactly 2 players per team. Team size will be set
+              automatically during player selection.
+            </div>
+          )}
 
           <Input
             label="Buy-in per Player ($)"
