@@ -27,6 +27,7 @@ interface EnrichedFormat {
   supportedTeamSizes?: number[];
   configOptions?: FormatConfigOption[];
   requiresIndividualScores?: boolean;
+  requiresDriveTracking?: boolean;
   definitionId?: string | null;
 }
 
@@ -46,6 +47,21 @@ function buildDefaultConfig(
     if (opt.defaultValue !== undefined) config[opt.key] = opt.defaultValue;
   }
   return config;
+}
+
+function supportsDriveMinimums(format: EnrichedFormat | null): boolean {
+  return !!format?.configOptions?.some(
+    (option) =>
+      option.key === "enableDriveMinimums" ||
+      option.key === "requiredDrivesPerPlayer"
+  );
+}
+
+function getRequiredDrivesPerPlayer(
+  formatConfig: Record<string, unknown>
+): number | null {
+  const value = formatConfig.requiredDrivesPerPlayer;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 export default function NewRoundPage() {
@@ -118,6 +134,9 @@ function NewRoundForm() {
   const selectedFormat = formats.find((f) => f.id === formatId) ?? null;
   const isVegas = selectedFormat?.name === "Vegas";
   const isIrishGolf = selectedFormat?.name === "Irish Golf / 6-6-6";
+  const driveMinimumsSupported = supportsDriveMinimums(selectedFormat);
+  const driveMinimumsEnabled = !!formatConfig.enableDriveMinimums;
+  const requiredDrivesPerPlayer = getRequiredDrivesPerPlayer(formatConfig);
   const eligibleSegmentFormats = formats.filter(
     (f) =>
       f.definitionId !== null &&
@@ -228,6 +247,28 @@ function NewRoundForm() {
             </div>
           )}
 
+          {selectedFormat?.requiresDriveTracking && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-md p-3 text-sm text-emerald-900 space-y-1">
+              <p className="font-semibold">Drive Tracking Required</p>
+              <p>
+                This format requires the scorer to mark whose drive was used on
+                each hole.
+              </p>
+              {driveMinimumsSupported && (
+                <p>
+                  Drive minimums:{" "}
+                  {driveMinimumsEnabled
+                    ? `ON${
+                        requiredDrivesPerPlayer !== null
+                          ? `, ${requiredDrivesPerPlayer} per player`
+                          : ""
+                      }`
+                    : "OFF"}
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Dynamic configOptions */}
           {selectedFormat?.configOptions &&
             selectedFormat.configOptions.length > 0 && (
@@ -293,6 +334,27 @@ function NewRoundForm() {
                 })}
               </div>
             )}
+
+          {driveMinimumsSupported && (
+            <div
+              className={`rounded-md border p-3 text-sm ${
+                driveMinimumsEnabled
+                  ? "border-amber-300 bg-amber-50 text-amber-900"
+                  : "border-gray-200 bg-gray-50 text-gray-700"
+              }`}
+            >
+              <p className="font-semibold">Drive Minimum Setting</p>
+              <p>
+                {driveMinimumsEnabled
+                  ? `Each player must contribute at least ${
+                      requiredDrivesPerPlayer ?? "the configured number of"
+                    } drive${
+                      requiredDrivesPerPlayer === 1 ? "" : "s"
+                    } during the round.`
+                  : "Drive minimums are available for this format, but they are currently off."}
+              </p>
+            </div>
+          )}
 
           {/* Irish Golf segment selectors */}
           {isIrishGolf && (

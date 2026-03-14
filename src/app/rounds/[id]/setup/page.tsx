@@ -101,6 +101,20 @@ interface VegasMatchup {
   opponentTeamId: string;
 }
 
+function getDriveMinimumSummary(
+  formatConfig: Record<string, unknown> | null | undefined
+): { enabled: boolean; requiredDrivesPerPlayer: number | null } {
+  const enabled = !!formatConfig?.enableDriveMinimums;
+  const requiredValue = formatConfig?.requiredDrivesPerPlayer;
+  return {
+    enabled,
+    requiredDrivesPerPlayer:
+      typeof requiredValue === "number" && Number.isFinite(requiredValue)
+        ? requiredValue
+        : null,
+  };
+}
+
 export default function RoundSetupPage({
   params,
 }: {
@@ -433,6 +447,7 @@ export default function RoundSetupPage({
         : roundPlayer.player.lastVerifiedDate
     )
   );
+  const driveMinimumSummary = getDriveMinimumSummary(currentRound.formatConfig);
 
   const setVegasOpponent = (teamId: string, opponentTeamId: string) => {
     setVegasMatchups((current) => {
@@ -548,6 +563,14 @@ export default function RoundSetupPage({
           <p className="text-sm text-gray-600">
             ${round.buyInPerPlayer} buy-in • {round.format.name}
           </p>
+          {driveMinimumSummary.enabled && (
+            <p className="mt-1 text-sm text-amber-800">
+              Drive minimums enabled
+              {driveMinimumSummary.requiredDrivesPerPlayer !== null
+                ? `: ${driveMinimumSummary.requiredDrivesPerPlayer} per player`
+                : ""}
+            </p>
+          )}
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Link href={`/rounds/${id}/sunday-setup`}>
               <Button variant="secondary" size="sm">
@@ -659,9 +682,17 @@ export default function RoundSetupPage({
         <div className="space-y-4">
           {/* Team Generation Options */}
           {!hasTeams && (
-            <Card>
-              <CardHeader>Team Settings</CardHeader>
-              <CardContent className="space-y-4">
+              <Card>
+                <CardHeader>Team Settings</CardHeader>
+                <CardContent className="space-y-4">
+                {driveMinimumSummary.enabled && (
+                  <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    Drive minimums are on for this round
+                    {driveMinimumSummary.requiredDrivesPerPlayer !== null
+                      ? `: ${driveMinimumSummary.requiredDrivesPerPlayer} per player.`
+                      : "."}
+                  </div>
+                )}
                 <Select
                   label="Team Size"
                   value={teamSize}
