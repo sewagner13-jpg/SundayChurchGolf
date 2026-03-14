@@ -275,6 +275,9 @@ export async function upsertPlayerScoresForHole(
   const moneyBallEntry = designatedPlayerId
     ? scoreEntries.find((entry) => entry.playerId === designatedPlayerId)
     : null;
+  const wolfEntry = designatedPlayerId
+    ? scoreEntries.find((entry) => entry.playerId === designatedPlayerId)
+    : null;
 
   const result = computeFormatScore(
     effectiveFormatId,
@@ -285,6 +288,8 @@ export async function upsertPlayerScoresForHole(
       designatedPlayerId,
       moneyBallPlayerId: designatedPlayerId,
       moneyBallLost: (moneyBallEntry?.extraData?.moneyBallLost as boolean) ?? false,
+      partnerPlayerId:
+        (wolfEntry?.extraData?.wolfPartnerPlayerId as string | undefined) ?? null,
     },
     (round.formatConfig as Record<string, unknown>) ?? {}
   );

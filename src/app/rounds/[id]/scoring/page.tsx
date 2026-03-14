@@ -118,6 +118,8 @@ interface PlayerHoleInputState {
   grossScore: string;
   driveSelected: boolean;
   moneyBallLost: boolean;
+  wolfPartnerSelected: boolean;
+  wolfLone: boolean;
 }
 
 interface ChatMessage {
@@ -320,6 +322,14 @@ export default function LiveScoringPage({
         effectiveFormat.requiresDesignatedPlayer && team.roundPlayers.length > 0
           ? team.roundPlayers[(currentHole - 1) % team.roundPlayers.length]?.playerId
           : null;
+      const designatedScore = designatedPlayerId
+        ? savedScores.find((score) => score.playerId === designatedPlayerId)
+        : null;
+      const selectedWolfPartnerId =
+        (designatedScore?.extraData?.wolfPartnerPlayerId as string | undefined) ??
+        null;
+      const isLoneWolf =
+        (designatedScore?.extraData?.wolfLone as boolean) ?? false;
 
       setPlayerInputs(
         team.roundPlayers.map((roundPlayer) => {
@@ -338,6 +348,9 @@ export default function LiveScoringPage({
               roundPlayer.playerId === designatedPlayerId,
             moneyBallLost:
               (saved?.extraData?.moneyBallLost as boolean) ?? false,
+            wolfPartnerSelected: roundPlayer.playerId === selectedWolfPartnerId,
+            wolfLone:
+              roundPlayer.playerId === designatedPlayerId ? isLoneWolf : false,
           };
         })
       );
@@ -449,6 +462,17 @@ export default function LiveScoringPage({
     );
   };
 
+  const handleWolfPartnerSelection = (playerId: string | null) => {
+    setPlayerInputs((current) =>
+      current.map((input) => ({
+        ...input,
+        wolfPartnerSelected: playerId !== null && input.playerId === playerId,
+        wolfLone:
+          input.playerId === designatedPlayer?.playerId ? playerId === null : false,
+      }))
+    );
+  };
+
   const handleSavePlayerScores = async () => {
     if (!myTeamId || !usesIndividualScores) return;
     if (scoreEntryBlocked) {
@@ -469,6 +493,17 @@ export default function LiveScoringPage({
       return;
     }
 
+    if (effectiveFormat?.id === "wolf_team" && designatedPlayer) {
+      const hasPartner = playerInputs.some((input) => input.wolfPartnerSelected);
+      const designatedInput = playerInputs.find(
+        (input) => input.playerId === designatedPlayer.playerId
+      );
+      if (!hasPartner && !designatedInput?.wolfLone) {
+        setError("Choose a wolf partner or mark this hole as lone wolf.");
+        return;
+      }
+    }
+
     setSaving(true);
     try {
       await upsertPlayerScoresForHole(
@@ -481,6 +516,15 @@ export default function LiveScoringPage({
           extraData: {
             driveSelected: input.driveSelected,
             moneyBallLost: input.moneyBallLost,
+            wolfPartnerSelected: input.wolfPartnerSelected,
+            ...(input.playerId === designatedPlayer?.playerId
+              ? {
+                  wolfPartnerPlayerId:
+                    playerInputs.find((candidate) => candidate.wolfPartnerSelected)
+                      ?.playerId ?? null,
+                  wolfLone: input.wolfLone,
+                }
+              : {}),
           },
         }))
       );
@@ -780,7 +824,8 @@ export default function LiveScoringPage({
   const currentDisplayScore =
     (myTeamScore?.holeData?.displayScore as string | undefined) ?? null;
   const currentScoreLabel = usesIndividualScores
-    ? effectiveFormat?.formatCategory === "points"
+    ? effectiveFormat?.formatCategory === "points" ||
+      effectiveFormat?.formatCategory === "match"
       ? "points"
       : effectiveFormat?.id === "vegas"
       ? "team number"
@@ -1001,10 +1046,62 @@ export default function LiveScoringPage({
                               Money Ball was lost
                             </label>
                           )}
+                          {effectiveFormat?.id === "wolf_team" &&
+                            !isDesignated && (
+                              <label className="flex items-center gap-2 text-sm text-gray-700">
+                                <input
+                                  type="radio"
+                                  name={`wolf-partner-${currentHole}`}
+                                  checked={input.wolfPartnerSelected}
+                                  onChange={() =>
+                                    handleWolfPartnerSelection(input.playerId)
+                                  }
+                                  disabled={scoreEntryBlocked}
+                                />
+                                Wolf partner
+                              </label>
+                            )}
+                          {effectiveFormat?.id === "wolf_team" && isDesignated && (
+                            <label className="flex items-center gap-2 text-sm text-gray-700">
+                              <input
+                                type="checkbox"
+                                checked={input.wolfLone}
+                                onChange={(e) =>
+                                  handleWolfPartnerSelection(
+                                    e.target.checked ? null : playerInputs.find(
+                                      (candidate) => candidate.wolfPartnerSelected
+                                    )?.playerId ?? null
+                                  )
+                                }
+                                disabled={scoreEntryBlocked}
+                              />
+                              Lone wolf
+                            </label>
+                          )}
                         </div>
                       </div>
                     );
                   })}
+
+                  {effectiveFormat?.id === "wolf_team" && designatedPlayer && (
+                    <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+                      {(() => {
+                        const selectedPartner = playerInputs.find(
+                          (input) => input.wolfPartnerSelected
+                        );
+                        const designatedInput = playerInputs.find(
+                          (input) => input.playerId === designatedPlayer.playerId
+                        );
+                        if (designatedInput?.wolfLone) {
+                          return "Wolf is playing alone against the field.";
+                        }
+                        if (selectedPartner) {
+                          return `Wolf partnered with ${selectedPartner.name} on this hole.`;
+                        }
+                        return "Choose the wolf partner or mark the wolf as alone.";
+                      })()}
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-2 gap-3">
                     <Button

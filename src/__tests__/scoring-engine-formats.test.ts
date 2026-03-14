@@ -5,6 +5,7 @@ import {
   computeFormatScore,
   computeMoneyBall,
   computeTrainGame,
+  computeVegasMatchRound,
   getIrishGolfSegmentFormatId,
   type PlayerInput,
 } from "@/lib/format-scoring";
@@ -40,6 +41,39 @@ test("computeFormatScore supports Vegas team numbers", () => {
   assert.ok(result);
   assert.equal(result?.teamGrossScore, 45);
   assert.equal(result?.teamDisplayScore, "45");
+});
+
+test("computeVegasMatchRound carries points on ties when enabled", () => {
+  const result = computeVegasMatchRound(
+    [
+      {
+        holeNumber: 1,
+        team1Scores: [4, 5],
+        team2Scores: [4, 5],
+        par: 4,
+      },
+      {
+        holeNumber: 2,
+        team1Scores: [3, 4],
+        team2Scores: [4, 5],
+        par: 4,
+      },
+    ],
+    { pointsCarryOver: true }
+  );
+
+  assert.equal(result.team1Total, 22);
+  assert.equal(result.team2Total, -22);
+});
+
+test("computeFormatScore supports wolf partner selection", () => {
+  const result = computeFormatScore("wolf_team", samplePlayers, 1, 4, {
+    designatedPlayerId: "p1",
+    partnerPlayerId: "p2",
+  });
+
+  assert.ok(result);
+  assert.equal(result?.teamGrossScore, 1);
 });
 
 test("irish golf segment selection uses the configured six-hole blocks", () => {

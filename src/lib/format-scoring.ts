@@ -25,6 +25,15 @@ export interface VegasHoleResult {
   winner: "team1" | "team2" | "tie";
 }
 
+export interface WolfHoleResult extends ScoringResult {
+  wolfPlayerId: string;
+  partnerPlayerId: string | null;
+  wolfSideBestBall: number | null;
+  fieldSideBestBall: number | null;
+  holePoints: number | null;
+  result: "wolf" | "field" | "tie" | "incomplete";
+}
+
 export interface ChicagoHoleResult {
   totalPoints: number;
   playerPoints: Record<string, number>;
@@ -49,6 +58,16 @@ export interface MoneyBallRoundTotals {
   moneyBallTotalScore: number | null;
   moneyBallLossCount: number;
   moneyBallPenaltyTotal: number;
+}
+
+export interface VegasMatchHoleSummary {
+  holeNumber: number;
+  team1Number: number | null;
+  team2Number: number | null;
+  holePoints: number;
+  appliedPoints: number;
+  carryMultiplier: number;
+  winner: "team1" | "team2" | "tie";
 }
 
 export function getRotatingPlayerIndex(
@@ -294,6 +313,94 @@ export function computeVegas(
   };
 }
 
+export function computeWolfTeam(
+  players: PlayerInput[],
+  wolfPlayerId: string,
+  partnerPlayerId: string | null
+): WolfHoleResult {
+  const wolfPlayer = players.find((player) => player.playerId === wolfPlayerId);
+  if (!wolfPlayer || wolfPlayer.grossScore === null) {
+    return {
+      teamGrossScore: null,
+      countedPlayerIds: [],
+      extraData: {
+        wolfPlayerId,
+        partnerPlayerId,
+        holePoints: null,
+        result: "incomplete",
+      },
+      wolfPlayerId,
+      partnerPlayerId,
+      wolfSideBestBall: null,
+      fieldSideBestBall: null,
+      holePoints: null,
+      result: "incomplete",
+    };
+  }
+
+  const partnerPlayer = partnerPlayerId
+    ? players.find((player) => player.playerId === partnerPlayerId)
+    : null;
+  const wolfSide = [wolfPlayer, partnerPlayer].filter(Boolean) as PlayerInput[];
+  const fieldSide = players.filter(
+    (player) => player.playerId !== wolfPlayerId && player.playerId !== partnerPlayerId
+  );
+
+  const wolfBestBall = rankedValidScores(wolfSide)[0]?.score ?? null;
+  const fieldBestBall = rankedValidScores(fieldSide)[0]?.score ?? null;
+
+  if (wolfBestBall === null || fieldBestBall === null) {
+    return {
+      teamGrossScore: null,
+      countedPlayerIds: wolfSide.map((player) => player.playerId),
+      extraData: {
+        wolfPlayerId,
+        partnerPlayerId,
+        holePoints: null,
+        result: "incomplete",
+      },
+      wolfPlayerId,
+      partnerPlayerId,
+      wolfSideBestBall: wolfBestBall,
+      fieldSideBestBall: fieldBestBall,
+      holePoints: null,
+      result: "incomplete",
+    };
+  }
+
+  const isLoneWolf = !partnerPlayerId;
+  const winValue = isLoneWolf ? 2 : 1;
+  const loseValue = isLoneWolf ? -2 : -1;
+  const result =
+    wolfBestBall < fieldBestBall
+      ? "wolf"
+      : fieldBestBall < wolfBestBall
+      ? "field"
+      : "tie";
+  const holePoints =
+    result === "wolf" ? winValue : result === "field" ? loseValue : 0;
+
+  return {
+    teamGrossScore: holePoints,
+    teamDisplayScore: holePoints > 0 ? `+${holePoints}` : `${holePoints}`,
+    countedPlayerIds: players.map((player) => player.playerId),
+    extraData: {
+      wolfPlayerId,
+      partnerPlayerId,
+      holePoints,
+      result,
+      wolfSideBestBall: wolfBestBall,
+      fieldSideBestBall: fieldBestBall,
+    },
+    wolfPlayerId,
+    partnerPlayerId,
+    wolfSideBestBall: wolfBestBall,
+    fieldSideBestBall: fieldBestBall,
+    holePoints,
+    result,
+  };
+}
+
 export function computeVegasTeamNumber(players: PlayerInput[]): ScoringResult {
   const counted = rankedValidScores(players).slice(0, 2);
   if (counted.length < 2) {
@@ -313,6 +420,62 @@ export function computeVegasTeamNumber(players: PlayerInput[]): ScoringResult {
     countedPlayerIds: counted.map((player) => player.playerId),
     extraData: { vegasDigits: digits },
   };
+}
+
+export function computeVegasMatchRound(
+  holes: Array<{
+    holeNumber: number;
+    team1Scores: [number | null, number | null];
+    team2Scores: [number | null, number | null];
+    par: number;
+  }>,
+  options: { enableBirdieFlip?: boolean; pointsCarryOver?: boolean } = {}
+): {
+  team1Total: number;
+  team2Total: number;
+  holes: VegasMatchHoleSummary[];
+} {
+  let team1Total = 0;
+  let team2Total = 0;
+  let carryMultiplier = 1;
+  const summaries: VegasMatchHoleSummary[] = [];
+
+  for (const hole of holes) {
+    const result = computeVegas(
+      hole.team1Scores,
+      hole.team2Scores,
+      hole.par,
+      options
+    );
+    const appliedPoints =
+      result.winner === "tie"
+        ? 0
+        : result.holePoints * carryMultiplier;
+
+    if (result.winner === "team1") {
+      team1Total += appliedPoints;
+      team2Total -= appliedPoints;
+      carryMultiplier = 1;
+    } else if (result.winner === "team2") {
+      team2Total += appliedPoints;
+      team1Total -= appliedPoints;
+      carryMultiplier = 1;
+    } else if (options.pointsCarryOver) {
+      carryMultiplier += 1;
+    }
+
+    summaries.push({
+      holeNumber: hole.holeNumber,
+      team1Number: result.team1Number,
+      team2Number: result.team2Number,
+      holePoints: result.holePoints,
+      appliedPoints,
+      carryMultiplier,
+      winner: result.winner,
+    });
+  }
+
+  return { team1Total, team2Total, holes: summaries };
 }
 
 export function computeDriveMinimumStatus(
@@ -410,7 +573,9 @@ export function computeFormatScore(
       const designatedPlayerId =
         (holeMetadata.designatedPlayerId as string) ||
         getRotatingDesignatedPlayerId(players, holeNumber);
-      return computeLoneRanger(players, designatedPlayerId);
+      const partnerPlayerId =
+        (holeMetadata.partnerPlayerId as string | null | undefined) ?? null;
+      return computeWolfTeam(players, designatedPlayerId, partnerPlayerId);
     }
     case "two_best_balls_of_four":
       return compute2BestBalls(players);

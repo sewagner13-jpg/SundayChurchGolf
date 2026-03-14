@@ -13,6 +13,7 @@ import { getScoringOrder } from "@/lib/scoring-order";
 import { FORMAT_DEFINITIONS } from "@/lib/format-definitions";
 import {
   computeFormatScore,
+  computeVegasMatchRound,
   getIrishGolfSegmentFormatId,
   type PlayerInput,
 } from "@/lib/format-scoring";
@@ -174,8 +175,11 @@ export default function RoundSummaryPage({
   // Format-aware leaderboard computation
   const formatDef = FORMAT_DEFINITIONS.find((d) => d.name === round.format.name);
   const isSkins = !formatDef || formatDef.formatCategory === "skins";
-  const isPoints = formatDef?.formatCategory === "points";
+  const isPoints =
+    formatDef?.formatCategory === "points" ||
+    formatDef?.formatCategory === "match";
   const isMoneyBallFormat = formatDef?.id === "money_ball";
+  const isVegasFormat = formatDef?.id === "vegas";
 
   interface TeamTotal {
     total: number | null;
@@ -194,6 +198,67 @@ export default function RoundSummaryPage({
   );
 
   if (!isSkins && playerScores.length > 0) {
+    if (isVegasFormat) {
+      const pairedTeams: Team[][] = [];
+      for (let index = 0; index < round.teams.length; index += 2) {
+        pairedTeams.push(round.teams.slice(index, index + 2));
+      }
+
+      for (const pair of pairedTeams) {
+        if (pair.length < 2) {
+          teamTotals.get(pair[0].id)!.displayScores = scoringOrder.map(() => "-");
+          continue;
+        }
+
+        const [team1, team2] = pair;
+        const holeSummaries = scoringOrder.map((holeNumber) => {
+          const hole = round.course.holes.find(
+            (courseHole) => courseHole.holeNumber === holeNumber
+          )!;
+          const team1Scores = team1.roundPlayers.map((roundPlayer) => {
+            const score = playerScores.find(
+              (playerScore) =>
+                playerScore.teamId === team1.id &&
+                playerScore.playerId === roundPlayer.playerId &&
+                playerScore.holeNumber === holeNumber
+            );
+            return score?.grossScore ?? null;
+          }) as [number | null, number | null];
+          const team2Scores = team2.roundPlayers.map((roundPlayer) => {
+            const score = playerScores.find(
+              (playerScore) =>
+                playerScore.teamId === team2.id &&
+                playerScore.playerId === roundPlayer.playerId &&
+                playerScore.holeNumber === holeNumber
+            );
+            return score?.grossScore ?? null;
+          }) as [number | null, number | null];
+
+          return {
+            holeNumber,
+            team1Scores,
+            team2Scores,
+            par: hole.par,
+          };
+        });
+
+        const vegasRound = computeVegasMatchRound(holeSummaries, {
+          enableBirdieFlip:
+            (round.formatConfig?.enableBirdieFlip as boolean) ?? false,
+          pointsCarryOver:
+            (round.formatConfig?.pointsCarryOver as boolean) ?? false,
+        });
+
+        teamTotals.get(team1.id)!.total = vegasRound.team1Total;
+        teamTotals.get(team2.id)!.total = vegasRound.team2Total;
+        teamTotals.get(team1.id)!.displayScores = vegasRound.holes.map(
+          (hole) => (hole.team1Number === null ? "-" : String(hole.team1Number))
+        );
+        teamTotals.get(team2.id)!.displayScores = vegasRound.holes.map(
+          (hole) => (hole.team2Number === null ? "-" : String(hole.team2Number))
+        );
+      }
+    } else {
     for (const hole of round.course.holes) {
       for (const team of round.teams) {
         const teamPs = playerScores.filter(
@@ -266,6 +331,7 @@ export default function RoundSummaryPage({
         if (holeScore !== null) current.total = (current.total ?? 0) + holeScore;
         current.displayScores.push(displayScore);
       }
+    }
     }
   }
 
