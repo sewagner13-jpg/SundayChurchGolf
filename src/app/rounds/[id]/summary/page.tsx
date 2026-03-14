@@ -461,6 +461,13 @@ export default function RoundSummaryPage({
       playerTeamMap.set(roundPlayer.playerId, team.teamNumber);
     });
   });
+  const par3ContestTypeLabels: Record<string, string> = {
+    CLOSEST_TO_PIN: "Closest to the hole",
+    FURTHEST_ON_GREEN: "Furthest from the hole while still on the green",
+    LONGEST_PUTT: "Longest putt",
+    MOST_PUTTS_USED_SCORE: "Most putts on a counted score",
+    NONE: "No contest",
+  };
 
   return (
     <div className="space-y-6">
@@ -541,16 +548,7 @@ export default function RoundSummaryPage({
                   <div className="mb-3">
                     <p className="font-medium">Hole {contest.holeNumber}</p>
                     <p className="text-sm text-gray-500">
-                      {
-                        {
-                          CLOSEST_TO_PIN: "Closest to the hole",
-                          FURTHEST_ON_GREEN:
-                            "Furthest from the hole while still on the green",
-                          LONGEST_PUTT: "Longest putt",
-                          MOST_PUTTS_USED_SCORE:
-                            "Most putts on a counted score",
-                        }[contest.contestType]
-                      }{" "}
+                      {par3ContestTypeLabels[contest.contestType] ?? "Par 3 contest"}{" "}
                       •{" "}
                       {contest.payoutTarget === "TEAM"
                         ? "Adds to team total"

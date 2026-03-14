@@ -489,7 +489,7 @@ export default function RoundSetupPage({
       formatConfig: buildDraftFormatConfig(),
     });
 
-    setRound(updatedRound as Round);
+    setRound(updatedRound as unknown as Round);
   }
 
   const formatDate = (date: Date) =>

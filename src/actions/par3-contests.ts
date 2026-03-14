@@ -16,7 +16,9 @@ interface TeamMemberMapValue {
   playerId: string;
 }
 
-function toInputJsonValue(value: unknown): Prisma.InputJsonValue {
+function toInputJsonValue(
+  value: unknown
+): Prisma.InputJsonValue | Prisma.InputJsonObject | Prisma.InputJsonArray | null {
   if (value === null) return null;
   if (
     typeof value === "string" ||
@@ -26,7 +28,7 @@ function toInputJsonValue(value: unknown): Prisma.InputJsonValue {
     return value;
   }
   if (Array.isArray(value)) {
-    return value.map((item) => toInputJsonValue(item));
+    return value.map((item) => toInputJsonValue(item)) as Prisma.InputJsonArray;
   }
   if (typeof value === "object") {
     const entries = Object.entries(value as Record<string, unknown>)
@@ -36,7 +38,7 @@ function toInputJsonValue(value: unknown): Prisma.InputJsonValue {
     return Object.fromEntries(entries) as Prisma.InputJsonObject;
   }
 
-  return null;
+  throw new Error("Unsupported value in par 3 contest format config");
 }
 
 function addToMap(
@@ -163,7 +165,7 @@ export async function savePar3ContestResults(
       ...par3ContestConfig,
       results: jsonResults,
     },
-  });
+  }) as Prisma.InputJsonValue;
 
   await prisma.$transaction(async (tx) => {
     for (const [teamId, delta] of teamDeltas) {
