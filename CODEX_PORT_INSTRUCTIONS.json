@@ -1,0 +1,345 @@
+{
+  "task": "Port 14-format golf scoring engine from 'main' branch into the 'claude/master-spec-consolidation-Y6XjM' production branch",
+  "repository": "https://github.com/sewagner13-jpg/SundayChurchGolf",
+  "working_branch": "claude/master-spec-consolidation-Y6XjM",
+  "source_branch": "main",
+
+  "context": {
+    "production_codebase": {
+      "root": "src/",
+      "data_layer": "Prisma server actions in src/actions/ (NOT API routes for most reads)",
+      "schema_notes": [
+        "Round.status uses RoundStatus enum (DRAFT | LIVE | FINISHED) — NOT isLocked boolean",
+        "Team uses roundPlayers: RoundPlayer[] relation — NOT players: TeamPlayer[]",
+        "HoleScore uses holeNumber: Int directly — NOT a holeId FK",
+        "Format model has only: id, name, description (no defaultTeamSize)",
+        "Round model has NO formatConfig field",
+        "NO PlayerScore model exists"
+      ]
+    },
+    "source_codebase": {
+      "root": "app/ and lib/",
+      "format_catalog": "lib/format-definitions.ts — 14 format definitions with full metadata",
+      "scoring_engine": "lib/scoring-engine.ts — pure scoring functions, no DB access",
+      "key_new_files": [
+        "lib/format-definitions.ts",
+        "lib/scoring-engine.ts",
+        "app/api/rounds/[id]/player-scores/route.ts",
+        "app/api/rounds/[id]/payouts/route.ts",
+        "__tests__/scoring-engine.test.ts"
+      ]
+    }
+  },
+
+  "ordered_tasks": [
+
+    {
+      "id": 1,
+      "title": "Copy format definitions catalog",
+      "action": "CREATE",
+      "target_file": "src/lib/format-definitions.ts",
+      "source_file": "lib/format-definitions.ts",
+      "instructions": "Copy verbatim from the 'main' branch. No changes needed — this file has zero DB or Node.js imports and is safe in any context.",
+      "exports": [
+        "FormatCategory (type)",
+        "FormatConfigOption (interface)",
+        "FormatDefinition (interface)",
+        "FORMAT_DEFINITIONS (array of 14 formats)",
+        "FORMAT_MAP (Map<string, FormatDefinition>)",
+        "getFormatById(id)",
+        "IRISH_GOLF_ELIGIBLE_SEGMENT_FORMATS (string[])"
+      ]
+    },
+
+    {
+      "id": 2,
+      "title": "Add new format scoring functions to existing scoring engine",
+      "action": "APPEND",
+      "target_file": "src/lib/scoring-engine.ts",
+      "source_file": "lib/scoring-engine.ts",
+      "instructions": [
+        "DO NOT replace or modify any existing functions in src/lib/scoring-engine.ts.",
+        "APPEND the following new exports from lib/scoring-engine.ts on the main branch:",
+        "  - PlayerInput interface",
+        "  - ScoringResult interface",
+        "  - MoneyBallResult interface (extends ScoringResult)",
+        "  - VegasHoleResult interface",
+        "  - ChicagoHoleResult interface",
+        "  - DriveMinimumStatus interface",
+        "  - Par3Standing interface",
+        "  - getRotatingPlayerIndex(holeNumber, teamSize)",
+        "  - getRotatingDesignatedPlayerId(players, holeNumber)",
+        "  - compute2BestBalls(players)",
+        "  - compute3BestBalls(players)",
+        "  - computeLoneRanger(players, loneRangerPlayerId)",
+        "  - computeMoneyBall(players, moneyBallPlayerId, moneyBallLost, penaltyStrokes?)",
+        "  - computeChaChaCha(players, holeNumber)",
+        "  - computeShamble(players, countMode)",
+        "  - computeChicagoPoints(grossScore, par)",
+        "  - computeChicagoTeamPoints(players, par)",
+        "  - computeTrainGame(players)",
+        "  - computeVegas(team1Scores, team2Scores, par, options?)",
+        "  - computeDriveMinimumStatus(driveCountMap, teamSize, holesPlayed, totalHoles, requiredDrivesPerPlayer)",
+        "  - computePar3ContestStandings(playerHoleScores, courseHoles)",
+        "  - computeMoneyBallRoundTotals(holeResults)",
+        "  - getIrishGolfSegmentFormatId(holeNumber, formatConfig)",
+        "  - computeFormatScore(formatId, players, holeNumber, par, holeMetadata?, formatConfig?)"
+      ]
+    },
+
+    {
+      "id": 3,
+      "title": "Add schema fields and PlayerScore model",
+      "action": "MODIFY",
+      "target_file": "prisma/schema.prisma",
+      "instructions": "Make the following ADDITIVE changes only. Do not remove any existing fields or models.",
+      "changes": [
+        {
+          "model": "Format",
+          "add_field": "defaultTeamSize  Int  @default(4)"
+        },
+        {
+          "model": "Round",
+          "add_field": "formatConfig  Json?  // format-specific config (shambleCountMode, segment formats, etc.)",
+          "add_relation": "playerScores  PlayerScore[]"
+        },
+        {
+          "model": "Team",
+          "add_relation": "playerScores  PlayerScore[]"
+        },
+        {
+          "model": "Player",
+          "add_relation": "playerScores  PlayerScore[]"
+        },
+        {
+          "action": "ADD_MODEL",
+          "model_definition": "model PlayerScore {\n  id          String   @id @default(cuid())\n  roundId     String\n  teamId      String\n  playerId    String\n  holeNumber  Int\n  grossScore  Int?\n  extraData   Json?    // driveSelected, isMoneyBall, moneyBallLost, wolfRole, etc.\n  createdAt   DateTime @default(now())\n  updatedAt   DateTime @updatedAt\n\n  round       Round    @relation(fields: [roundId], references: [id], onDelete: Cascade)\n  team        Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)\n  player      Player   @relation(fields: [playerId], references: [id])\n\n  @@unique([roundId, teamId, playerId, holeNumber])\n  @@index([roundId, holeNumber])\n  @@index([teamId])\n}",
+          "note": "Uses holeNumber Int (consistent with HoleScore in this codebase) NOT holeId FK"
+        }
+      ]
+    },
+
+    {
+      "id": 4,
+      "title": "Run Prisma migration",
+      "action": "RUN_COMMAND",
+      "commands": [
+        "npx prisma migrate dev --name add_format_support_and_player_scores",
+        "npx prisma generate"
+      ]
+    },
+
+    {
+      "id": 5,
+      "title": "Update seed to include all 14 formats",
+      "action": "MODIFY",
+      "target_file": "prisma/seed.ts",
+      "instructions": [
+        "Import FORMAT_DEFINITIONS from '../src/lib/format-definitions'.",
+        "After the existing course/hole seeding, add a loop that upserts each format:",
+        "  for (const def of FORMAT_DEFINITIONS) {",
+        "    await prisma.format.upsert({",
+        "      where: { name: def.name },",
+        "      update: { description: def.gameDescription, defaultTeamSize: def.defaultTeamSize },",
+        "      create: { name: def.name, description: def.gameDescription, defaultTeamSize: def.defaultTeamSize },",
+        "    })",
+        "  }",
+        "The Format.id is auto-generated (cuid) in this schema, NOT seeded to a fixed value.",
+        "To resolve format IDs at runtime, always look up by name and cross-reference FORMAT_MAP by matching name.",
+        "Alternatively: seed formats with a fixed id matching FORMAT_DEFINITIONS[n].id by using createMany with skipDuplicates."
+      ]
+    },
+
+    {
+      "id": 6,
+      "title": "Enrich formats API response with code-definition metadata",
+      "action": "MODIFY",
+      "target_file": "src/app/api/formats/route.ts",
+      "current_content": "import { listFormats } from '@/actions/formats';\nimport { NextResponse } from 'next/server';\nexport async function GET() {\n  const formats = await listFormats();\n  return NextResponse.json(formats);\n}",
+      "new_content": "import { listFormats } from '@/actions/formats';\nimport { NextResponse } from 'next/server';\nimport { FORMAT_MAP } from '@/lib/format-definitions';\nexport async function GET() {\n  const dbFormats = await listFormats();\n  const enriched = dbFormats.map((dbFmt) => {\n    const def = FORMAT_MAP.get(dbFmt.id) ?? [...FORMAT_MAP.values()].find(d => d.name === dbFmt.name);\n    return {\n      ...dbFmt,\n      shortLabel: def?.shortLabel ?? dbFmt.name.slice(0, 8),\n      gameDescription: def?.gameDescription ?? dbFmt.description,\n      formatCategory: def?.formatCategory ?? 'skins',\n      supportedTeamSizes: def?.supportedTeamSizes ?? [4],\n      configOptions: def?.configOptions ?? [],\n      requiresIndividualScores: def?.requiresIndividualScores ?? false,\n      requiresDesignatedPlayer: def?.requiresDesignatedPlayer ?? false,\n      requiresDriveTracking: def?.requiresDriveTracking ?? false,\n    };\n  });\n  return NextResponse.json(enriched);\n}",
+      "note": "FORMAT_MAP keys are format IDs (cuid from DB). Fallback to name matching handles the mismatch between seeded cuid IDs and definition string IDs."
+    },
+
+    {
+      "id": 7,
+      "title": "Add player scores server action",
+      "action": "CREATE",
+      "target_file": "src/actions/player-scores.ts",
+      "instructions": "Create a server action file with the following exports:",
+      "exports_to_implement": [
+        {
+          "name": "getPlayerScores",
+          "signature": "async (roundId: string, options?: { holeNumber?: number; teamId?: string }): Promise<PlayerScore[]>",
+          "behavior": "Return PlayerScore records from DB filtered by roundId. Optionally filter by holeNumber and/or teamId. Include player relation for display."
+        },
+        {
+          "name": "upsertPlayerScore",
+          "signature": "async (entry: { roundId: string; teamId: string; playerId: string; holeNumber: number; grossScore: number | null; extraData?: Record<string, unknown> }): Promise<PlayerScore>",
+          "behavior": "Prisma upsert on @@unique[roundId, teamId, playerId, holeNumber]. Revalidate the scoring path."
+        },
+        {
+          "name": "upsertPlayerScores",
+          "signature": "async (entries: Array<{ roundId: string; teamId: string; playerId: string; holeNumber: number; grossScore: number | null; extraData?: Record<string, unknown> }>): Promise<{ updated: number }>",
+          "behavior": "Run all upserts in a prisma.$transaction for atomicity."
+        }
+      ]
+    },
+
+    {
+      "id": 8,
+      "title": "Update createRound action to accept formatConfig",
+      "action": "MODIFY",
+      "target_file": "src/actions/rounds.ts",
+      "instructions": [
+        "Add `formatConfig?: Record<string, unknown>` to the CreateRoundData interface.",
+        "In the createRound function body, add `formatConfig: data.formatConfig ?? null` to the prisma.round.create data object.",
+        "No other changes needed."
+      ]
+    },
+
+    {
+      "id": 9,
+      "title": "Update round creation UI with format description and config options",
+      "action": "MODIFY",
+      "target_file": "src/app/rounds/new/page.tsx",
+      "instructions": [
+        "Fetch formats from /api/formats (already done) — the enriched response now includes gameDescription, configOptions, requiresIndividualScores, formatCategory, supportedTeamSizes.",
+        "Extend the Format interface to include: gameDescription, formatCategory, supportedTeamSizes, configOptions, requiresIndividualScores, requiresDesignatedPlayer.",
+        "Add formatConfig state: Record<string, unknown> initialized to {}.",
+        "When the format dropdown changes:",
+        "  - Call handleFormatChange(formatId)",
+        "  - Build default config from selected format's configOptions defaultValues",
+        "  - If format is 'vegas' (by matching name 'Vegas'), set teamSize to 2 and disable the teamSize input",
+        "Show the selected format's gameDescription in a blue info box below the format dropdown.",
+        "Render configOptions dynamically:",
+        "  - type 'boolean' → checkbox",
+        "  - type 'number' → number input",
+        "  - type 'select' → select dropdown",
+        "For Irish Golf / 6-6-6 (match by name 'Irish Golf / 6-6-6'), render three extra dropdowns:",
+        "  - Holes 1-6 Format, Holes 7-12 Format, Holes 13-18 Format",
+        "  - Populate with IRISH_GOLF_ELIGIBLE_SEGMENT_FORMATS (import from @/lib/format-definitions)",
+        "  - All three must be set before the form can submit",
+        "  - Store as formatConfig.segment1FormatId, segment2FormatId, segment3FormatId",
+        "Pass formatConfig to the createRound server action call."
+      ]
+    },
+
+    {
+      "id": 10,
+      "title": "Update scoring page with format-aware individual score entry",
+      "action": "MODIFY",
+      "target_file": "src/app/rounds/[id]/scoring/page.tsx",
+      "instructions": [
+        "Import FORMAT_MAP from @/lib/format-definitions.",
+        "Import getPlayerScores and upsertPlayerScores from @/actions/player-scores.",
+        "Import getRotatingDesignatedPlayerId from @/lib/scoring-engine.",
+        "After loading the round, look up the format definition: const formatDef = FORMAT_MAP.get(round.format.id) ?? [...FORMAT_MAP.values()].find(d => d.name === round.format.name)",
+        "If formatDef?.requiresIndividualScores is true, load player scores via getPlayerScores(roundId).",
+        "Add playerScores state: Map<string, number|null> where key is `${playerId}-${holeNumber}`.",
+        "For formats with requiresIndividualScores:",
+        "  - For the current hole, render a per-player score entry UI for each team",
+        "  - Each player gets a row with: player name, - button, score display (or '-'), + button, X button",
+        "  - Score display shows gross score vs par (e.g., '+1', 'E', '-1', 'Birdie')",
+        "  - On score change, call upsertPlayerScores with the updated gross score",
+        "  - Keep the existing X / number entry UI visible alongside (for the team-level skins score if format is skins, or hide it for non-skins formats)",
+        "If formatDef?.requiresDesignatedPlayer is true:",
+        "  - Show a banner: 'Designated Player: [playerName]' using getRotatingDesignatedPlayerId",
+        "  - For money_ball format: show a 'Money Ball Lost' toggle button. When toggled, save moneyBallLost: true in the designated player's extraData via upsertPlayerScores",
+        "If formatDef?.requiresDriveTracking is true:",
+        "  - For the designated drive player, show 'Drive used by [player]'",
+        "  - Allow selecting which player's drive was used by showing a drive button per player"
+      ]
+    },
+
+    {
+      "id": 11,
+      "title": "Update summary page with format-aware leaderboard",
+      "action": "MODIFY",
+      "target_file": "src/app/rounds/[id]/summary/page.tsx",
+      "instructions": [
+        "Import FORMAT_MAP from @/lib/format-definitions.",
+        "Import compute2BestBalls, compute3BestBalls, computeLoneRanger, computeMoneyBall, computeChaChaCha, computeShamble, computeChicagoTeamPoints, computeTrainGame, getRotatingDesignatedPlayerId from @/lib/scoring-engine.",
+        "Import getPlayerScores from @/actions/player-scores.",
+        "Look up the format definition: const formatDef = FORMAT_MAP.get(round.format.id) ?? [...FORMAT_MAP.values()].find(d => d.name === round.format.name).",
+        "If formatDef?.requiresIndividualScores is true, load player scores via getPlayerScores(roundId).",
+        "For non-skins formats, compute team totals by iterating holes and calling the appropriate scoring engine function per team per hole:",
+        "  - Build PlayerInput[] for each team on each hole from the player scores data",
+        "  - Call computeFormatScore(effectiveFormatId, players, holeNumber, par, {}, round.formatConfig) which dispatches to the right function",
+        "  - For Irish Golf 6-6-6: use getIrishGolfSegmentFormatId(holeNumber, round.formatConfig) to get the sub-format per hole",
+        "Display a team leaderboard:",
+        "  - Stroke formats: sort ascending by total gross score",
+        "  - Points formats (Chicago): sort descending by total points",
+        "  - Train Game: show 3-digit train numbers per hole, sum as total",
+        "Display Money Ball dual score table if format is money_ball:",
+        "  - Columns: Team | Competition Total | Money Ball Total | MB Losses | Penalty Strokes",
+        "The existing skins summary (player payouts, hole-by-hole skin values) should remain unchanged for skins format.",
+        "For non-skins, replace the skin payout table with the team leaderboard described above."
+      ]
+    },
+
+    {
+      "id": 12,
+      "title": "Copy scoring engine tests",
+      "action": "CREATE",
+      "target_file": "src/__tests__/scoring-engine.test.ts",
+      "source_file": "__tests__/scoring-engine.test.ts",
+      "instructions": [
+        "Copy the test file from the main branch.",
+        "Update the import path from '@/lib/scoring-engine' — the tsconfig path alias should resolve correctly already.",
+        "Run: npm test — all tests should pass."
+      ]
+    }
+  ],
+
+  "important_architectural_notes": [
+    {
+      "topic": "Format ID matching",
+      "note": "In this codebase Format.id is a cuid generated at seed time — NOT the string IDs like 'two_best_balls_of_four' from FORMAT_DEFINITIONS. To match a DB format to a FormatDefinition, look up by name: FORMAT_MAP.values().find(d => d.name === dbFormat.name). Alternatively, seed formats with explicit IDs matching the FORMAT_DEFINITIONS id strings by using prisma.format.upsert({ where: { id: def.id }, create: { id: def.id, ... } }). The second approach is strongly preferred as it makes FORMAT_MAP.get(format.id) work directly everywhere."
+    },
+    {
+      "topic": "PlayerScore uses holeNumber not holeId",
+      "note": "The production HoleScore model uses holeNumber: Int directly (not a FK to a Hole model). The new PlayerScore model should follow the same convention: use holeNumber: Int, not holeId: String."
+    },
+    {
+      "topic": "Team players via RoundPlayer",
+      "note": "Teams in this codebase use roundPlayers: RoundPlayer[] not players: TeamPlayer[]. When building PlayerInput[] for the scoring engine, iterate team.roundPlayers and map { playerId: rp.playerId, playerName: rp.player.fullName, ... }."
+    },
+    {
+      "topic": "Server actions preferred over API routes",
+      "note": "This codebase primarily uses Next.js Server Actions in src/actions/ for data mutations. The scoring page calls upsertHoleScore() as a server action, not a fetch. New player score mutations should follow the same pattern via src/actions/player-scores.ts."
+    },
+    {
+      "topic": "Skins scoring unchanged",
+      "note": "The existing skins scoring engine in src/lib/scoring-engine.ts handles calculateRoundResults, calculatePlayerPayouts, etc. Do not modify or remove these. Only append the new format functions."
+    },
+    {
+      "topic": "Round status",
+      "note": "Use round.status === 'FINISHED' to check if a round is complete (not round.isLocked). The summary page is only shown for FINISHED rounds."
+    }
+  ],
+
+  "verification_checklist": [
+    "npx prisma migrate dev completes without errors",
+    "npm run seed populates all 14 formats",
+    "npm run build compiles without TypeScript errors",
+    "npm test passes all scoring engine tests",
+    "/api/formats returns enriched format list with gameDescription, configOptions, formatCategory",
+    "Round creation page shows format description and dynamic config options",
+    "Scoring page shows per-player score entry for 2BB/3BB/Lone Ranger/Money Ball formats",
+    "Summary page shows team leaderboard for stroke formats and points leaderboard for Chicago"
+  ],
+
+  "source_files_on_main_branch": {
+    "note": "All source files are available on the 'main' branch of this repository. Codex should checkout or read these files directly.",
+    "files": [
+      "lib/format-definitions.ts",
+      "lib/scoring-engine.ts",
+      "app/api/rounds/[id]/player-scores/route.ts",
+      "app/api/rounds/[id]/payouts/route.ts",
+      "__tests__/scoring-engine.test.ts",
+      "app/rounds/new/page.tsx",
+      "app/rounds/[id]/score/page.tsx",
+      "app/rounds/[id]/summary/page.tsx"
+    ]
+  }
+}
