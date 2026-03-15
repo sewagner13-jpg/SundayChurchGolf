@@ -34,6 +34,18 @@ import {
   getIrishGolfSegmentFormatId,
   getMinimumScoresRequired,
 } from "@/lib/format-scoring";
+import {
+  PAR3_CONTEST_TYPE_OPTIONS,
+  PAR3_FUNDING_OPTIONS,
+  PAR3_PAYOUT_TARGET_OPTIONS,
+  createDefaultPar3ContestConfig,
+  getPar3ContestConfig,
+  getPar3ContestParticipantIds,
+  type Par3ContestConfig,
+  type Par3ContestType,
+  type Par3FundingType,
+  type Par3PayoutTarget,
+} from "@/lib/par3-contests";
 import { getScoringOrder } from "@/lib/scoring-order";
 import { getTeamDisplayLabel } from "@/lib/team-labels";
 import { HoleEntryType } from "@prisma/client";
@@ -563,6 +575,17 @@ export default function LiveScoringPage({
     LONGEST_PUTT: "Longest putt",
     MOST_PUTTS_USED_SCORE: "Most putts on a counted score",
   };
+  const liveRoundPlayers = round
+    ? round.teams.flatMap((team) =>
+        team.roundPlayers.map((roundPlayer) => ({
+          playerId: roundPlayer.playerId,
+          name: roundPlayer.player.nickname || roundPlayer.player.fullName,
+        }))
+      )
+    : [];
+  const livePar3DraftConfig = getPar3ContestConfig(
+    liveFormatConfigDraft as Record<string, unknown>
+  );
 
   useEffect(() => {
     if (round && myTeamId && usesDriveTracking && !usesIndividualScores) {
@@ -901,11 +924,30 @@ export default function LiveScoringPage({
   };
 
   const openEditFormatModal = () => {
+    const baseConfig = buildLiveFormatConfig(formatDefinition, round?.formatConfig ?? null);
+    const par3HoleNumbers =
+      round?.course.holes
+        .filter((hole) => hole.par === 3)
+        .map((hole) => hole.holeNumber) ?? [];
+    const existingPar3Config = getPar3ContestConfig(round?.formatConfig ?? null);
+    const participantIds = existingPar3Config
+      ? getPar3ContestParticipantIds(
+          existingPar3Config,
+          liveRoundPlayers.map((player) => player.playerId)
+        )
+      : liveRoundPlayers.map((player) => player.playerId);
     setFormatUnlockCode("");
     setFormatEditError(null);
-    setLiveFormatConfigDraft(
-      buildLiveFormatConfig(formatDefinition, round?.formatConfig ?? null)
-    );
+    setLiveFormatConfigDraft({
+      ...baseConfig,
+      par3Contest:
+        existingPar3Config
+          ? {
+              ...existingPar3Config,
+              participantPlayerIds: participantIds,
+            }
+          : createDefaultPar3ContestConfig(par3HoleNumbers, participantIds),
+    });
     setShowEditFormatModal(true);
   };
 
@@ -933,6 +975,16 @@ export default function LiveScoringPage({
         setFormatEditError(
           "Irish Golf / 6-6-6 requires a format selected for all three segments."
         );
+        return;
+      }
+    }
+
+    const livePar3Draft = getPar3ContestConfig(
+      liveFormatConfigDraft as Record<string, unknown>
+    );
+    if (livePar3Draft?.enabled) {
+      if ((livePar3Draft.participantPlayerIds?.length ?? 0) === 0) {
+        setFormatEditError("Choose at least one Par 3 contest participant.");
         return;
       }
     }
@@ -2199,6 +2251,182 @@ export default function LiveScoringPage({
                   </select>
                 </div>
               ))}
+            </div>
+          )}
+
+          {round.course.holes.some((hole) => hole.par === 3) && livePar3DraftConfig && (
+            <div className="space-y-3 rounded border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-900">
+              <p className="font-semibold">Par 3 Contest</p>
+              <label className="flex items-center justify-between rounded border border-gray-200 bg-white px-3 py-2">
+                <div>
+                  <p className="font-medium">Enable Par 3 contest</p>
+                  <p className="text-xs text-gray-500">
+                    Adjust Par 3 settings without reopening the round.
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={livePar3DraftConfig.enabled}
+                  onChange={(e) =>
+                    updateLiveFormatDraft("par3Contest", {
+                      ...livePar3DraftConfig,
+                      enabled: e.target.checked,
+                    } satisfies Par3ContestConfig)
+                  }
+                  className="h-4 w-4"
+                />
+              </label>
+
+              {livePar3DraftConfig.enabled && (
+                <>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">
+                        Funding
+                      </label>
+                      <select
+                        value={livePar3DraftConfig.fundingType}
+                        onChange={(e) =>
+                          updateLiveFormatDraft("par3Contest", {
+                            ...livePar3DraftConfig,
+                            fundingType: e.target.value as Par3FundingType,
+                          } satisfies Par3ContestConfig)
+                        }
+                        className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
+                      >
+                        {PAR3_FUNDING_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">
+                        Amount Per Player
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={livePar3DraftConfig.amountPerPlayer}
+                        onChange={(e) =>
+                          updateLiveFormatDraft("par3Contest", {
+                            ...livePar3DraftConfig,
+                            amountPerPlayer: Number(e.target.value) || 0,
+                          } satisfies Par3ContestConfig)
+                        }
+                        className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 rounded border border-gray-200 bg-white p-3">
+                    <p className="font-medium">Participants</p>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {liveRoundPlayers.map((player) => {
+                        const participantIds =
+                          livePar3DraftConfig.participantPlayerIds ?? [];
+                        const checked = participantIds.includes(player.playerId);
+                        return (
+                          <label
+                            key={player.playerId}
+                            className="flex items-center gap-2 rounded border border-gray-200 px-3 py-2"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) =>
+                                updateLiveFormatDraft("par3Contest", {
+                                  ...livePar3DraftConfig,
+                                  participantPlayerIds: e.target.checked
+                                    ? [...participantIds, player.playerId]
+                                    : participantIds.filter(
+                                        (playerId) => playerId !== player.playerId
+                                      ),
+                                } satisfies Par3ContestConfig)
+                              }
+                              className="h-4 w-4"
+                            />
+                            <span>{player.name}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    {livePar3DraftConfig.holes.map((holeConfig) => (
+                      <div
+                        key={holeConfig.holeNumber}
+                        className="rounded border border-gray-200 bg-white p-3"
+                      >
+                        <p className="mb-3 font-medium">Hole {holeConfig.holeNumber}</p>
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700">
+                              Competition
+                            </label>
+                            <select
+                              value={holeConfig.contestType}
+                              onChange={(e) =>
+                                updateLiveFormatDraft("par3Contest", {
+                                  ...livePar3DraftConfig,
+                                  holes: livePar3DraftConfig.holes.map((hole) =>
+                                    hole.holeNumber === holeConfig.holeNumber
+                                      ? {
+                                          ...hole,
+                                          contestType: e.target.value as
+                                            | Par3ContestType
+                                            | "NONE",
+                                        }
+                                      : hole
+                                  ),
+                                } satisfies Par3ContestConfig)
+                              }
+                              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
+                            >
+                              {PAR3_CONTEST_TYPE_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700">
+                              Payout Applies To
+                            </label>
+                            <select
+                              value={holeConfig.payoutTarget}
+                              onChange={(e) =>
+                                updateLiveFormatDraft("par3Contest", {
+                                  ...livePar3DraftConfig,
+                                  holes: livePar3DraftConfig.holes.map((hole) =>
+                                    hole.holeNumber === holeConfig.holeNumber
+                                      ? {
+                                          ...hole,
+                                          payoutTarget: e.target.value as Par3PayoutTarget,
+                                        }
+                                      : hole
+                                  ),
+                                } satisfies Par3ContestConfig)
+                              }
+                              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
+                            >
+                              {PAR3_PAYOUT_TARGET_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           )}
 
