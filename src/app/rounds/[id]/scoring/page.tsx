@@ -14,7 +14,12 @@ import {
   getRoundChat,
   postRoundMessage,
 } from "@/actions/chat";
-import { getRound, revertToDraft, updateLiveRoundFormat } from "@/actions/rounds";
+import {
+  getRound,
+  revertToDraft,
+  setRoundLockCode,
+  updateLiveRoundFormat,
+} from "@/actions/rounds";
 import {
   upsertHoleScore,
   getHoleView,
@@ -109,6 +114,7 @@ interface SkinStatus {
 interface Round {
   id: string;
   status: string;
+  lockCode: string | null;
   visibility: string;
   blindRevealMode: string;
   startingHole: number;
@@ -952,8 +958,17 @@ export default function LiveScoringPage({
   };
 
   const handleSaveLiveFormat = async () => {
-    if (!formatUnlockCode.trim()) {
-      setFormatEditError("Enter the lock code");
+    const submittedCode = formatUnlockCode.trim();
+
+    if (!submittedCode) {
+      setFormatEditError(
+        round?.lockCode ? "Enter the lock code" : "Enter a new 4-digit lock code"
+      );
+      return;
+    }
+
+    if (!/^\d{4}$/.test(submittedCode)) {
+      setFormatEditError("Lock code must be exactly 4 digits.");
       return;
     }
 
@@ -992,7 +1007,11 @@ export default function LiveScoringPage({
     setSaving(true);
     setFormatEditError(null);
     try {
-      await updateLiveRoundFormat(id, formatUnlockCode.trim(), {
+      if (!round?.lockCode) {
+        await setRoundLockCode(id, submittedCode);
+      }
+
+      await updateLiveRoundFormat(id, submittedCode, {
         formatConfig: {
           ...(round?.formatConfig ?? {}),
           ...liveFormatConfigDraft,
@@ -2088,7 +2107,9 @@ export default function LiveScoringPage({
           <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             <p className="font-semibold">{round.format.name}</p>
             <p className="mt-1">
-              Enter the lock code to change the active round’s format settings.
+              {round.lockCode
+                ? "Enter the lock code to change the active round’s format settings."
+                : "This round does not have a lock code yet. Enter a 4-digit code to create one and save these changes."}
             </p>
           </div>
 
@@ -2099,7 +2120,9 @@ export default function LiveScoringPage({
             <input
               type="text"
               inputMode="numeric"
-              placeholder="4-digit lock code"
+              placeholder={
+                round.lockCode ? "4-digit lock code" : "Create 4-digit lock code"
+              }
               value={formatUnlockCode}
               onChange={(e) => setFormatUnlockCode(e.target.value)}
               className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
@@ -2451,7 +2474,11 @@ export default function LiveScoringPage({
               onClick={handleSaveLiveFormat}
               disabled={saving}
             >
-              {saving ? "Saving..." : "Save Format"}
+              {saving
+                ? "Saving..."
+                : round.lockCode
+                  ? "Save Format"
+                  : "Create Lock Code and Save"}
             </Button>
           </div>
         </div>

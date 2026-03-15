@@ -494,6 +494,9 @@ export default function RoundSetupPage({
     setActionLoading(true);
     setError(null);
     try {
+      if (!isLocked) {
+        throw new Error("Lock teams with a 4-digit code before starting the round");
+      }
       await savePar3ContestConfig();
       if (isVegasRound) {
         if (!hasValidVegasMatchups) {

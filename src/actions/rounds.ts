@@ -42,6 +42,34 @@ export interface UpdateLiveRoundFormatData {
   formatConfig?: Record<string, unknown>;
 }
 
+export async function setRoundLockCode(id: string, code: string) {
+  if (!/^\d{4}$/.test(code)) {
+    throw new Error("Lock code must be exactly 4 digits");
+  }
+
+  const round = await prisma.round.findUnique({
+    where: { id },
+  });
+
+  if (!round) throw new Error("Round not found");
+  if (round.lockCode) {
+    throw new Error("Round already has a lock code");
+  }
+  if (round.status !== "DRAFT" && round.status !== "LIVE") {
+    throw new Error("Can only set a lock code for draft or live rounds");
+  }
+
+  await prisma.round.update({
+    where: { id },
+    data: { lockCode: code },
+  });
+
+  revalidatePath("/");
+  revalidatePath(`/rounds/${id}`);
+  revalidatePath(`/rounds/${id}/setup`);
+  revalidatePath(`/rounds/${id}/scoring`);
+}
+
 // Check if an active round (DRAFT or LIVE) exists
 async function hasActiveRound(): Promise<boolean> {
   const activeRound = await prisma.round.findFirst({
@@ -376,6 +404,9 @@ export async function startRound(id: string, startingHole: 1 | 10) {
   }
   if (round.teams.length === 0) {
     throw new Error("Teams must be generated before starting");
+  }
+  if (!round.lockCode) {
+    throw new Error("Lock teams with a 4-digit code before starting the round");
   }
 
   if (round.formatId === "vegas") {
