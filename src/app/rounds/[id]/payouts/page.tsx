@@ -102,6 +102,22 @@ export default function RoundPayoutsPage({
     | undefined) ?? [];
   const par3ResultsMap = new Map(par3Results.map((result) => [result.holeNumber, result]));
   const par3PlayerBonuses = computePar3PlayerBonuses(round.teams, par3Results);
+  const teamByPlayerId = new Map(
+    round.teams.flatMap((team) =>
+      team.roundPlayers.map((roundPlayer) => [roundPlayer.playerId, team] as const)
+    )
+  );
+  const playerPayoutRows = sortedPlayers.map((roundPlayer) => {
+    const par3Bonus = par3PlayerBonuses.get(roundPlayer.playerId) ?? 0;
+    const totalPayout = Math.max(0, roundPlayer.payoutAmount);
+    const mainGamePayout = Math.max(0, totalPayout - par3Bonus);
+    return {
+      roundPlayer,
+      par3Bonus,
+      mainGamePayout,
+      totalPayout,
+    };
+  });
 
   return (
     <div className="space-y-6">
@@ -147,32 +163,36 @@ export default function RoundPayoutsPage({
       <Card>
         <CardHeader>Player Payouts</CardHeader>
         <CardContent className="space-y-2">
-          {sortedPlayers.map((roundPlayer, index) => (
+          {playerPayoutRows.map((row, index) => (
             <div
-              key={roundPlayer.id}
+              key={row.roundPlayer.id}
               className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-3"
             >
               <div>
                 <p className="font-semibold">
                   #{index + 1}{" "}
-                  {roundPlayer.player.nickname || roundPlayer.player.fullName}
+                  {row.roundPlayer.player.nickname || row.roundPlayer.player.fullName}
                 </p>
                 <p className="text-xs text-gray-500">
-                  {roundPlayer.team
-                    ? `Team ${roundPlayer.team.teamNumber}`
+                  {row.roundPlayer.team
+                    ? `Team ${row.roundPlayer.team.teamNumber}`
                     : "No team"}
                 </p>
-                {(par3PlayerBonuses.get(roundPlayer.playerId) ?? 0) > 0 && (
-                  <p className="text-xs text-gray-500">
-                    Includes ${(
-                      par3PlayerBonuses.get(roundPlayer.playerId) ?? 0
-                    ).toFixed(2)} from Par 3
-                  </p>
-                )}
+                <p className="text-xs text-gray-500">
+                  Main game: ${row.mainGamePayout.toFixed(2)}
+                </p>
+                <p className="text-xs text-gray-500">
+                  Par 3: ${row.par3Bonus.toFixed(2)}
+                </p>
               </div>
-              <p className="text-xl font-bold text-green-700">
-                ${Math.max(0, roundPlayer.payoutAmount).toFixed(2)}
-              </p>
+              <div className="text-right">
+                <p className="text-xs uppercase tracking-wide text-gray-500">
+                  Final payout
+                </p>
+                <p className="text-xl font-bold text-green-700">
+                  ${row.totalPayout.toFixed(2)}
+                </p>
+              </div>
             </div>
           ))}
         </CardContent>
@@ -217,6 +237,15 @@ export default function RoundPayoutsPage({
               const winner = round.roundPlayers.find(
                 (roundPlayer) => roundPlayer.playerId === result?.winnerPlayerId
               );
+              const winningTeam = result?.winnerPlayerId
+                ? teamByPlayerId.get(result.winnerPlayerId)
+                : null;
+              const payoutTarget = result?.payoutTarget ?? contest.payoutTarget;
+              const payoutAmount = result?.payoutAmount ?? 0;
+              const teamSplit =
+                payoutTarget === "TEAM" && winningTeam
+                  ? payoutAmount / Math.max(1, winningTeam.roundPlayers.length)
+                  : null;
               return (
                 <div
                   key={contest.holeNumber}
@@ -232,13 +261,18 @@ export default function RoundPayoutsPage({
                   </div>
                   <div className="text-right">
                     <p className="font-semibold text-green-700">
-                      ${(result?.payoutAmount ?? 0).toFixed(2)}
+                      ${payoutAmount.toFixed(2)}
                     </p>
                     <p className="text-xs text-gray-500">
-                      {(result?.payoutTarget ?? contest.payoutTarget) === "TEAM"
-                        ? "Shared with team"
+                      {payoutTarget === "TEAM"
+                        ? `Shared with team${teamSplit !== null ? ` • $${teamSplit.toFixed(2)} each` : ""}`
                         : "Kept individually"}
                     </p>
+                    {winningTeam && payoutTarget === "TEAM" && (
+                      <p className="text-xs text-gray-500">
+                        {getTeamDisplayLabel(winningTeam.roundPlayers)}
+                      </p>
+                    )}
                   </div>
                 </div>
               );
