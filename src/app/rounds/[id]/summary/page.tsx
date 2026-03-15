@@ -30,6 +30,7 @@ import {
   type Par3PayoutTarget,
   type Par3HoleContestResult,
 } from "@/lib/par3-contests";
+import { computePar3PlayerBonuses } from "@/lib/payout-breakdown";
 import { getTeamDisplayLabel } from "@/lib/team-labels";
 interface Team {
   id: string;
@@ -482,6 +483,7 @@ export default function RoundSummaryPage({
   const par3ResultsMap = new Map(
     par3Results.map((result) => [result.holeNumber, result])
   );
+  const par3PlayerBonuses = computePar3PlayerBonuses(round.teams, par3Results);
   const playerTeamMap = new Map<string, number>();
   round.teams.forEach((team) => {
     team.roundPlayers.forEach((roundPlayer) => {
@@ -1036,6 +1038,13 @@ export default function RoundSummaryPage({
                             <span className="font-semibold text-gray-800">
                               ${Math.round(playerRecord?.payoutAmount ?? 0)}
                             </span>
+                            {(par3PlayerBonuses.get(rp.playerId) ?? 0) > 0 && (
+                              <span className="text-xs text-gray-500">
+                                (includes ${Math.round(
+                                  par3PlayerBonuses.get(rp.playerId) ?? 0
+                                )} Par 3)
+                              </span>
+                            )}
                           </div>
                         );
                       })}
