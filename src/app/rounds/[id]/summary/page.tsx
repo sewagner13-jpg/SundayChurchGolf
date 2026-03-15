@@ -452,8 +452,15 @@ export default function RoundSummaryPage({
     par3ContestConfig,
     round.roundPlayers.length
   );
+  const par3TotalPot =
+    (par3ContestConfig?.amountPerPlayer ?? 0) * round.roundPlayers.length;
+  const par3AssignedPayout = par3Results.reduce(
+    (sum, result) => sum + (result.payoutAmount ?? 0),
+    0
+  );
+  const par3RemainingPot = Math.max(0, par3TotalPot - par3AssignedPayout);
   const par3ResultsMap = new Map(
-    par3Results.map((result) => [result.holeNumber, result.winnerPlayerId])
+    par3Results.map((result) => [result.holeNumber, result])
   );
   const playerTeamMap = new Map<string, number>();
   round.teams.forEach((team) => {
@@ -534,8 +541,16 @@ export default function RoundSummaryPage({
                 <strong>${par3ContestConfig?.amountPerPlayer ?? 0}</strong>
               </p>
               <p>
-                Prize per hole:{" "}
+                Suggested split:{" "}
                 <strong>${par3PrizePerHole.toFixed(2)}</strong>
+              </p>
+              <p>
+                Assigned:{" "}
+                <strong>${par3AssignedPayout.toFixed(2)}</strong>
+              </p>
+              <p>
+                Remaining:{" "}
+                <strong>${par3RemainingPot.toFixed(2)}</strong>
               </p>
             </div>
 
@@ -557,15 +572,20 @@ export default function RoundSummaryPage({
                   </div>
                   <Select
                     label="Winner"
-                    value={par3ResultsMap.get(contest.holeNumber) ?? ""}
+                    value={par3ResultsMap.get(contest.holeNumber)?.winnerPlayerId ?? ""}
                     onChange={(e) =>
                       setPar3Results((current) => {
                         const next = current.filter(
                           (result) => result.holeNumber !== contest.holeNumber
                         );
+                        const existing = par3ResultsMap.get(contest.holeNumber);
                         next.push({
                           holeNumber: contest.holeNumber,
                           winnerPlayerId: e.target.value || null,
+                          payoutAmount:
+                            e.target.value === ""
+                              ? 0
+                              : existing?.payoutAmount ?? par3PrizePerHole,
                         });
                         return next.sort((a, b) => a.holeNumber - b.holeNumber);
                       })
@@ -579,6 +599,38 @@ export default function RoundSummaryPage({
                     ]}
                     disabled={savingPar3Results}
                   />
+                  <div className="mt-3">
+                    <label className="block text-sm font-medium text-gray-700">
+                      Payout Amount
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={String(
+                        par3ResultsMap.get(contest.holeNumber)?.payoutAmount ?? 0
+                      )}
+                      onChange={(e) =>
+                        setPar3Results((current) => {
+                          const next = current.filter(
+                            (result) => result.holeNumber !== contest.holeNumber
+                          );
+                          const existing = par3ResultsMap.get(contest.holeNumber);
+                          next.push({
+                            holeNumber: contest.holeNumber,
+                            winnerPlayerId: existing?.winnerPlayerId ?? null,
+                            payoutAmount: Number(e.target.value) || 0,
+                          });
+                          return next.sort((a, b) => a.holeNumber - b.holeNumber);
+                        })
+                      }
+                      disabled={savingPar3Results}
+                      className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">
+                      Suggested: ${par3PrizePerHole.toFixed(2)}
+                    </p>
+                  </div>
                 </div>
               ))}
             </div>

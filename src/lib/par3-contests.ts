@@ -16,6 +16,7 @@ export interface Par3HoleContestConfig {
 export interface Par3HoleContestResult {
   holeNumber: number;
   winnerPlayerId: string | null;
+  payoutAmount?: number | null;
 }
 
 export interface Par3ContestConfig {

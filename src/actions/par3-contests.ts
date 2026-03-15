@@ -9,7 +9,10 @@ import {
   getPar3ContestConfig,
   type Par3HoleContestResult,
 } from "@/lib/par3-contests";
-import { getPar3ContestPrizePerHoleDecimal } from "@/lib/par3-contests.server";
+import {
+  getPar3ContestPrizePerHoleDecimal,
+  getPar3ContestTotalPotDecimal,
+} from "@/lib/par3-contests.server";
 
 interface TeamMemberMapValue {
   roundPlayerId: string;
@@ -87,10 +90,44 @@ export async function savePar3ContestResults(
     par3ContestConfig,
     round.roundPlayers.length
   );
+  const totalAvailablePot = getPar3ContestTotalPotDecimal(
+    par3ContestConfig,
+    round.roundPlayers.length
+  );
   const activeContestMap = new Map(
     activeContests.map((contest) => [contest.holeNumber, contest])
   );
   const previousResults = par3ContestConfig.results ?? [];
+
+  const sanitizedResults = results.map((result) => {
+    const numericPayout =
+      result.payoutAmount === null || result.payoutAmount === undefined
+        ? 0
+        : Number(result.payoutAmount);
+
+    if (!Number.isFinite(numericPayout) || numericPayout < 0) {
+      throw new Error("Par 3 payout amounts must be 0 or greater");
+    }
+
+    if (!result.winnerPlayerId && numericPayout > 0) {
+      throw new Error("Choose a winner before assigning a Par 3 payout");
+    }
+
+    return {
+      holeNumber: result.holeNumber,
+      winnerPlayerId: result.winnerPlayerId,
+      payoutAmount: numericPayout,
+    };
+  });
+
+  const totalAssignedPayout = sanitizedResults.reduce(
+    (sum, result) => sum.add(result.payoutAmount),
+    new Decimal(0)
+  );
+
+  if (totalAssignedPayout.gt(totalAvailablePot)) {
+    throw new Error("Par 3 payouts cannot exceed the available Par 3 pot");
+  }
 
   const playerToRoundPlayerId = new Map(
     round.roundPlayers.map((roundPlayer) => [roundPlayer.playerId, roundPlayer.id])
@@ -125,7 +162,11 @@ export async function savePar3ContestResults(
     const roundPlayerId = playerToRoundPlayerId.get(result.winnerPlayerId);
     if (!roundPlayerId) return;
 
-    const delta = prizePerHole.mul(direction);
+    const payoutAmount =
+      result.payoutAmount === null || result.payoutAmount === undefined
+        ? prizePerHole.toNumber()
+        : result.payoutAmount;
+    const delta = new Decimal(payoutAmount).mul(direction);
 
     if (contest.payoutTarget === "PLAYER") {
       addToMap(roundPlayerDeltas, roundPlayerId, delta);
@@ -149,13 +190,14 @@ export async function savePar3ContestResults(
   }
 
   previousResults.forEach((result) => applyResultDelta(result, -1));
-  results.forEach((result) => applyResultDelta(result, 1));
+  sanitizedResults.forEach((result) => applyResultDelta(result, 1));
 
-  const jsonResults = results.map(
+  const jsonResults = sanitizedResults.map(
     (result) =>
       ({
         holeNumber: result.holeNumber,
         winnerPlayerId: result.winnerPlayerId,
+        payoutAmount: result.payoutAmount,
       }) satisfies Prisma.JsonObject
   );
 
