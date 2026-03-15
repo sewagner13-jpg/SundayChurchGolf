@@ -38,6 +38,10 @@ export interface UpdateRoundDraftData {
   formatConfig?: Record<string, unknown>;
 }
 
+export interface UpdateLiveRoundFormatData {
+  formatConfig?: Record<string, unknown>;
+}
+
 // Check if an active round (DRAFT or LIVE) exists
 async function hasActiveRound(): Promise<boolean> {
   const activeRound = await prisma.round.findFirst({
@@ -121,6 +125,55 @@ export async function updateRoundDraft(id: string, data: UpdateRoundDraftData) {
 
   revalidatePath("/");
   revalidatePath(`/rounds/${id}`);
+  return updated;
+}
+
+export async function updateLiveRoundFormat(
+  id: string,
+  unlockCode: string,
+  data: UpdateLiveRoundFormatData
+) {
+  const round = await prisma.round.findUnique({
+    where: { id },
+    include: {
+      teams: true,
+    },
+  });
+
+  if (!round) throw new Error("Round not found");
+  if (round.status !== "LIVE") {
+    throw new Error("Can only update format settings while the round is LIVE");
+  }
+  if (!round.lockCode) {
+    throw new Error("Round has no lock code set");
+  }
+  if (round.lockCode !== unlockCode) {
+    throw new Error("Invalid lock code");
+  }
+
+  const updated = await prisma.round.update({
+    where: { id },
+    data: {
+      formatConfig:
+        data.formatConfig === undefined
+          ? undefined
+          : ((data.formatConfig as Prisma.InputJsonValue | undefined) ??
+            Prisma.JsonNull),
+    },
+    include: {
+      course: { include: { holes: true } },
+      format: true,
+      teams: { include: { roundPlayers: { include: { player: true } } } },
+      roundPlayers: { include: { player: true, team: true } },
+      holeScores: true,
+      holeResults: true,
+    },
+  });
+
+  revalidatePath("/");
+  revalidatePath(`/rounds/${id}`);
+  revalidatePath(`/rounds/${id}/scoring`);
+  revalidatePath(`/rounds/${id}/summary`);
   return updated;
 }
 

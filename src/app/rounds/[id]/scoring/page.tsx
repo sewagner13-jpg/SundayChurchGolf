@@ -4,7 +4,7 @@ import { useState, useEffect, use, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/button";
 import { Card } from "@/components/card";
-import { ConfirmModal } from "@/components/modal";
+import { ConfirmModal, Modal } from "@/components/modal";
 import {
   getPlayerScores,
   upsertPlayerScoresForHole,
@@ -14,7 +14,7 @@ import {
   getRoundChat,
   postRoundMessage,
 } from "@/actions/chat";
-import { getRound, revertToDraft } from "@/actions/rounds";
+import { getRound, revertToDraft, updateLiveRoundFormat } from "@/actions/rounds";
 import {
   upsertHoleScore,
   getHoleView,
@@ -26,6 +26,10 @@ import {
   markTeamFinished,
 } from "@/actions/scoring";
 import { FORMAT_DEFINITIONS } from "@/lib/format-definitions";
+import {
+  IRISH_GOLF_ELIGIBLE_SEGMENT_FORMATS,
+  type FormatConfigOption,
+} from "@/lib/format-definitions";
 import {
   getIrishGolfSegmentFormatId,
   getMinimumScoresRequired,
@@ -162,6 +166,32 @@ interface DriveMinimumProgress {
   }>;
 }
 
+function buildLiveFormatConfig(
+  formatDefinition: (typeof FORMAT_DEFINITIONS)[number] | null,
+  formatConfig: Record<string, unknown> | null | undefined
+) {
+  const nextConfig: Record<string, unknown> = {};
+
+  for (const option of formatDefinition?.configOptions ?? []) {
+    if (formatConfig?.[option.key] !== undefined) {
+      nextConfig[option.key] = formatConfig[option.key];
+    } else if (option.defaultValue !== undefined) {
+      nextConfig[option.key] = option.defaultValue;
+    }
+  }
+
+  nextConfig.enableDriveMinimums =
+    typeof formatConfig?.enableDriveMinimums === "boolean"
+      ? formatConfig.enableDriveMinimums
+      : false;
+  nextConfig.requiredDrivesPerPlayer =
+    typeof formatConfig?.requiredDrivesPerPlayer === "number"
+      ? formatConfig.requiredDrivesPerPlayer
+      : 4;
+
+  return nextConfig;
+}
+
 export default function LiveScoringPage({
   params,
 }: {
@@ -192,8 +222,14 @@ export default function LiveScoringPage({
   const [showSkinsStatus, setShowSkinsStatus] = useState(false);
   const [showMarkFinishedModal, setShowMarkFinishedModal] = useState(false);
   const [showEditTeamsModal, setShowEditTeamsModal] = useState(false);
+  const [showEditFormatModal, setShowEditFormatModal] = useState(false);
   const [unlockCode, setUnlockCode] = useState("");
   const [unlockError, setUnlockError] = useState<string | null>(null);
+  const [formatUnlockCode, setFormatUnlockCode] = useState("");
+  const [formatEditError, setFormatEditError] = useState<string | null>(null);
+  const [liveFormatConfigDraft, setLiveFormatConfigDraft] = useState<
+    Record<string, unknown>
+  >({});
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatDraft, setChatDraft] = useState("");
   const [chatImportant, setChatImportant] = useState(false);
@@ -274,6 +310,16 @@ export default function LiveScoringPage({
       }
 
       setRound(data as Round);
+      const currentFormatDefinition =
+        FORMAT_DEFINITIONS.find((definition) => definition.id === data.formatId) ??
+        FORMAT_DEFINITIONS.find((definition) => definition.name === data.format.name) ??
+        null;
+      setLiveFormatConfigDraft(
+        buildLiveFormatConfig(
+          currentFormatDefinition,
+          data.formatConfig as Record<string, unknown> | null
+        )
+      );
       setCurrentHole(data.startingHole ?? 1);
       setLoading(false);
     } catch (err) {
@@ -491,6 +537,10 @@ export default function LiveScoringPage({
     const team = round?.teams.find((entry) => entry.id === teamId);
     return team ? getTeamDisplayLabel(team.roundPlayers) : "Team";
   };
+  const isLiveIrishGolf = formatDefinition?.id === "irish_golf_6_6_6";
+  const liveEligibleSegmentFormats = FORMAT_DEFINITIONS.filter((definition) =>
+    IRISH_GOLF_ELIGIBLE_SEGMENT_FORMATS.includes(definition.id)
+  );
   const currentPar3Contest = (() => {
     const par3Contest = round?.formatConfig?.par3Contest as
       | {
@@ -843,6 +893,73 @@ export default function LiveScoringPage({
     }
   };
 
+  const updateLiveFormatDraft = (key: string, value: unknown) => {
+    setLiveFormatConfigDraft((current) => ({
+      ...current,
+      [key]: value,
+    }));
+  };
+
+  const openEditFormatModal = () => {
+    setFormatUnlockCode("");
+    setFormatEditError(null);
+    setLiveFormatConfigDraft(
+      buildLiveFormatConfig(formatDefinition, round?.formatConfig ?? null)
+    );
+    setShowEditFormatModal(true);
+  };
+
+  const handleSaveLiveFormat = async () => {
+    if (!formatUnlockCode.trim()) {
+      setFormatEditError("Enter the lock code");
+      return;
+    }
+
+    if (
+      liveFormatConfigDraft.enableDriveMinimums &&
+      (!Number.isFinite(Number(liveFormatConfigDraft.requiredDrivesPerPlayer)) ||
+        Number(liveFormatConfigDraft.requiredDrivesPerPlayer) <= 0)
+    ) {
+      setFormatEditError("Minimum drives per player must be greater than 0.");
+      return;
+    }
+
+    if (isLiveIrishGolf) {
+      if (
+        !liveFormatConfigDraft.segment1FormatId ||
+        !liveFormatConfigDraft.segment2FormatId ||
+        !liveFormatConfigDraft.segment3FormatId
+      ) {
+        setFormatEditError(
+          "Irish Golf / 6-6-6 requires a format selected for all three segments."
+        );
+        return;
+      }
+    }
+
+    setSaving(true);
+    setFormatEditError(null);
+    try {
+      await updateLiveRoundFormat(id, formatUnlockCode.trim(), {
+        formatConfig: {
+          ...(round?.formatConfig ?? {}),
+          ...liveFormatConfigDraft,
+        },
+      });
+      setShowEditFormatModal(false);
+      await loadRound();
+      await loadHoleData();
+      await loadDriveMinimumProgress();
+    } catch (err) {
+      setFormatEditError(
+        err instanceof Error ? err.message : "Failed to update format settings"
+      );
+      setSaving(false);
+      return;
+    }
+    setSaving(false);
+  };
+
   const handleSendChatMessage = async () => {
     if (!myTeamId) return;
 
@@ -1119,6 +1236,12 @@ export default function LiveScoringPage({
               </p>
             </div>
             <div className="flex gap-2">
+              <button
+                onClick={openEditFormatModal}
+                className="px-3 py-1 bg-amber-100 text-amber-800 rounded text-sm"
+              >
+                Edit Format
+              </button>
               <button
                 onClick={loadScorecard}
                 className="px-3 py-1 bg-blue-100 text-blue-700 rounded text-sm"
@@ -1899,6 +2022,212 @@ export default function LiveScoringPage({
           </div>
         </div>
       )}
+
+      <Modal
+        isOpen={showEditFormatModal}
+        onClose={() => {
+          setShowEditFormatModal(false);
+          setFormatUnlockCode("");
+          setFormatEditError(null);
+        }}
+        title="Edit Format"
+      >
+        <div className="space-y-4">
+          <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            <p className="font-semibold">{round.format.name}</p>
+            <p className="mt-1">
+              Enter the lock code to change the active round’s format settings.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700">
+              Lock Code
+            </label>
+            <input
+              type="text"
+              inputMode="numeric"
+              placeholder="4-digit lock code"
+              value={formatUnlockCode}
+              onChange={(e) => setFormatUnlockCode(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
+            />
+          </div>
+
+          <div className="space-y-3 rounded border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+            <p className="font-semibold">Drive Minimums</p>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={!!liveFormatConfigDraft.enableDriveMinimums}
+                onChange={(e) =>
+                  updateLiveFormatDraft("enableDriveMinimums", e.target.checked)
+                }
+                className="h-4 w-4"
+              />
+              <span>Require a minimum number of drives from each player</span>
+            </label>
+            {!!liveFormatConfigDraft.enableDriveMinimums && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Minimum Drives Per Player
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  value={String(liveFormatConfigDraft.requiredDrivesPerPlayer ?? 4)}
+                  onChange={(e) =>
+                    updateLiveFormatDraft(
+                      "requiredDrivesPerPlayer",
+                      Number(e.target.value)
+                    )
+                  }
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
+                />
+              </div>
+            )}
+          </div>
+
+          {formatDefinition?.configOptions
+            ?.filter(
+              (option) =>
+                ![
+                  "enableDriveMinimums",
+                  "requiredDrivesPerPlayer",
+                  "segment1FormatId",
+                  "segment2FormatId",
+                  "segment3FormatId",
+                ].includes(option.key)
+            )
+            .map((option) => {
+              if (option.type === "boolean") {
+                return (
+                  <label key={option.key} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={!!liveFormatConfigDraft[option.key]}
+                      onChange={(e) =>
+                        updateLiveFormatDraft(option.key, e.target.checked)
+                      }
+                      className="h-4 w-4"
+                    />
+                    <span>{option.label}</span>
+                  </label>
+                );
+              }
+
+              if (option.type === "number") {
+                return (
+                  <div key={option.key}>
+                    <label className="block text-sm font-medium text-gray-700">
+                      {option.label}
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={String(
+                        liveFormatConfigDraft[option.key] ??
+                          option.defaultValue ??
+                          ""
+                      )}
+                      onChange={(e) =>
+                        updateLiveFormatDraft(option.key, Number(e.target.value))
+                      }
+                      className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
+                    />
+                  </div>
+                );
+              }
+
+              if (option.type === "select" && option.options) {
+                return (
+                  <div key={option.key}>
+                    <label className="block text-sm font-medium text-gray-700">
+                      {option.label}
+                    </label>
+                    <select
+                      value={String(
+                        liveFormatConfigDraft[option.key] ??
+                          option.defaultValue ??
+                          ""
+                      )}
+                      onChange={(e) =>
+                        updateLiveFormatDraft(option.key, e.target.value)
+                      }
+                      className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
+                    >
+                      {option.options.map((choice) => (
+                        <option key={choice.value} value={choice.value}>
+                          {choice.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                );
+              }
+
+              return null;
+            })}
+
+          {isLiveIrishGolf && (
+            <div className="space-y-3 rounded border border-blue-200 bg-blue-50 px-3 py-3 text-sm text-blue-900">
+              <p className="font-semibold">6-6-6 Segment Formats</p>
+              {(
+                [
+                  { key: "segment1FormatId", label: "Holes 1-6 Format" },
+                  { key: "segment2FormatId", label: "Holes 7-12 Format" },
+                  { key: "segment3FormatId", label: "Holes 13-18 Format" },
+                ] as const
+              ).map(({ key, label }) => (
+                <div key={key}>
+                  <label className="block text-sm font-medium text-gray-700">
+                    {label}
+                  </label>
+                  <select
+                    value={String(liveFormatConfigDraft[key] ?? "")}
+                    onChange={(e) =>
+                      updateLiveFormatDraft(key, e.target.value)
+                    }
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
+                  >
+                    <option value="">Select a format...</option>
+                    {liveEligibleSegmentFormats.map((format) => (
+                      <option key={format.id} value={format.id}>
+                        {format.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {formatEditError && (
+            <p className="text-sm text-red-600">{formatEditError}</p>
+          )}
+
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              className="flex-1"
+              onClick={() => {
+                setShowEditFormatModal(false);
+                setFormatUnlockCode("");
+                setFormatEditError(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="flex-1"
+              onClick={handleSaveLiveFormat}
+              disabled={saving}
+            >
+              {saving ? "Saving..." : "Save Format"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Team Selection Modal */}
       {showTeamSelect && (
