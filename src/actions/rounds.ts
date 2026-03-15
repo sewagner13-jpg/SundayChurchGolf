@@ -9,6 +9,7 @@ import { validateEvenTeams } from "@/lib/scoring-engine";
 import {
   getActivePar3Contests,
   getPar3ContestConfig,
+  getPar3ContestParticipantIds,
 } from "@/lib/par3-contests";
 import { getPar3ContestTotalPotDecimal } from "@/lib/par3-contests.server";
 
@@ -379,13 +380,14 @@ export async function startRound(id: string, startingHole: 1 | 10) {
 
   // Calculate pot and base skin value
   const playerCount = round.roundPlayers.length;
+  const roundPlayerIds = round.roundPlayers.map((roundPlayer) => roundPlayer.playerId);
   const par3ContestConfig = getPar3ContestConfig(
     round.formatConfig as Record<string, unknown> | null
   );
   const includedPar3Pot =
     par3ContestConfig?.enabled &&
     par3ContestConfig.fundingType === "INCLUDED_IN_MAIN_BUY_IN"
-      ? getPar3ContestTotalPotDecimal(par3ContestConfig, playerCount)
+      ? getPar3ContestTotalPotDecimal(par3ContestConfig, roundPlayerIds)
       : new Decimal(0);
 
   if (includedPar3Pot.gt(round.buyInPerPlayer.mul(playerCount))) {
@@ -394,6 +396,13 @@ export async function startRound(id: string, startingHole: 1 | 10) {
 
   if (par3ContestConfig?.enabled && getActivePar3Contests(par3ContestConfig).length === 0) {
     throw new Error("Enable at least one par 3 contest or turn the par 3 contest off");
+  }
+
+  if (
+    par3ContestConfig?.enabled &&
+    getPar3ContestParticipantIds(par3ContestConfig, roundPlayerIds).length === 0
+  ) {
+    throw new Error("Choose at least one Par 3 contest participant");
   }
 
   const pot = round.buyInPerPlayer.mul(playerCount).sub(includedPar3Pot);

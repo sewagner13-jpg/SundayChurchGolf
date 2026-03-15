@@ -13,6 +13,7 @@ import { ConfirmModal } from "@/components/modal";
 import { Select } from "@/components/select";
 import { getScoringOrder } from "@/lib/scoring-order";
 import { FORMAT_DEFINITIONS } from "@/lib/format-definitions";
+import { computeIrishGolfSegmentSummaries } from "@/lib/irish-golf";
 import {
   computeFormatScore,
   computeVegasMatchRound,
@@ -24,8 +25,10 @@ import {
   getActivePar3Contests,
   getPar3ContestConfig,
   getPar3ContestPrizePerHole,
+  getPar3ContestParticipantIds,
   type Par3HoleContestResult,
 } from "@/lib/par3-contests";
+import { getTeamDisplayLabel } from "@/lib/team-labels";
 interface Team {
   id: string;
   teamNumber: number;
@@ -43,6 +46,7 @@ interface HoleScore {
   holeNumber: number;
   entryType: string;
   value: number | null;
+  grossScore: number | null;
   wasEdited: boolean;
 }
 
@@ -201,6 +205,7 @@ export default function RoundSummaryPage({
 
   const scoringOrder = getScoringOrder(round.startingHole ?? 1);
   const topTeams = round.teams.filter((t) => t.isTopPayingTeam);
+  const getTeamLabel = (team: Team) => getTeamDisplayLabel(team.roundPlayers);
 
   // Format-aware leaderboard computation
   const formatDef = FORMAT_DEFINITIONS.find((d) => d.name === round.format.name);
@@ -210,6 +215,7 @@ export default function RoundSummaryPage({
     formatDef?.formatCategory === "match";
   const isMoneyBallFormat = formatDef?.id === "money_ball";
   const isVegasFormat = formatDef?.id === "vegas";
+  const isIrishGolfFormat = formatDef?.id === "irish_golf_6_6_6";
   const isBestBallFormat =
     !!formatDef && getMinimumScoresRequired(formatDef.id) !== null;
 
@@ -447,13 +453,17 @@ export default function RoundSummaryPage({
   }
 
   const par3ContestConfig = getPar3ContestConfig(round.formatConfig);
+  const par3ParticipantIds = getPar3ContestParticipantIds(
+    par3ContestConfig,
+    round.roundPlayers.map((roundPlayer) => roundPlayer.playerId)
+  );
   const activePar3Contests = getActivePar3Contests(par3ContestConfig);
   const par3PrizePerHole = getPar3ContestPrizePerHole(
     par3ContestConfig,
-    round.roundPlayers.length
+    round.roundPlayers.map((roundPlayer) => roundPlayer.playerId)
   );
   const par3TotalPot =
-    (par3ContestConfig?.amountPerPlayer ?? 0) * round.roundPlayers.length;
+    (par3ContestConfig?.amountPerPlayer ?? 0) * par3ParticipantIds.length;
   const par3AssignedPayout = par3Results.reduce(
     (sum, result) => sum + (result.payoutAmount ?? 0),
     0
@@ -475,6 +485,23 @@ export default function RoundSummaryPage({
     MOST_PUTTS_USED_SCORE: "Most putts on a counted score",
     NONE: "No contest",
   };
+  const irishGolfSegments = isIrishGolfFormat
+    ? computeIrishGolfSegmentSummaries(
+        round.teams.map((team) => ({
+          id: team.id,
+          teamNumber: team.teamNumber,
+        })),
+        round.holeScores.map((holeScore) => ({
+          teamId: holeScore.teamId,
+          holeNumber: holeScore.holeNumber,
+          entryType: holeScore.entryType,
+          value: holeScore.value,
+          grossScore: holeScore.grossScore,
+        })),
+        round.formatConfig ?? null,
+        round.pot ?? 0
+      )
+    : [];
 
   return (
     <div className="space-y-6">
@@ -541,6 +568,9 @@ export default function RoundSummaryPage({
                 <strong>${par3ContestConfig?.amountPerPlayer ?? 0}</strong>
               </p>
               <p>
+                Participants: <strong>{par3ParticipantIds.length}</strong>
+              </p>
+              <p>
                 Suggested split:{" "}
                 <strong>${par3PrizePerHole.toFixed(2)}</strong>
               </p>
@@ -592,7 +622,11 @@ export default function RoundSummaryPage({
                     }
                     options={[
                       { value: "", label: "No winner entered yet" },
-                      ...round.roundPlayers.map((roundPlayer) => ({
+                      ...round.roundPlayers
+                        .filter((roundPlayer) =>
+                          par3ParticipantIds.includes(roundPlayer.playerId)
+                        )
+                        .map((roundPlayer) => ({
                         value: roundPlayer.playerId,
                         label: `${roundPlayer.player.nickname || roundPlayer.player.fullName} (Team ${playerTeamMap.get(roundPlayer.playerId) ?? "—"})`,
                       })),
@@ -643,7 +677,72 @@ export default function RoundSummaryPage({
       )}
 
       {/* Non-skins: Team Leaderboard */}
-      {!isSkins && playerScores.length > 0 && (
+      {isIrishGolfFormat && (
+        <Card>
+          <CardHeader>6-6-6 Segment Results</CardHeader>
+          <CardContent className="space-y-4">
+            {irishGolfSegments.map((segment) => (
+              <div
+                key={segment.segmentIndex}
+                className="rounded-lg border border-gray-200 p-3"
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="font-semibold">{segment.label}</p>
+                    <p className="text-sm text-gray-500">
+                      {FORMAT_DEFINITIONS.find(
+                        (definition) => definition.id === segment.formatId
+                      )?.name ?? "Segment format"}
+                    </p>
+                  </div>
+                  <p className="text-sm font-medium text-green-700">
+                    ${segment.segmentPot.toFixed(2)} segment pot
+                  </p>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {round.teams.map((team) => {
+                    const isWinner = segment.winningTeamIds.includes(team.id);
+                    return (
+                      <div
+                        key={`${segment.segmentIndex}-${team.id}`}
+                        className={`flex items-center justify-between rounded border px-3 py-2 ${
+                          isWinner
+                            ? "border-green-300 bg-green-50"
+                            : "border-gray-200 bg-white"
+                        }`}
+                      >
+                        <div>
+                          <p className="font-medium">{getTeamLabel(team)}</p>
+                          <p className="text-xs text-gray-500">
+                            {team.roundPlayers
+                              .map((roundPlayer) =>
+                                roundPlayer.player.nickname ||
+                                roundPlayer.player.fullName
+                              )
+                              .join(", ")}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-semibold">
+                            {segment.teamTotals.get(team.id) ?? 0}
+                          </p>
+                          {isWinner && (
+                            <p className="text-xs text-green-700">
+                              Wins ${segment.payoutPerWinningTeam.toFixed(2)}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {!isSkins && !isIrishGolfFormat && playerScores.length > 0 && (
         <Card>
           <CardHeader>Leaderboard — {round.format.name}</CardHeader>
           <CardContent className="space-y-2">
@@ -654,7 +753,7 @@ export default function RoundSummaryPage({
                   <div className="flex items-center gap-3">
                     <span className="text-lg font-bold text-gray-400 w-6">#{idx + 1}</span>
                     <div>
-                      <p className="font-semibold">Team {team.teamNumber}</p>
+                      <p className="font-semibold">{getTeamLabel(team)}</p>
                       <p className="text-xs text-gray-500">
                         {team.roundPlayers.map((rp) => rp.player.nickname || rp.player.fullName).join(", ")}
                       </p>
@@ -694,7 +793,7 @@ export default function RoundSummaryPage({
                   const penaltyStrokes = (round.formatConfig?.moneyBallPenaltyStrokes as number) ?? 4;
                   return (
                     <tr key={team.id}>
-                      <td className="py-2 font-medium">Team {team.teamNumber}</td>
+                      <td className="py-2 font-medium">{getTeamLabel(team)}</td>
                       <td className="py-2 text-center">{totals?.total ?? "—"}</td>
                       <td className="py-2 text-center">{totals?.mbTotal ?? "—"}</td>
                       <td className="py-2 text-center">{totals?.mbLosses ?? 0}</td>
@@ -799,7 +898,7 @@ export default function RoundSummaryPage({
               return (
                 <div key={team.id} className="border-b last:border-b-0 pb-3">
                   <div className="flex justify-between items-center mb-2">
-                    <span className="font-bold">Team {team.teamNumber}</span>
+                    <span className="font-bold">{getTeamLabel(team)}</span>
                     <span className="text-green-600 font-bold text-lg">
                       ${Math.round(team.totalPayout)}
                     </span>

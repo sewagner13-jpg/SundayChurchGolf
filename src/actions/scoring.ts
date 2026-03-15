@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { Decimal } from "@prisma/client/runtime/library";
 import { HoleEntryType, Prisma, RoundStatus } from "@prisma/client";
 import { FORMAT_DEFINITIONS } from "@/lib/format-definitions";
+import { computeIrishGolfSegmentSummaries } from "@/lib/irish-golf";
 import {
   calculateRoundResults,
   areAllHolesComplete,
@@ -13,6 +14,7 @@ import {
   findTopPayingTeams,
   TeamScore,
 } from "@/lib/scoring-engine";
+import { computeDriveMinimumStatus } from "@/lib/format-scoring";
 import { getScoringOrder } from "@/lib/scoring-order";
 
 export interface ScoreEntry {
@@ -242,6 +244,138 @@ export async function finishRound(roundId: string) {
 
     if (!allTeamsComplete) {
       throw new Error("All teams must have 18 completed holes before finishing");
+    }
+
+    if (formatDefinition.id === "irish_golf_6_6_6") {
+      const segmentSummaries = computeIrishGolfSegmentSummaries(
+        round.teams.map((team) => ({
+          id: team.id,
+          teamNumber: team.teamNumber,
+        })),
+        round.holeScores.map((holeScore) => ({
+          teamId: holeScore.teamId,
+          holeNumber: holeScore.holeNumber,
+          entryType: holeScore.entryType,
+          value: holeScore.value,
+          grossScore: holeScore.grossScore,
+        })),
+        (round.formatConfig as Record<string, unknown> | null) ?? null,
+        Number(round.pot)
+      );
+
+      const teamPayouts = new Map<string, Decimal>();
+      for (const summary of segmentSummaries) {
+        for (const teamId of summary.winningTeamIds) {
+          teamPayouts.set(
+            teamId,
+            (teamPayouts.get(teamId) ?? new Decimal(0)).add(
+              new Decimal(summary.payoutPerWinningTeam)
+            )
+          );
+        }
+      }
+
+      const topTeamIds = findTopPayingTeams(teamPayouts);
+      const year = round.date.getFullYear();
+      const buyIn = round.buyInPerPlayer;
+
+      await prisma.$transaction(async (tx) => {
+        await tx.team.updateMany({
+          where: { roundId },
+          data: {
+            totalPayout: new Decimal(0),
+            isTopPayingTeam: false,
+          },
+        });
+
+        await tx.roundPlayer.updateMany({
+          where: { roundId },
+          data: {
+            payoutAmount: new Decimal(0),
+            wasOnTopPayingTeam: false,
+          },
+        });
+
+        await tx.holeResult.deleteMany({
+          where: { roundId },
+        });
+
+        for (const team of round.teams) {
+          const payout = teamPayouts.get(team.id) ?? new Decimal(0);
+          const isTop = topTeamIds.includes(team.id);
+
+          await tx.team.update({
+            where: { id: team.id },
+            data: {
+              totalPayout: payout,
+              isTopPayingTeam: isTop,
+            },
+          });
+
+          const splitPayout =
+            team.roundPlayers.length > 0
+              ? payout.div(team.roundPlayers.length)
+              : new Decimal(0);
+
+          for (const roundPlayer of team.roundPlayers) {
+            await tx.roundPlayer.update({
+              where: { id: roundPlayer.id },
+              data: {
+                payoutAmount: splitPayout,
+                wasOnTopPayingTeam: isTop,
+              },
+            });
+
+            await tx.seasonPlayerStat.upsert({
+              where: {
+                year_playerId: {
+                  year,
+                  playerId: roundPlayer.playerId,
+                },
+              },
+              update: {
+                totalWinnings: { increment: splitPayout },
+                totalBuyInsPaid: { increment: buyIn },
+                roundsPlayed: { increment: 1 },
+                topTeamAppearances: isTop ? { increment: 1 } : undefined,
+              },
+              create: {
+                year,
+                playerId: roundPlayer.playerId,
+                totalWinnings: splitPayout,
+                totalBuyInsPaid: buyIn,
+                roundsPlayed: 1,
+                topTeamAppearances: isTop ? 1 : 0,
+              },
+            });
+          }
+        }
+
+        await tx.round.update({
+          where: { id: roundId },
+          data: {
+            status: "FINISHED",
+            tiebreakerTeamId: null,
+            tiebreakerHoleNum: null,
+            tiebreakerSkinsWon: null,
+          },
+        });
+
+        await tx.roundMessage.updateMany({
+          where: { roundId },
+          data: {
+            imageDataUrl: null,
+            imageMimeType: null,
+            imageName: null,
+          },
+        });
+      });
+
+      revalidatePath("/");
+      revalidatePath(`/rounds/${roundId}`);
+      revalidatePath(`/rounds/${roundId}/summary`);
+      revalidatePath("/leaderboard");
+      return;
     }
 
     await prisma.$transaction(async (tx) => {
@@ -579,6 +713,108 @@ export async function getHoleView(
         : null,
     // Never show payouts during LIVE
     payout: !isLive && holeResult ? holeResult.holePayout : null,
+  };
+}
+
+export async function getTeamDriveMinimumProgress(roundId: string, teamId: string) {
+  const round = await prisma.round.findUnique({
+    where: { id: roundId },
+    include: {
+      teams: {
+        where: { id: teamId },
+        include: {
+          roundPlayers: {
+            include: {
+              player: true,
+            },
+          },
+        },
+      },
+      holeScores: {
+        where: { teamId },
+        select: {
+          holeNumber: true,
+          holeData: true,
+        },
+      },
+      playerScores: {
+        where: { teamId },
+        select: {
+          holeNumber: true,
+          playerId: true,
+          extraData: true,
+        },
+      },
+    },
+  });
+
+  if (!round) throw new Error("Round not found");
+
+  const team = round.teams[0];
+  if (!team) throw new Error("Team not found in this round");
+
+  const roundFormatConfig =
+    (round.formatConfig as Record<string, unknown> | null) ?? null;
+  const requiredDrives = Number(roundFormatConfig?.requiredDrivesPerPlayer ?? 0);
+  if (!roundFormatConfig?.enableDriveMinimums || requiredDrives <= 0) {
+    return {
+      enabled: false,
+      requiredDrives: 0,
+      remainingHoles: 18,
+      warnings: [] as string[],
+      players: team.roundPlayers.map((roundPlayer) => ({
+        playerId: roundPlayer.playerId,
+        playerName: roundPlayer.player.nickname || roundPlayer.player.fullName,
+        driveCount: 0,
+        stillNeeded: 0,
+        metMinimum: false,
+      })),
+    };
+  }
+
+  const driveLogByHole = new Map<number, string>();
+
+  for (const score of round.playerScores) {
+    if ((score.extraData as Record<string, unknown> | null)?.driveSelected === true) {
+      driveLogByHole.set(score.holeNumber, score.playerId);
+    }
+  }
+
+  for (const holeScore of round.holeScores) {
+    if (driveLogByHole.has(holeScore.holeNumber)) continue;
+    const drivePlayerId = (holeScore.holeData as Record<string, unknown> | null)
+      ?.drivePlayerId as string | undefined;
+    if (drivePlayerId) {
+      driveLogByHole.set(holeScore.holeNumber, drivePlayerId);
+    }
+  }
+
+  const status = computeDriveMinimumStatus(
+    [...driveLogByHole.entries()].map(([holeNumber, drivingPlayerId]) => ({
+      holeNumber,
+      drivingPlayerId,
+    })),
+    team.roundPlayers.map((roundPlayer) => roundPlayer.playerId),
+    requiredDrives,
+    18
+  );
+
+  return {
+    enabled: true,
+    requiredDrives,
+    remainingHoles: status.remainingHoles,
+    warnings: status.warnings,
+    players: team.roundPlayers.map((roundPlayer) => {
+      const driveCount = status.driveCounts[roundPlayer.playerId] ?? 0;
+      const stillNeeded = Math.max(0, requiredDrives - driveCount);
+      return {
+        playerId: roundPlayer.playerId,
+        playerName: roundPlayer.player.nickname || roundPlayer.player.fullName,
+        driveCount,
+        stillNeeded,
+        metMinimum: stillNeeded === 0,
+      };
+    }),
   };
 }
 

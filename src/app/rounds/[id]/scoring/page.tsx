@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
+import { useState, useEffect, use, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/button";
 import { Card } from "@/components/card";
@@ -21,6 +21,7 @@ import {
   finishRound,
   getTeamScorecard,
   getTeamsProgress,
+  getTeamDriveMinimumProgress,
   getLiveSkinsStatus,
   markTeamFinished,
 } from "@/actions/scoring";
@@ -30,6 +31,7 @@ import {
   getMinimumScoresRequired,
 } from "@/lib/format-scoring";
 import { getScoringOrder } from "@/lib/scoring-order";
+import { getTeamDisplayLabel } from "@/lib/team-labels";
 import { HoleEntryType } from "@prisma/client";
 
 interface TeamScore {
@@ -146,6 +148,20 @@ interface PendingImportantMessage {
   senderTeamNumber: number;
 }
 
+interface DriveMinimumProgress {
+  enabled: boolean;
+  requiredDrives: number;
+  remainingHoles: number;
+  warnings: string[];
+  players: Array<{
+    playerId: string;
+    playerName: string;
+    driveCount: number;
+    stillNeeded: number;
+    metMinimum: boolean;
+  }>;
+}
+
 export default function LiveScoringPage({
   params,
 }: {
@@ -190,6 +206,9 @@ export default function LiveScoringPage({
   const [pendingImportantMessage, setPendingImportantMessage] =
     useState<PendingImportantMessage | null>(null);
   const [playerInputs, setPlayerInputs] = useState<PlayerHoleInputState[]>([]);
+  const [driveMinimumProgress, setDriveMinimumProgress] =
+    useState<DriveMinimumProgress | null>(null);
+  const playerInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const isLive = round?.status === "LIVE";
 
@@ -201,6 +220,7 @@ export default function LiveScoringPage({
     if (round && myTeamId) {
       loadHoleData();
       loadTeamsProgress();
+      loadDriveMinimumProgress();
       loadChat();
       loadPlayerInputs();
     }
@@ -280,6 +300,20 @@ export default function LiveScoringPage({
       setTeamsProgress(progress);
     } catch (err) {
       console.error("Failed to load teams progress");
+    }
+  }
+
+  async function loadDriveMinimumProgress() {
+    if (!round || !myTeamId || !round.formatConfig?.enableDriveMinimums) {
+      setDriveMinimumProgress(null);
+      return;
+    }
+
+    try {
+      const progress = await getTeamDriveMinimumProgress(id, myTeamId);
+      setDriveMinimumProgress(progress as DriveMinimumProgress);
+    } catch {
+      setError("Failed to load drive minimum progress");
     }
   }
 
@@ -453,6 +487,32 @@ export default function LiveScoringPage({
       : null;
   const selectedDrivePlayerId =
     playerInputs.find((input) => input.driveSelected)?.playerId ?? null;
+  const getTeamLabel = (teamId: string) => {
+    const team = round?.teams.find((entry) => entry.id === teamId);
+    return team ? getTeamDisplayLabel(team.roundPlayers) : "Team";
+  };
+  const currentPar3Contest = (() => {
+    const par3Contest = round?.formatConfig?.par3Contest as
+      | {
+          enabled?: boolean;
+          holes?: Array<{ holeNumber: number; contestType: string }>;
+        }
+      | undefined;
+    if (!par3Contest?.enabled) return null;
+    return (
+      par3Contest.holes?.find(
+        (holeConfig) =>
+          holeConfig.holeNumber === currentHole &&
+          holeConfig.contestType !== "NONE"
+      ) ?? null
+    );
+  })();
+  const par3ContestLabels: Record<string, string> = {
+    CLOSEST_TO_PIN: "Closest to the hole",
+    FURTHEST_ON_GREEN: "Furthest from the hole while still on the green",
+    LONGEST_PUTT: "Longest putt",
+    MOST_PUTTS_USED_SCORE: "Most putts on a counted score",
+  };
 
   useEffect(() => {
     if (round && myTeamId && usesDriveTracking && !usesIndividualScores) {
@@ -487,6 +547,7 @@ export default function LiveScoringPage({
       });
       await loadHoleData();
       await loadTeamsProgress();
+      await loadDriveMinimumProgress();
       await loadPlayerInputs();
       setCustomScore("");
     } catch (err) {
@@ -521,6 +582,7 @@ export default function LiveScoringPage({
       });
       await loadHoleData();
       await loadTeamsProgress();
+      await loadDriveMinimumProgress();
       await loadPlayerInputs();
       setCustomScore("");
     } catch (err) {
@@ -538,6 +600,22 @@ export default function LiveScoringPage({
         input.playerId === playerId ? { ...input, ...updates } : input
       )
     );
+  };
+
+  const focusNextPlayerInput = (playerId: string) => {
+    const currentIndex = playerInputs.findIndex((input) => input.playerId === playerId);
+    const nextPlayerId = playerInputs[currentIndex + 1]?.playerId;
+    if (!nextPlayerId) return;
+    window.setTimeout(() => {
+      playerInputRefs.current[nextPlayerId]?.focus();
+      playerInputRefs.current[nextPlayerId]?.select();
+    }, 0);
+  };
+
+  const shouldAutoAdvanceScore = (value: string) => {
+    if (!/^\d+$/.test(value)) return false;
+    if (value.length >= 2) return true;
+    return Number(value) > 1;
   };
 
   const handleDriveSelection = (playerId: string) => {
@@ -629,6 +707,7 @@ export default function LiveScoringPage({
       );
       await loadHoleData();
       await loadTeamsProgress();
+      await loadDriveMinimumProgress();
       setError(null);
     } catch (err) {
       setError(
@@ -780,6 +859,59 @@ export default function LiveScoringPage({
     setChatSending(false);
   };
 
+  const readFileAsDataUrl = (file: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(new Error("Failed to read image"));
+      reader.readAsDataURL(file);
+    });
+
+  const resizeChatImage = async (file: File) => {
+    const originalDataUrl = await readFileAsDataUrl(file);
+
+    try {
+      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error("Failed to load image"));
+        img.src = originalDataUrl;
+      });
+
+      const maxDimension = 1600;
+      const scale = Math.min(
+        1,
+        maxDimension / Math.max(image.width, image.height)
+      );
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+      const context = canvas.getContext("2d");
+      if (!context) {
+        return {
+          dataUrl: originalDataUrl,
+          mimeType: file.type || "image/jpeg",
+          fileName: file.name,
+        };
+      }
+
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.82);
+
+      return {
+        dataUrl: compressedDataUrl,
+        mimeType: "image/jpeg",
+        fileName: file.name.replace(/\.[^.]+$/, "") + ".jpg",
+      };
+    } catch {
+      return {
+        dataUrl: originalDataUrl,
+        mimeType: file.type || "image/jpeg",
+        fileName: file.name,
+      };
+    }
+  };
+
   const handleChatImageChange = async (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
@@ -787,18 +919,8 @@ export default function LiveScoringPage({
     if (!file) return;
 
     try {
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result));
-        reader.onerror = () => reject(new Error("Failed to read image"));
-        reader.readAsDataURL(file);
-      });
-
-      setChatImage({
-        dataUrl,
-        mimeType: file.type,
-        fileName: file.name,
-      });
+      const resizedImage = await resizeChatImage(file);
+      setChatImage(resizedImage);
       event.target.value = "";
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load image");
@@ -863,7 +985,9 @@ export default function LiveScoringPage({
                   }}
                   className="w-full p-4 border rounded hover:bg-gray-50 text-left"
                 >
-                  <span className="font-bold">Team {team.teamNumber}</span>
+                  <span className="font-bold">
+                    {getTeamDisplayLabel(team.roundPlayers)}
+                  </span>
                   <p className="text-sm text-gray-600 mt-1">{playerNames}</p>
                 </button>
               );
@@ -1030,7 +1154,7 @@ export default function LiveScoringPage({
           {myTeamId && (
             <div className="mt-2 flex items-center justify-between bg-green-100 text-green-800 text-sm px-3 py-2 rounded">
               <span>
-                Scoring for <strong>Team {myTeamNumber}</strong>
+                Scoring for <strong>{getTeamLabel(myTeamId)}</strong>
               </span>
               <button
                 onClick={changeTeam}
@@ -1090,7 +1214,9 @@ export default function LiveScoringPage({
         {myTeamId && myTeamScore && (
           <Card className="overflow-hidden border-2 border-green-500">
             <div className="bg-green-700 text-white px-4 py-3 flex justify-between items-center">
-              <span className="font-bold text-lg">Team {myTeamScore.teamNumber}</span>
+              <span className="font-bold text-lg">
+                {getTeamLabel(myTeamScore.teamId)}
+              </span>
               {myTeamScore.wasEdited && (
                 <span className="text-xs bg-red-500 px-2 py-0.5 rounded">
                   Edited
@@ -1136,6 +1262,51 @@ export default function LiveScoringPage({
                     player
                   </strong>
                   .
+                </div>
+              )}
+
+              {driveMinimumProgress?.enabled && (
+                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+                  <div className="flex items-center justify-between gap-4">
+                    <p className="font-semibold">Drive Minimum Progress</p>
+                    <p className="text-xs">
+                      {driveMinimumProgress.remainingHoles} hole
+                      {driveMinimumProgress.remainingHoles === 1 ? "" : "s"} left
+                    </p>
+                  </div>
+                  <div className="mt-2 space-y-1">
+                    {driveMinimumProgress.players.map((player) => (
+                      <div
+                        key={player.playerId}
+                        className="flex items-center justify-between rounded bg-white/70 px-2 py-1"
+                      >
+                        <span>{player.playerName}</span>
+                        <span className="text-xs">
+                          {player.driveCount}/{driveMinimumProgress.requiredDrives} used
+                          {player.metMinimum
+                            ? " • met"
+                            : ` • needs ${player.stillNeeded}`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  {driveMinimumProgress.warnings.length > 0 && (
+                    <div className="mt-2 space-y-1 text-xs text-red-700">
+                      {driveMinimumProgress.warnings.map((warning) => (
+                        <p key={warning}>{warning}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {currentPar3Contest && (
+                <div className="mb-4 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+                  Par 3 contest on this hole:{" "}
+                  <strong>
+                    {par3ContestLabels[currentPar3Contest.contestType] ??
+                      "Par 3 contest"}
+                  </strong>
                 </div>
               )}
 
@@ -1191,13 +1362,24 @@ export default function LiveScoringPage({
                             )}
                           </div>
                           <input
-                            type="number"
-                            min="1"
+                            ref={(element) => {
+                              playerInputRefs.current[input.playerId] = element;
+                            }}
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            enterKeyHint="next"
                             value={input.grossScore}
                             onChange={(e) =>
-                              updatePlayerInput(input.playerId, {
-                                grossScore: e.target.value,
-                              })
+                              {
+                                const nextValue = e.target.value.replace(/\D/g, "");
+                                updatePlayerInput(input.playerId, {
+                                  grossScore: nextValue,
+                                });
+                                if (shouldAutoAdvanceScore(nextValue)) {
+                                  focusNextPlayerInput(input.playerId);
+                                }
+                              }
                             }
                             disabled={scoreEntryBlocked}
                             className="w-24 rounded-lg border border-gray-300 px-3 py-2 text-right text-lg"
@@ -1351,11 +1533,13 @@ export default function LiveScoringPage({
 
                   <div className="flex gap-2 mb-4">
                     <input
-                      type="number"
-                      min="1"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      enterKeyHint="done"
                       placeholder="Other score..."
                       value={customScore}
-                      onChange={(e) => setCustomScore(e.target.value)}
+                      onChange={(e) => setCustomScore(e.target.value.replace(/\D/g, ""))}
                       disabled={scoreEntryBlocked}
                       className="flex-1 px-4 py-3 border border-gray-300 rounded-lg text-lg"
                     />
@@ -1420,7 +1604,7 @@ export default function LiveScoringPage({
                       <div className="flex items-center justify-between gap-4">
                         <div>
                           <p className="font-medium">
-                            Team {teamScore.teamNumber}
+                            {getTeamLabel(teamScore.teamId)}
                             {teamScore.teamId === myTeamId ? " (You)" : ""}
                           </p>
                           <p className="text-xs text-gray-500">
@@ -1465,7 +1649,9 @@ export default function LiveScoringPage({
                     className="flex justify-between items-center py-2 border-b last:border-b-0"
                   >
                     <div>
-                      <span className="font-medium text-sm">Team {team.teamNumber}</span>
+                      <span className="font-medium text-sm">
+                        {getTeamLabel(team.teamId)}
+                      </span>
                       <p className="text-xs text-gray-500">
                         {team.players.map((p) => p.name).join(", ")}
                       </p>
@@ -1522,7 +1708,7 @@ export default function LiveScoringPage({
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-semibold">
-                          Team {message.senderTeamNumber}
+                          {getTeamLabel(message.senderTeamId)}
                         </span>
                         {message.isImportant && (
                           <span className="text-[10px] uppercase tracking-wide bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full font-bold">
@@ -1729,7 +1915,7 @@ export default function LiveScoringPage({
                     className="w-full p-4 text-left border rounded hover:bg-gray-50"
                   >
                     <div className="flex justify-between items-center">
-                      <span className="font-bold">Team {team.teamNumber}</span>
+                      <span className="font-bold">{getTeamLabel(team.id)}</span>
                       <span className="text-sm text-gray-500">
                         {progress?.holesScored ?? 0}/18
                       </span>
@@ -1754,7 +1940,7 @@ export default function LiveScoringPage({
           />
           <div className="relative bg-white rounded-lg shadow-xl p-4 max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto">
             <h2 className="text-lg font-bold mb-4">
-              Team {myTeamNumber} Scorecard
+              {myTeamId ? getTeamLabel(myTeamId) : `Team ${myTeamNumber}`} Scorecard
             </h2>
             <table className="w-full text-sm">
               <thead>
@@ -1808,7 +1994,7 @@ export default function LiveScoringPage({
           />
           <div className="relative bg-white rounded-lg shadow-xl p-4 max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto">
             <h2 className="text-lg font-bold mb-4">
-              Team {selectedScorecardTeamNumber} Scorecard
+              {getTeamLabel(selectedScorecardTeamId)} Scorecard
             </h2>
             <div className="mb-4 flex flex-wrap gap-2">
               {round.teams.map((team) => (
@@ -1818,7 +2004,7 @@ export default function LiveScoringPage({
                   size="sm"
                   onClick={() => loadOtherTeamScorecard(team.id)}
                 >
-                  Team {team.teamNumber}
+                  {getTeamLabel(team.id)}
                 </Button>
               ))}
             </div>

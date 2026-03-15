@@ -23,6 +23,7 @@ import {
   createDefaultPar3ContestConfig,
   getActivePar3Contests,
   getPar3ContestConfig,
+  getPar3ContestParticipantIds,
   type Par3ContestConfig,
   type Par3ContestType,
   type Par3FundingType,
@@ -34,6 +35,7 @@ import {
   type FormatConfigOption,
 } from "@/lib/format-definitions";
 import { isHandicapStale } from "@/lib/ghin";
+import { getTeamDisplayLabel } from "@/lib/team-labels";
 interface Player {
   id: string;
   fullName: string;
@@ -335,8 +337,19 @@ export default function RoundSetupPage({
       const existingPar3Config = getPar3ContestConfig(
         roundData.formatConfig as Record<string, unknown> | null
       );
+      const defaultParticipantIds = roundData.roundPlayers.map(
+        (roundPlayer) => roundPlayer.playerId
+      );
       setPar3ContestConfig(
-        existingPar3Config ?? createDefaultPar3ContestConfig(par3HoleNumbers)
+        existingPar3Config
+          ? {
+              ...existingPar3Config,
+              participantPlayerIds: getPar3ContestParticipantIds(
+                existingPar3Config,
+                defaultParticipantIds
+              ),
+            }
+          : createDefaultPar3ContestConfig(par3HoleNumbers, defaultParticipantIds)
       );
 
       setEditRoundName(roundData.name ?? "");
@@ -863,6 +876,7 @@ export default function RoundSetupPage({
 
   const canGenerateTeams = selectedPlayerIds.size % Number(teamSize) === 0;
   const hasTeams = round.teams.length > 0;
+  const getTeamLabel = (team: Team) => getTeamDisplayLabel(team.roundPlayers);
 
   return (
     <div className="space-y-4">
@@ -1192,7 +1206,7 @@ export default function RoundSetupPage({
                   return (
                   <Card key={team.id}>
                     <CardHeader className="flex justify-between items-center">
-                      <span>Team {team.teamNumber}</span>
+                      <span>{getTeamLabel(team)}</span>
                       <span className="text-sm font-normal text-green-700 bg-green-50 px-2 py-0.5 rounded">
                         Total: {displayTotal.toFixed(1)} HCP
                       </span>
@@ -1379,6 +1393,58 @@ export default function RoundSetupPage({
                           />
                         </div>
 
+                        <div className="space-y-2 rounded-lg border border-gray-200 p-3">
+                          <p className="font-medium">Participants</p>
+                          <p className="text-sm text-gray-500">
+                            Choose which players are in the Par 3 game.
+                          </p>
+                          <div className="grid gap-2 md:grid-cols-2">
+                            {round.roundPlayers.map((roundPlayer) => {
+                              const participantIds =
+                                par3ContestConfig.participantPlayerIds ?? [];
+                              const checked = participantIds.includes(
+                                roundPlayer.playerId
+                              );
+                              return (
+                                <label
+                                  key={roundPlayer.playerId}
+                                  className="flex items-center gap-2 rounded border border-gray-200 px-3 py-2 text-sm"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={(e) =>
+                                      setPar3ContestConfig((current) =>
+                                        current
+                                          ? {
+                                              ...current,
+                                              participantPlayerIds: e.target.checked
+                                                ? [
+                                                    ...(current.participantPlayerIds ??
+                                                      []),
+                                                    roundPlayer.playerId,
+                                                  ]
+                                                : (current.participantPlayerIds ?? []).filter(
+                                                    (playerId) =>
+                                                      playerId !== roundPlayer.playerId
+                                                  ),
+                                            }
+                                          : current
+                                      )
+                                    }
+                                    disabled={isLocked || actionLoading}
+                                    className="h-4 w-4"
+                                  />
+                                  <span>
+                                    {roundPlayer.player.nickname ||
+                                      roundPlayer.player.fullName}
+                                  </span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+
                         <div className="space-y-3">
                           {par3ContestConfig.holes.map((holeConfig) => (
                             <div
@@ -1444,7 +1510,15 @@ export default function RoundSetupPage({
 
                         <p className="rounded bg-gray-50 px-3 py-2 text-sm text-gray-600">
                           {activePar3Contests.length > 0
-                            ? `${activePar3Contests.length} par 3 contest hole${activePar3Contests.length === 1 ? "" : "s"} configured. Enter winners after the round on the summary page.`
+                            ? `${activePar3Contests.length} par 3 contest hole${activePar3Contests.length === 1 ? "" : "s"} configured for ${
+                                par3ContestConfig.participantPlayerIds?.length ??
+                                round.roundPlayers.length
+                              } participant${
+                                (par3ContestConfig.participantPlayerIds?.length ??
+                                  round.roundPlayers.length) === 1
+                                  ? ""
+                                  : "s"
+                              }. Enter winners and final payouts after the round on the summary page.`
                             : "Choose at least one par 3 hole competition if this side game is enabled."}
                         </p>
                       </>

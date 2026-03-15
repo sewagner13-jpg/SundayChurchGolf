@@ -88,11 +88,11 @@ export async function savePar3ContestResults(
 
   const prizePerHole = getPar3ContestPrizePerHoleDecimal(
     par3ContestConfig,
-    round.roundPlayers.length
+    round.roundPlayers.map((roundPlayer) => roundPlayer.playerId)
   );
   const totalAvailablePot = getPar3ContestTotalPotDecimal(
     par3ContestConfig,
-    round.roundPlayers.length
+    round.roundPlayers.map((roundPlayer) => roundPlayer.playerId)
   );
   const activeContestMap = new Map(
     activeContests.map((contest) => [contest.holeNumber, contest])

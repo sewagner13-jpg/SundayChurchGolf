@@ -23,6 +23,7 @@ export interface Par3ContestConfig {
   enabled: boolean;
   fundingType: Par3FundingType;
   amountPerPlayer: number;
+  participantPlayerIds?: string[];
   holes: Par3HoleContestConfig[];
   results?: Par3HoleContestResult[];
 }
@@ -73,34 +74,52 @@ export function getActivePar3Contests(config: Par3ContestConfig | null | undefin
   return (config.holes ?? []).filter((hole) => hole.contestType !== "NONE");
 }
 
+export function getPar3ContestParticipantIds(
+  config: Par3ContestConfig | null | undefined,
+  eligiblePlayerIds: string[]
+) {
+  const configuredIds = config?.participantPlayerIds;
+  const sourceIds =
+    configuredIds && configuredIds.length > 0 ? configuredIds : eligiblePlayerIds;
+  const allowedIds = new Set(eligiblePlayerIds);
+
+  return [...new Set(sourceIds)].filter((playerId) => allowedIds.has(playerId));
+}
+
 export function getPar3ContestTotalPot(
   config: Par3ContestConfig | null | undefined,
-  playerCount: number
+  eligiblePlayerIds: string[]
 ) {
+  const participantCount = getPar3ContestParticipantIds(
+    config,
+    eligiblePlayerIds
+  ).length;
   if (!config?.enabled || config.amountPerPlayer <= 0) {
     return 0;
   }
-  return config.amountPerPlayer * playerCount;
+  return config.amountPerPlayer * participantCount;
 }
 
 export function getPar3ContestPrizePerHole(
   config: Par3ContestConfig | null | undefined,
-  playerCount: number
+  eligiblePlayerIds: string[]
 ) {
   const activeContests = getActivePar3Contests(config);
   if (activeContests.length === 0) {
     return 0;
   }
-  return getPar3ContestTotalPot(config, playerCount) / activeContests.length;
+  return getPar3ContestTotalPot(config, eligiblePlayerIds) / activeContests.length;
 }
 
 export function createDefaultPar3ContestConfig(
-  par3HoleNumbers: number[]
+  par3HoleNumbers: number[],
+  participantPlayerIds: string[] = []
 ): Par3ContestConfig {
   return {
     enabled: false,
     fundingType: "SEPARATE_BUY_IN",
     amountPerPlayer: 0,
+    participantPlayerIds,
     holes: par3HoleNumbers.map((holeNumber) => ({
       holeNumber,
       contestType: "NONE",
