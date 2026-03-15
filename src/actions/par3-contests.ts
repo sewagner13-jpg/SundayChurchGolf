@@ -7,6 +7,8 @@ import { prisma } from "@/lib/db";
 import {
   getActivePar3Contests,
   getPar3ContestConfig,
+  getPar3ContestParticipantIds,
+  type Par3PayoutTarget,
   type Par3HoleContestResult,
 } from "@/lib/par3-contests";
 import {
@@ -85,14 +87,18 @@ export async function savePar3ContestResults(
   if (activeContests.length === 0) {
     throw new Error("No par 3 contests are configured for this round");
   }
-
-  const prizePerHole = getPar3ContestPrizePerHoleDecimal(
+  const par3ParticipantIds = getPar3ContestParticipantIds(
     par3ContestConfig,
     round.roundPlayers.map((roundPlayer) => roundPlayer.playerId)
   );
+
+  const prizePerHole = getPar3ContestPrizePerHoleDecimal(
+    par3ContestConfig,
+    par3ParticipantIds
+  );
   const totalAvailablePot = getPar3ContestTotalPotDecimal(
     par3ContestConfig,
-    round.roundPlayers.map((roundPlayer) => roundPlayer.playerId)
+    par3ParticipantIds
   );
   const activeContestMap = new Map(
     activeContests.map((contest) => [contest.holeNumber, contest])
@@ -117,6 +123,7 @@ export async function savePar3ContestResults(
       holeNumber: result.holeNumber,
       winnerPlayerId: result.winnerPlayerId,
       payoutAmount: numericPayout,
+      payoutTarget: result.payoutTarget,
     };
   });
 
@@ -168,7 +175,10 @@ export async function savePar3ContestResults(
         : result.payoutAmount;
     const delta = new Decimal(payoutAmount).mul(direction);
 
-    if (contest.payoutTarget === "PLAYER") {
+    const effectivePayoutTarget =
+      result.payoutTarget ?? contest.payoutTarget;
+
+    if (effectivePayoutTarget === "PLAYER") {
       addToMap(roundPlayerDeltas, roundPlayerId, delta);
       addToMap(seasonStatDeltas, result.winnerPlayerId, delta);
       return;
@@ -198,6 +208,8 @@ export async function savePar3ContestResults(
         holeNumber: result.holeNumber,
         winnerPlayerId: result.winnerPlayerId,
         payoutAmount: result.payoutAmount,
+        payoutTarget:
+          (result.payoutTarget as Par3PayoutTarget | undefined) ?? undefined,
       }) satisfies Prisma.JsonObject
   );
 
@@ -283,6 +295,7 @@ export async function savePar3ContestResults(
   });
 
   revalidatePath(`/rounds/${roundId}/summary`);
+  revalidatePath(`/rounds/${roundId}/payouts`);
   revalidatePath("/leaderboard");
   revalidatePath("/stats");
 }

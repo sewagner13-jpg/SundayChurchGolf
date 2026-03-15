@@ -26,6 +26,8 @@ import {
   getPar3ContestConfig,
   getPar3ContestPrizePerHole,
   getPar3ContestParticipantIds,
+  PAR3_PAYOUT_TARGET_OPTIONS,
+  type Par3PayoutTarget,
   type Par3HoleContestResult,
 } from "@/lib/par3-contests";
 import { getTeamDisplayLabel } from "@/lib/team-labels";
@@ -188,6 +190,7 @@ export default function RoundSummaryPage({
     try {
       await savePar3ContestResults(id, par3Results);
       await loadRound();
+      router.push(`/rounds/${id}/payouts`);
     } catch (err) {
       alert(
         err instanceof Error ? err.message : "Failed to save Par 3 contest winners"
@@ -540,6 +543,11 @@ export default function RoundSummaryPage({
               Back
             </Button>
           </Link>
+          <Link href={`/rounds/${id}/payouts`}>
+            <Button variant="secondary" size="sm">
+              Payouts
+            </Button>
+          </Link>
         </div>
       </div>
 
@@ -608,9 +616,10 @@ export default function RoundSummaryPage({
                     <p className="text-sm text-gray-500">
                       {par3ContestTypeLabels[contest.contestType] ?? "Par 3 contest"}{" "}
                       •{" "}
-                      {contest.payoutTarget === "TEAM"
-                        ? "Adds to team total"
-                        : "Adds to individual total"}
+                      {(par3ResultsMap.get(contest.holeNumber)?.payoutTarget ??
+                        contest.payoutTarget) === "TEAM"
+                        ? "Shares with team"
+                        : "Winner keeps it"}
                     </p>
                   </div>
                   <Select
@@ -629,6 +638,8 @@ export default function RoundSummaryPage({
                             e.target.value === ""
                               ? 0
                               : existing?.payoutAmount ?? par3PrizePerHole,
+                          payoutTarget:
+                            existing?.payoutTarget ?? contest.payoutTarget,
                         });
                         return next.sort((a, b) => a.holeNumber - b.holeNumber);
                       })
@@ -644,6 +655,37 @@ export default function RoundSummaryPage({
                         label: `${roundPlayer.player.nickname || roundPlayer.player.fullName} (Team ${playerTeamMap.get(roundPlayer.playerId) ?? "—"})`,
                       })),
                     ]}
+                    disabled={savingPar3Results}
+                  />
+                  <Select
+                    label="Winner keeps it or shares?"
+                    value={
+                      par3ResultsMap.get(contest.holeNumber)?.payoutTarget ??
+                      contest.payoutTarget
+                    }
+                    onChange={(e) =>
+                      setPar3Results((current) => {
+                        const next = current.filter(
+                          (result) => result.holeNumber !== contest.holeNumber
+                        );
+                        const existing = par3ResultsMap.get(contest.holeNumber);
+                        next.push({
+                          holeNumber: contest.holeNumber,
+                          winnerPlayerId: existing?.winnerPlayerId ?? null,
+                          payoutAmount:
+                            existing?.payoutAmount ?? par3PrizePerHole,
+                          payoutTarget: e.target.value as Par3PayoutTarget,
+                        });
+                        return next.sort((a, b) => a.holeNumber - b.holeNumber);
+                      })
+                    }
+                    options={PAR3_PAYOUT_TARGET_OPTIONS.map((option) => ({
+                      value: option.value,
+                      label:
+                        option.value === "TEAM"
+                          ? "Share with team"
+                          : "Keep individually",
+                    }))}
                     disabled={savingPar3Results}
                   />
                   <div className="mt-3">
@@ -667,6 +709,8 @@ export default function RoundSummaryPage({
                             holeNumber: contest.holeNumber,
                             winnerPlayerId: existing?.winnerPlayerId ?? null,
                             payoutAmount: Number(e.target.value) || 0,
+                            payoutTarget:
+                              existing?.payoutTarget ?? contest.payoutTarget,
                           });
                           return next.sort((a, b) => a.holeNumber - b.holeNumber);
                         })
@@ -683,7 +727,7 @@ export default function RoundSummaryPage({
             </div>
 
             <Button onClick={handleSavePar3Results} disabled={savingPar3Results}>
-              {savingPar3Results ? "Saving..." : "Save Par 3 Winners"}
+              {savingPar3Results ? "Saving..." : "Save and Open Payouts"}
             </Button>
           </CardContent>
         </Card>
