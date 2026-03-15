@@ -107,9 +107,10 @@ export default function RoundPayoutsPage({
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Payouts</h1>
+          <h1 className="text-2xl font-bold">Final Day Payouts</h1>
           <p className="text-sm text-gray-600">
-            Final payout totals across the full day, including side games like Par 3.
+            These are the final numbers to pay out for the day. Everyone already paid
+            in, and these totals include the full game plus side games like Par 3.
           </p>
         </div>
         <div className="flex gap-2">
@@ -144,36 +145,6 @@ export default function RoundPayoutsPage({
       </Card>
 
       <Card>
-        <CardHeader>Team Winnings</CardHeader>
-        <CardContent className="space-y-2">
-          {sortedTeams.map((team, index) => (
-            <div
-              key={team.id}
-              className={`flex items-center justify-between rounded-lg border px-3 py-3 ${
-                team.isTopPayingTeam
-                  ? "border-green-300 bg-green-50"
-                  : "border-gray-200 bg-white"
-              }`}
-            >
-              <div>
-                <p className="font-semibold">
-                  #{index + 1} {getTeamDisplayLabel(team.roundPlayers)}
-                </p>
-                <p className="text-xs text-gray-500">
-                  {team.roundPlayers
-                    .map((roundPlayer) => roundPlayer.player.nickname || roundPlayer.player.fullName)
-                    .join(", ")}
-                </p>
-              </div>
-              <p className="text-xl font-bold text-green-700">
-                ${team.totalPayout.toFixed(2)}
-              </p>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-
-      <Card>
         <CardHeader>Player Payouts</CardHeader>
         <CardContent className="space-y-2">
           {sortedPlayers.map((roundPlayer, index) => (
@@ -201,6 +172,36 @@ export default function RoundPayoutsPage({
               </div>
               <p className="text-xl font-bold text-green-700">
                 ${Math.max(0, roundPlayer.payoutAmount).toFixed(2)}
+              </p>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>Team Winnings</CardHeader>
+        <CardContent className="space-y-2">
+          {sortedTeams.map((team, index) => (
+            <div
+              key={team.id}
+              className={`flex items-center justify-between rounded-lg border px-3 py-3 ${
+                team.isTopPayingTeam
+                  ? "border-green-300 bg-green-50"
+                  : "border-gray-200 bg-white"
+              }`}
+            >
+              <div>
+                <p className="font-semibold">
+                  #{index + 1} {getTeamDisplayLabel(team.roundPlayers)}
+                </p>
+                <p className="text-xs text-gray-500">
+                  {team.roundPlayers
+                    .map((roundPlayer) => roundPlayer.player.nickname || roundPlayer.player.fullName)
+                    .join(", ")}
+                </p>
+              </div>
+              <p className="text-xl font-bold text-green-700">
+                ${team.totalPayout.toFixed(2)}
               </p>
             </div>
           ))}
