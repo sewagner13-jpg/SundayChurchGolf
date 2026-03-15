@@ -23,6 +23,7 @@ import {
 import {
   upsertHoleScore,
   getHoleView,
+  getLiveLeaderboard,
   finishRound,
   getTeamScorecard,
   getTeamsProgress,
@@ -170,6 +171,33 @@ interface PendingImportantMessage {
   senderTeamNumber: number;
 }
 
+interface LiveLeaderboardEntry {
+  teamId: string;
+  teamNumber: number;
+  label: string;
+  holesScored: number;
+  metricValue: number | null;
+  metricLabel: string;
+  totalPayout: number;
+  segmentsWon?: number;
+}
+
+interface LiveLeaderboardSegment {
+  label: string;
+  formatName: string;
+  completed: boolean;
+  leaders: string[];
+  payoutPerWinningTeam: number;
+}
+
+interface LiveLeaderboardData {
+  mode: "skins" | "standard" | "irish_golf";
+  title: string;
+  scoringLabel: string;
+  entries: LiveLeaderboardEntry[];
+  segments?: LiveLeaderboardSegment[];
+}
+
 interface DriveMinimumProgress {
   enabled: boolean;
   requiredDrives: number;
@@ -241,6 +269,7 @@ export default function LiveScoringPage({
   const [showMarkFinishedModal, setShowMarkFinishedModal] = useState(false);
   const [showEditTeamsModal, setShowEditTeamsModal] = useState(false);
   const [showEditFormatModal, setShowEditFormatModal] = useState(false);
+  const [showLiveLeaderboard, setShowLiveLeaderboard] = useState(false);
   const [unlockCode, setUnlockCode] = useState("");
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const [formatUnlockCode, setFormatUnlockCode] = useState("");
@@ -262,6 +291,8 @@ export default function LiveScoringPage({
   const [playerInputs, setPlayerInputs] = useState<PlayerHoleInputState[]>([]);
   const [driveMinimumProgress, setDriveMinimumProgress] =
     useState<DriveMinimumProgress | null>(null);
+  const [liveLeaderboard, setLiveLeaderboard] =
+    useState<LiveLeaderboardData | null>(null);
   const playerInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const isLive = round?.status === "LIVE";
@@ -275,6 +306,7 @@ export default function LiveScoringPage({
       loadHoleData();
       loadTeamsProgress();
       loadDriveMinimumProgress();
+      loadLiveLeaderboard();
       loadChat();
       loadPlayerInputs();
     }
@@ -289,6 +321,16 @@ export default function LiveScoringPage({
 
     return () => window.clearInterval(intervalId);
   }, [round, myTeamId]);
+
+  useEffect(() => {
+    if (!round || !showLiveLeaderboard) return;
+
+    const intervalId = window.setInterval(() => {
+      loadLiveLeaderboard();
+    }, 10000);
+
+    return () => window.clearInterval(intervalId);
+  }, [round, showLiveLeaderboard]);
 
   useEffect(() => {
     // Require team selection for scoring
@@ -389,6 +431,16 @@ export default function LiveScoringPage({
       setShowSkinsStatus(true);
     } catch (err) {
       setError("Failed to load skins status");
+    }
+  }
+
+  async function loadLiveLeaderboard() {
+    if (!round) return;
+    try {
+      const leaderboard = await getLiveLeaderboard(id);
+      setLiveLeaderboard(leaderboard as LiveLeaderboardData);
+    } catch {
+      setError("Failed to load live leaderboard");
     }
   }
 
@@ -627,6 +679,7 @@ export default function LiveScoringPage({
       await loadHoleData();
       await loadTeamsProgress();
       await loadDriveMinimumProgress();
+      await loadLiveLeaderboard();
       await loadPlayerInputs();
       setCustomScore("");
     } catch (err) {
@@ -662,6 +715,7 @@ export default function LiveScoringPage({
       await loadHoleData();
       await loadTeamsProgress();
       await loadDriveMinimumProgress();
+      await loadLiveLeaderboard();
       await loadPlayerInputs();
       setCustomScore("");
     } catch (err) {
@@ -787,6 +841,7 @@ export default function LiveScoringPage({
       await loadHoleData();
       await loadTeamsProgress();
       await loadDriveMinimumProgress();
+      await loadLiveLeaderboard();
       setError(null);
     } catch (err) {
       setError(
@@ -1021,6 +1076,7 @@ export default function LiveScoringPage({
       await loadRound();
       await loadHoleData();
       await loadDriveMinimumProgress();
+      await loadLiveLeaderboard();
     } catch (err) {
       setFormatEditError(
         err instanceof Error ? err.message : "Failed to update format settings"
@@ -1318,6 +1374,15 @@ export default function LiveScoringPage({
                 className="px-3 py-1 bg-blue-100 text-blue-700 rounded text-sm"
               >
                 Scorecard
+              </button>
+              <button
+                onClick={() => {
+                  loadLiveLeaderboard();
+                  setShowLiveLeaderboard(true);
+                }}
+                className="px-3 py-1 bg-emerald-100 text-emerald-800 rounded text-sm"
+              >
+                Leaderboard
               </button>
               {isOpenScoringView && (
                 <button
@@ -2627,6 +2692,116 @@ export default function LiveScoringPage({
               variant="secondary"
               className="w-full mt-4"
               onClick={() => setShowOtherTeamScorecards(false)}
+            >
+              Close
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {showLiveLeaderboard && liveLeaderboard && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setShowLiveLeaderboard(false)}
+          />
+          <div className="relative bg-white rounded-lg shadow-xl p-4 max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-bold">{liveLeaderboard.title}</h2>
+                <p className="text-xs text-gray-500">{liveLeaderboard.scoringLabel}</p>
+              </div>
+              <button
+                onClick={() => loadLiveLeaderboard()}
+                className="rounded bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700"
+              >
+                Refresh
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-2">
+              {liveLeaderboard.entries.map((entry, index) => (
+                <div
+                  key={entry.teamId}
+                  className={`rounded-lg border px-3 py-3 ${
+                    entry.teamId === myTeamId
+                      ? "border-green-300 bg-green-50"
+                      : "border-gray-200 bg-white"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="font-semibold">
+                        #{index + 1} {entry.label}
+                        {entry.teamId === myTeamId ? " (You)" : ""}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {entry.holesScored}/18 holes scored
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-bold text-green-700">
+                        {liveLeaderboard.mode === "skins" ||
+                        liveLeaderboard.mode === "irish_golf"
+                          ? `$${entry.totalPayout.toFixed(2)}`
+                          : entry.metricLabel}
+                      </p>
+                      {(liveLeaderboard.mode === "skins" ||
+                        liveLeaderboard.mode === "irish_golf") && (
+                        <p className="text-xs text-gray-500">{entry.metricLabel}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {liveLeaderboard.mode === "irish_golf" &&
+              liveLeaderboard.segments &&
+              liveLeaderboard.segments.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Segment Leaders
+                  </p>
+                  {liveLeaderboard.segments.map((segment) => (
+                    <div
+                      key={segment.label}
+                      className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-3"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="font-medium">{segment.label}</p>
+                          <p className="text-xs text-gray-500">{segment.formatName}</p>
+                        </div>
+                        <div className="text-right text-xs">
+                          <p
+                            className={
+                              segment.completed
+                                ? "font-semibold text-green-700"
+                                : "font-medium text-amber-700"
+                            }
+                          >
+                            {segment.completed ? "Complete" : "In progress"}
+                          </p>
+                          <p className="text-gray-500">
+                            ${segment.payoutPerWinningTeam.toFixed(2)} each
+                          </p>
+                        </div>
+                      </div>
+                      <p className="mt-2 text-sm text-gray-700">
+                        {segment.leaders.length > 0
+                          ? `Leaders: ${segment.leaders.join(", ")}`
+                          : "No leader yet"}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+            <Button
+              variant="secondary"
+              className="w-full mt-4"
+              onClick={() => setShowLiveLeaderboard(false)}
             >
               Close
             </Button>

@@ -9,7 +9,7 @@ import { getTopTeamHistory } from "@/actions/season-stats";
 import { getPlayerScores, type PlayerScoreRecord } from "@/actions/player-scores";
 import { Card, CardHeader, CardContent } from "@/components/card";
 import { Button } from "@/components/button";
-import { ConfirmModal } from "@/components/modal";
+import { ConfirmModal, Modal } from "@/components/modal";
 import { Select } from "@/components/select";
 import { getScoringOrder } from "@/lib/scoring-order";
 import { FORMAT_DEFINITIONS } from "@/lib/format-definitions";
@@ -62,6 +62,7 @@ interface Round {
   id: string;
   date: Date;
   status: string;
+  lockCode: string | null;
   startingHole: number | null;
   formatConfig: Record<string, unknown> | null;
   buyInPerPlayer: number;
@@ -104,6 +105,8 @@ export default function RoundSummaryPage({
   const [deleting, setDeleting] = useState(false);
   const [showReopenModal, setShowReopenModal] = useState(false);
   const [reopening, setReopening] = useState(false);
+  const [reopenCode, setReopenCode] = useState("");
+  const [reopenError, setReopenError] = useState<string | null>(null);
   const [par3Results, setPar3Results] = useState<Par3HoleContestResult[]>([]);
   const [savingPar3Results, setSavingPar3Results] = useState(false);
 
@@ -166,12 +169,16 @@ export default function RoundSummaryPage({
   };
 
   const handleReopen = async () => {
+    if (!reopenCode.trim()) {
+      setReopenError("Enter the lock code");
+      return;
+    }
     setReopening(true);
     try {
-      await reopenRound(id);
+      await reopenRound(id, reopenCode.trim());
       router.push(`/rounds/${id}/scoring`);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to reopen round");
+      setReopenError(err instanceof Error ? err.message : "Failed to reopen round");
       setReopening(false);
     }
   };
@@ -508,13 +515,19 @@ export default function RoundSummaryPage({
       <div className="flex justify-between items-center">
         <h1 className="text-xl font-bold">Round Summary</h1>
         <div className="flex gap-2">
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setShowReopenModal(true)}
-          >
-            Reopen
-          </Button>
+          {round.lockCode && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setReopenCode("");
+                setReopenError(null);
+                setShowReopenModal(true);
+              }}
+            >
+              Reopen
+            </Button>
+          )}
           <Button
             variant="danger"
             size="sm"
@@ -1151,16 +1164,51 @@ export default function RoundSummaryPage({
         confirmVariant="danger"
       />
 
-      {/* Reopen Confirmation Modal */}
-      <ConfirmModal
+      <Modal
         isOpen={showReopenModal}
-        onClose={() => setShowReopenModal(false)}
-        onConfirm={handleReopen}
+        onClose={() => {
+          setShowReopenModal(false);
+          setReopenCode("");
+          setReopenError(null);
+        }}
         title="Reopen Round"
-        message="This will reopen the round for scoring corrections. Season stats will be reversed until the round is finished again."
-        confirmText={reopening ? "Reopening..." : "Reopen Round"}
-        confirmVariant="primary"
-      />
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            Enter the round lock code to reopen this round for scoring corrections.
+            Season stats will be reversed until the round is finished again.
+          </p>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">
+              Lock Code
+            </label>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={reopenCode}
+              onChange={(e) => setReopenCode(e.target.value)}
+              placeholder="4-digit lock code"
+              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
+            />
+          </div>
+          {reopenError && <p className="text-sm text-red-600">{reopenError}</p>}
+          <div className="flex gap-2 justify-end">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setShowReopenModal(false);
+                setReopenCode("");
+                setReopenError(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleReopen} disabled={reopening}>
+              {reopening ? "Reopening..." : "Reopen Round"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

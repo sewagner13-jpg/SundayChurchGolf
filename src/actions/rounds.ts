@@ -12,6 +12,7 @@ import {
   getPar3ContestParticipantIds,
 } from "@/lib/par3-contests";
 import { getPar3ContestTotalPotDecimal } from "@/lib/par3-contests.server";
+import { getTeamDisplayLabel } from "@/lib/team-labels";
 
 const MAX_PLAYERS_PER_ROUND = 12;
 const MIN_PLAYERS_PER_ROUND = 2;
@@ -261,7 +262,7 @@ export async function deleteRound(id: string) {
   revalidatePath("/leaderboard");
 }
 
-export async function reopenRound(id: string) {
+export async function reopenRound(id: string, unlockCode: string) {
   const round = await prisma.round.findUnique({
     where: { id },
     include: {
@@ -273,6 +274,12 @@ export async function reopenRound(id: string) {
   if (!round) throw new Error("Round not found");
   if (round.status !== "FINISHED") {
     throw new Error("Can only reopen rounds that are FINISHED");
+  }
+  if (!round.lockCode) {
+    throw new Error("This round cannot be reopened because it has no lock code");
+  }
+  if (round.lockCode !== unlockCode) {
+    throw new Error("Invalid lock code");
   }
 
   // Reverse the season stats that were added when the round was finished
@@ -349,7 +356,48 @@ export async function reopenRound(id: string) {
   revalidatePath(`/rounds/${id}`);
   revalidatePath(`/rounds/${id}/scoring`);
   revalidatePath(`/rounds/${id}/summary`);
+  revalidatePath("/rounds");
   revalidatePath("/leaderboard");
+}
+
+export async function getRoundLog() {
+  const rounds = await prisma.round.findMany({
+    orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+    include: {
+      course: true,
+      format: true,
+      roundPlayers: {
+        include: {
+          player: true,
+        },
+      },
+      teams: {
+        orderBy: { teamNumber: "asc" },
+        include: {
+          roundPlayers: {
+            include: {
+              player: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  return rounds.map((round) => ({
+    id: round.id,
+    name: round.name,
+    date: round.date,
+    status: round.status,
+    hasLockCode: !!round.lockCode,
+    courseName: round.course.name,
+    formatName: round.format.name,
+    playerCount: round.roundPlayers.length,
+    teamCount: round.teams.length,
+    topTeamLabels: round.teams
+      .filter((team) => team.isTopPayingTeam)
+      .map((team) => getTeamDisplayLabel(team.roundPlayers)),
+  }));
 }
 
 export async function setRoundPlayers(id: string, playerIds: string[]) {

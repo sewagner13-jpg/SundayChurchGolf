@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { Decimal } from "@prisma/client/runtime/library";
 import { HoleEntryType, Prisma, RoundStatus } from "@prisma/client";
-import { FORMAT_DEFINITIONS } from "@/lib/format-definitions";
+import { FORMAT_DEFINITIONS, getFormatById } from "@/lib/format-definitions";
 import { computeIrishGolfSegmentSummaries } from "@/lib/irish-golf";
 import {
   calculateRoundResults,
@@ -16,6 +16,34 @@ import {
 } from "@/lib/scoring-engine";
 import { computeDriveMinimumStatus } from "@/lib/format-scoring";
 import { getScoringOrder } from "@/lib/scoring-order";
+import { getTeamDisplayLabel } from "@/lib/team-labels";
+
+export interface LiveLeaderboardEntry {
+  teamId: string;
+  teamNumber: number;
+  label: string;
+  holesScored: number;
+  metricValue: number | null;
+  metricLabel: string;
+  totalPayout: number;
+  segmentsWon?: number;
+}
+
+export interface LiveLeaderboardSegment {
+  label: string;
+  formatName: string;
+  completed: boolean;
+  leaders: string[];
+  payoutPerWinningTeam: number;
+}
+
+export interface LiveLeaderboardData {
+  mode: "skins" | "standard" | "irish_golf";
+  title: string;
+  scoringLabel: string;
+  entries: LiveLeaderboardEntry[];
+  segments?: LiveLeaderboardSegment[];
+}
 
 export interface ScoreEntry {
   entryType: HoleEntryType;
@@ -951,6 +979,259 @@ export async function getLiveSkinsStatus(roundId: string, startingHole: number) 
         : null,
     };
   });
+}
+
+export async function getLiveLeaderboard(
+  roundId: string
+): Promise<LiveLeaderboardData> {
+  const round = await prisma.round.findUnique({
+    where: { id: roundId },
+    include: {
+      format: true,
+      course: { include: { holes: { orderBy: { holeNumber: "asc" } } } },
+      teams: {
+        orderBy: { teamNumber: "asc" },
+        include: {
+          roundPlayers: {
+            include: {
+              player: true,
+            },
+          },
+        },
+      },
+      holeScores: true,
+    },
+  });
+
+  if (!round) throw new Error("Round not found");
+
+  const formatDefinition =
+    FORMAT_DEFINITIONS.find((definition) => definition.id === round.formatId) ??
+    FORMAT_DEFINITIONS.find((definition) => definition.name === round.format.name) ??
+    null;
+  const isIrishGolf = formatDefinition?.id === "irish_golf_6_6_6";
+  const isSkins = !formatDefinition || formatDefinition.formatCategory === "skins";
+  const isPoints =
+    formatDefinition?.formatCategory === "points" ||
+    formatDefinition?.formatCategory === "match";
+
+  const getTeamHolesScored = (teamId: string) =>
+    round.holeScores.filter(
+      (holeScore) => holeScore.teamId === teamId && holeScore.entryType !== "BLANK"
+    );
+
+  if (isSkins) {
+    const allScores: TeamScore[] = round.holeScores.map((holeScore) => ({
+      teamId: holeScore.teamId,
+      holeNumber: holeScore.holeNumber,
+      entryType: holeScore.entryType as HoleEntryType,
+      value: holeScore.value,
+    }));
+
+    const { holeResults } = calculateRoundResults(
+      allScores,
+      round.teams,
+      round.startingHole ?? 1,
+      round.pot ?? new Decimal(0),
+      round.course.holes.map((hole) => ({
+        holeNumber: hole.holeNumber,
+        par: hole.par,
+        handicapRank: hole.handicapRank,
+      }))
+    );
+
+    const teamStats = new Map<string, { payout: number; skinsWon: number }>();
+    for (const team of round.teams) {
+      teamStats.set(team.id, { payout: 0, skinsWon: 0 });
+    }
+
+    for (const result of holeResults) {
+      const holeComplete =
+        round.holeScores.filter(
+          (holeScore) =>
+            holeScore.holeNumber === result.holeNumber &&
+            holeScore.entryType !== "BLANK"
+        ).length === round.teams.length;
+      if (!holeComplete || !result.winnerTeamId || result.isTie) continue;
+
+      const current = teamStats.get(result.winnerTeamId);
+      if (!current) continue;
+      current.payout += Number(result.holePayout);
+      current.skinsWon += result.carrySkinsUsed;
+    }
+
+    return {
+      mode: "skins",
+      title: "Live Leaderboard",
+      scoringLabel: "Skins won so far",
+      entries: round.teams
+        .map((team) => {
+          const teamStat = teamStats.get(team.id) ?? { payout: 0, skinsWon: 0 };
+          return {
+            teamId: team.id,
+            teamNumber: team.teamNumber,
+            label: getTeamDisplayLabel(team.roundPlayers),
+            holesScored: getTeamHolesScored(team.id).length,
+            metricValue: teamStat.skinsWon,
+            metricLabel: `${teamStat.skinsWon} skin${
+              teamStat.skinsWon === 1 ? "" : "s"
+            }`,
+            totalPayout: teamStat.payout,
+          };
+        })
+        .sort((a, b) => {
+          if (b.totalPayout !== a.totalPayout) {
+            return b.totalPayout - a.totalPayout;
+          }
+          return (b.metricValue ?? 0) - (a.metricValue ?? 0);
+        }),
+    };
+  }
+
+  if (isIrishGolf) {
+    const segmentSummaries = computeIrishGolfSegmentSummaries(
+      round.teams.map((team) => ({
+        id: team.id,
+        teamNumber: team.teamNumber,
+      })),
+      round.holeScores.map((holeScore) => ({
+        teamId: holeScore.teamId,
+        holeNumber: holeScore.holeNumber,
+        entryType: holeScore.entryType,
+        value: holeScore.value,
+        grossScore: holeScore.grossScore,
+      })),
+      (round.formatConfig as Record<string, unknown> | null) ?? null,
+      Number(round.pot ?? 0)
+    );
+    const getSegmentHoles = (segmentIndex: number) =>
+      segmentIndex === 0
+        ? [1, 2, 3, 4, 5, 6]
+        : segmentIndex === 1
+          ? [7, 8, 9, 10, 11, 12]
+          : [13, 14, 15, 16, 17, 18];
+
+    const entries = round.teams.map((team) => {
+      let payout = 0;
+      let segmentsWon = 0;
+
+      for (const summary of segmentSummaries) {
+        const segmentHoles = getSegmentHoles(summary.segmentIndex);
+        const isComplete = segmentHoles.every((holeNumber) =>
+          round.teams.every((segmentTeam) =>
+            round.holeScores.some(
+              (holeScore) =>
+                holeScore.teamId === segmentTeam.id &&
+                holeScore.holeNumber === holeNumber &&
+                holeScore.entryType !== "BLANK"
+            )
+          )
+        );
+
+        if (isComplete && summary.winningTeamIds.includes(team.id)) {
+          payout += summary.payoutPerWinningTeam;
+          segmentsWon += 1;
+        }
+      }
+
+      return {
+        teamId: team.id,
+        teamNumber: team.teamNumber,
+        label: getTeamDisplayLabel(team.roundPlayers),
+        holesScored: getTeamHolesScored(team.id).length,
+        metricValue: segmentsWon,
+        metricLabel: `${segmentsWon} segment${
+          segmentsWon === 1 ? "" : "s"
+        } won`,
+        totalPayout: payout,
+        segmentsWon,
+      };
+    });
+
+    return {
+      mode: "irish_golf",
+      title: "Live Leaderboard",
+      scoringLabel: "Completed segment payouts so far",
+      entries: entries.sort((a, b) => {
+        if (b.totalPayout !== a.totalPayout) {
+          return b.totalPayout - a.totalPayout;
+        }
+        return (b.segmentsWon ?? 0) - (a.segmentsWon ?? 0);
+      }),
+      segments: segmentSummaries.map((summary) => {
+        const formatName = summary.formatId
+          ? getFormatById(summary.formatId)?.name ?? summary.formatId
+          : "Unassigned";
+        const segmentHoles = getSegmentHoles(summary.segmentIndex);
+        const isComplete = segmentHoles.every((holeNumber) =>
+          round.teams.every((team) =>
+            round.holeScores.some(
+              (holeScore) =>
+                holeScore.teamId === team.id &&
+                holeScore.holeNumber === holeNumber &&
+                holeScore.entryType !== "BLANK"
+            )
+          )
+        );
+        return {
+          label: summary.label,
+          formatName,
+          completed: isComplete,
+          leaders: round.teams
+            .filter((team) => {
+              const teamTotal = summary.teamTotals.get(team.id);
+              if (teamTotal === undefined) return false;
+              const totals = [...summary.teamTotals.values()];
+              if (totals.length === 0) return false;
+              const bestTotal =
+                getFormatById(summary.formatId ?? "")?.formatCategory === "points" ||
+                getFormatById(summary.formatId ?? "")?.formatCategory === "match"
+                  ? Math.max(...totals)
+                  : Math.min(...totals);
+              return teamTotal === bestTotal;
+            })
+            .map((team) => getTeamDisplayLabel(team.roundPlayers)),
+          payoutPerWinningTeam: summary.payoutPerWinningTeam,
+        };
+      }),
+    };
+  }
+
+  const entries = round.teams
+    .map((team) => {
+      const teamScores = getTeamHolesScored(team.id);
+      const total = teamScores.reduce(
+        (sum, holeScore) => sum + (holeScore.grossScore ?? holeScore.value ?? 0),
+        0
+      );
+      const hasScores = teamScores.length > 0;
+      return {
+        teamId: team.id,
+        teamNumber: team.teamNumber,
+        label: getTeamDisplayLabel(team.roundPlayers),
+        holesScored: teamScores.length,
+        metricValue: hasScores ? total : null,
+        metricLabel: hasScores
+          ? isPoints
+            ? `${total} pts`
+            : `${total}`
+          : "-",
+        totalPayout: 0,
+      };
+    })
+    .sort((a, b) => {
+      if (a.metricValue === null && b.metricValue === null) return 0;
+      if (a.metricValue === null) return 1;
+      if (b.metricValue === null) return -1;
+      return isPoints ? b.metricValue - a.metricValue : a.metricValue - b.metricValue;
+    });
+
+  return {
+    mode: "standard",
+    title: "Live Leaderboard",
+    scoringLabel: isPoints ? "Points through scored holes" : "Total through scored holes",
+    entries,
+  };
 }
 
 // Mark a team as finished scoring
