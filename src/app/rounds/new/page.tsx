@@ -10,7 +10,6 @@ import { createRound } from "@/actions/rounds";
 import { VisibilityMode, BlindRevealMode } from "@prisma/client";
 import {
   IRISH_GOLF_ELIGIBLE_SEGMENT_FORMATS,
-  FORMAT_DEFINITIONS,
   type FormatConfigOption,
 } from "@/lib/format-definitions";
 
@@ -46,15 +45,13 @@ function buildDefaultConfig(
   for (const opt of format.configOptions ?? []) {
     if (opt.defaultValue !== undefined) config[opt.key] = opt.defaultValue;
   }
+  if (config.enableDriveMinimums === undefined) {
+    config.enableDriveMinimums = false;
+  }
+  if (config.requiredDrivesPerPlayer === undefined) {
+    config.requiredDrivesPerPlayer = 4;
+  }
   return config;
-}
-
-function supportsDriveMinimums(format: EnrichedFormat | null): boolean {
-  return !!format?.configOptions?.some(
-    (option) =>
-      option.key === "enableDriveMinimums" ||
-      option.key === "requiredDrivesPerPlayer"
-  );
 }
 
 function getRequiredDrivesPerPlayer(
@@ -134,7 +131,6 @@ function NewRoundForm() {
   const selectedFormat = formats.find((f) => f.id === formatId) ?? null;
   const isVegas = selectedFormat?.name === "Vegas";
   const isIrishGolf = selectedFormat?.name === "Irish Golf / 6-6-6";
-  const driveMinimumsSupported = supportsDriveMinimums(selectedFormat);
   const driveMinimumsEnabled = !!formatConfig.enableDriveMinimums;
   const requiredDrivesPerPlayer = getRequiredDrivesPerPlayer(formatConfig);
   const eligibleSegmentFormats = formats.filter(
@@ -254,18 +250,16 @@ function NewRoundForm() {
                 This format requires the scorer to mark whose drive was used on
                 each hole.
               </p>
-              {driveMinimumsSupported && (
-                <p>
-                  Drive minimums:{" "}
-                  {driveMinimumsEnabled
-                    ? `ON${
-                        requiredDrivesPerPlayer !== null
-                          ? `, ${requiredDrivesPerPlayer} per player`
-                          : ""
-                      }`
-                    : "OFF"}
-                </p>
-              )}
+              <p>
+                Drive minimums:{" "}
+                {driveMinimumsEnabled
+                  ? `ON${
+                      requiredDrivesPerPlayer !== null
+                        ? `, ${requiredDrivesPerPlayer} per player`
+                        : ""
+                    }`
+                  : "OFF"}
+              </p>
             </div>
           )}
 
@@ -285,6 +279,14 @@ function NewRoundForm() {
                     )
                   )
                     return null;
+
+                  if (
+                    ["enableDriveMinimums", "requiredDrivesPerPlayer"].includes(
+                      opt.key
+                    )
+                  ) {
+                    return null;
+                  }
 
                   if (opt.type === "boolean") {
                     return (
@@ -335,26 +337,35 @@ function NewRoundForm() {
               </div>
             )}
 
-          {driveMinimumsSupported && (
-            <div
-              className={`rounded-md border p-3 text-sm ${
-                driveMinimumsEnabled
-                  ? "border-amber-300 bg-amber-50 text-amber-900"
-                  : "border-gray-200 bg-gray-50 text-gray-700"
-              }`}
-            >
-              <p className="font-semibold">Drive Minimum Setting</p>
-              <p>
-                {driveMinimumsEnabled
-                  ? `Each player must contribute at least ${
-                      requiredDrivesPerPlayer ?? "the configured number of"
-                    } drive${
-                      requiredDrivesPerPlayer === 1 ? "" : "s"
-                    } during the round.`
-                  : "Drive minimums are available for this format, but they are currently off."}
-              </p>
-            </div>
-          )}
+          <div className="space-y-3 rounded-md border border-amber-200 bg-amber-50 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+              Drive Minimums
+            </p>
+            <label className="flex items-center gap-2 text-sm text-amber-900">
+              <input
+                type="checkbox"
+                checked={driveMinimumsEnabled}
+                onChange={(e) => updateConfig("enableDriveMinimums", e.target.checked)}
+                className="h-4 w-4"
+              />
+              <span>Require a minimum number of drives from each player</span>
+            </label>
+            <p className="text-sm text-amber-900">
+              This can be used with any format. If enabled, scoring will require
+              you to mark whose drive was used on each hole.
+            </p>
+            {driveMinimumsEnabled && (
+              <Input
+                label="Minimum Drives Per Player"
+                type="number"
+                min="1"
+                value={String(requiredDrivesPerPlayer ?? 4)}
+                onChange={(e) =>
+                  updateConfig("requiredDrivesPerPlayer", Number(e.target.value))
+                }
+              />
+            )}
+          </div>
 
           {/* Irish Golf segment selectors */}
           {isIrishGolf && (

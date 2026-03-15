@@ -148,17 +148,38 @@ function buildDefaultFormatConfig(
       config[option.key] = option.defaultValue;
     }
   }
+  if (config.enableDriveMinimums === undefined) {
+    config.enableDriveMinimums = false;
+  }
+  if (config.requiredDrivesPerPlayer === undefined) {
+    config.requiredDrivesPerPlayer = 4;
+  }
   return config;
 }
 
 function sanitizeEditableFormatConfig(
   formatConfig: Record<string, unknown> | null | undefined
 ): Record<string, unknown> {
-  if (!formatConfig) return {};
+  if (!formatConfig) {
+    return {
+      enableDriveMinimums: false,
+      requiredDrivesPerPlayer: 4,
+    };
+  }
   const { par3Contest, vegasMatchups, ...editableConfig } = formatConfig;
   void par3Contest;
   void vegasMatchups;
-  return editableConfig;
+  return {
+    enableDriveMinimums:
+      typeof editableConfig.enableDriveMinimums === "boolean"
+        ? editableConfig.enableDriveMinimums
+        : false,
+    requiredDrivesPerPlayer:
+      typeof editableConfig.requiredDrivesPerPlayer === "number"
+        ? editableConfig.requiredDrivesPerPlayer
+        : 4,
+    ...editableConfig,
+  };
 }
 
 export default function RoundSetupPage({
@@ -212,6 +233,8 @@ export default function RoundSetupPage({
   const [editFormatConfig, setEditFormatConfig] = useState<Record<string, unknown>>(
     {}
   );
+  const [draftDriveMinimumsEnabled, setDraftDriveMinimumsEnabled] = useState(false);
+  const [draftRequiredDrivesPerPlayer, setDraftRequiredDrivesPerPlayer] = useState("4");
 
   useEffect(() => {
     loadData();
@@ -326,9 +349,16 @@ export default function RoundSetupPage({
         (roundData.blindRevealMode as "REVEAL_AFTER_ROUND" | "REVEAL_AFTER_HOLE") ??
           "REVEAL_AFTER_ROUND"
       );
-      setEditFormatConfig(
-        sanitizeEditableFormatConfig(
-          roundData.formatConfig as Record<string, unknown> | null
+      const editableFormatConfig = sanitizeEditableFormatConfig(
+        roundData.formatConfig as Record<string, unknown> | null
+      );
+      setEditFormatConfig(editableFormatConfig);
+      setDraftDriveMinimumsEnabled(
+        (editableFormatConfig.enableDriveMinimums as boolean) ?? false
+      );
+      setDraftRequiredDrivesPerPlayer(
+        String(
+          (editableFormatConfig.requiredDrivesPerPlayer as number | undefined) ?? 4
         )
       );
 
@@ -545,6 +575,9 @@ export default function RoundSetupPage({
   const driveMinimumSummary = getDriveMinimumSummary(currentRound.formatConfig);
 
   const openEditRoundModal = () => {
+    const editableFormatConfig = sanitizeEditableFormatConfig(
+      currentRound.formatConfig
+    );
     setEditRoundName(currentRound.name ?? "");
     setEditRoundDate(new Date(currentRound.date).toISOString().split("T")[0]);
     setEditCourseId(currentRound.courseId);
@@ -554,20 +587,45 @@ export default function RoundSetupPage({
     setEditBlindRevealMode(
       currentRound.blindRevealMode ?? "REVEAL_AFTER_ROUND"
     );
-    setEditFormatConfig(
-      sanitizeEditableFormatConfig(currentRound.formatConfig)
-    );
+    setEditFormatConfig(editableFormatConfig);
     setShowEditRoundModal(true);
   };
 
   const handleEditFormatChange = (nextFormatId: string) => {
     const nextFormat = formats.find((format) => format.id === nextFormatId) ?? null;
+    const driveConfig = {
+      enableDriveMinimums: !!editFormatConfig.enableDriveMinimums,
+      requiredDrivesPerPlayer:
+        typeof editFormatConfig.requiredDrivesPerPlayer === "number"
+          ? editFormatConfig.requiredDrivesPerPlayer
+          : 4,
+    };
     setEditFormatId(nextFormatId);
-    setEditFormatConfig(buildDefaultFormatConfig(nextFormat));
+    setEditFormatConfig({
+      ...buildDefaultFormatConfig(nextFormat),
+      ...driveConfig,
+    });
   };
 
   const updateEditFormatConfig = (key: string, value: unknown) => {
     setEditFormatConfig((current) => ({ ...current, [key]: value }));
+  };
+
+  const updateDraftDriveMinimums = (enabled: boolean, requiredDrives?: string) => {
+    const normalizedRequired = requiredDrives ?? draftRequiredDrivesPerPlayer;
+    setDraftDriveMinimumsEnabled(enabled);
+    if (requiredDrives !== undefined) {
+      setDraftRequiredDrivesPerPlayer(requiredDrives);
+    }
+    const parsedRequired = Number(normalizedRequired);
+    const safeRequired = Number.isFinite(parsedRequired) && parsedRequired > 0
+      ? parsedRequired
+      : 4;
+    setEditFormatConfig((current) => ({
+      ...current,
+      enableDriveMinimums: enabled,
+      requiredDrivesPerPlayer: safeRequired,
+    }));
   };
 
   const buildEditedRoundFormatConfig = (formatDefinitionId: string) => {
@@ -594,6 +652,15 @@ export default function RoundSetupPage({
     const parsedBuyIn = Number(editBuyIn);
     if (!Number.isFinite(parsedBuyIn) || parsedBuyIn <= 0) {
       setError("Buy-in must be greater than 0.");
+      return;
+    }
+
+    if (
+      editFormatConfig.enableDriveMinimums &&
+      (!Number.isFinite(Number(editFormatConfig.requiredDrivesPerPlayer)) ||
+        Number(editFormatConfig.requiredDrivesPerPlayer) <= 0)
+    ) {
+      setError("Minimum drives per player must be greater than 0.");
       return;
     }
 
@@ -641,6 +708,51 @@ export default function RoundSetupPage({
       await loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update round");
+    }
+    setActionLoading(false);
+  };
+
+  const handleSaveDriveMinimumSettings = async () => {
+    const parsedRequired = Number(draftRequiredDrivesPerPlayer);
+    if (
+      draftDriveMinimumsEnabled &&
+      (!Number.isFinite(parsedRequired) || parsedRequired <= 0)
+    ) {
+      setError("Minimum drives per player must be greater than 0.");
+      return;
+    }
+
+    setActionLoading(true);
+    setError(null);
+    try {
+      const updatedRound = await updateRoundDraft(id, {
+        formatConfig: {
+          ...(currentRound.formatConfig ?? {}),
+          enableDriveMinimums: draftDriveMinimumsEnabled,
+          requiredDrivesPerPlayer: draftDriveMinimumsEnabled
+            ? parsedRequired
+            : parsedRequired || 4,
+        },
+      });
+      setRound(updatedRound as unknown as Round);
+      const nextEditableConfig = sanitizeEditableFormatConfig(
+        updatedRound.formatConfig as Record<string, unknown> | null
+      );
+      setEditFormatConfig(nextEditableConfig);
+      setDraftDriveMinimumsEnabled(
+        (nextEditableConfig.enableDriveMinimums as boolean) ?? false
+      );
+      setDraftRequiredDrivesPerPlayer(
+        String(
+          (nextEditableConfig.requiredDrivesPerPlayer as number | undefined) ?? 4
+        )
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to save drive minimum settings"
+      );
     }
     setActionLoading(false);
   };
@@ -884,14 +996,44 @@ export default function RoundSetupPage({
               <Card>
                 <CardHeader>Team Settings</CardHeader>
                 <CardContent className="space-y-4">
-                {driveMinimumSummary.enabled && (
-                  <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                    Drive minimums are on for this round
-                    {driveMinimumSummary.requiredDrivesPerPlayer !== null
-                      ? `: ${driveMinimumSummary.requiredDrivesPerPlayer} per player.`
-                      : "."}
-                  </div>
-                )}
+                <div className="space-y-3 rounded border border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+                  <p className="font-semibold">Drive Minimums</p>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={draftDriveMinimumsEnabled}
+                      onChange={(e) =>
+                        updateDraftDriveMinimums(e.target.checked)
+                      }
+                      disabled={actionLoading}
+                      className="h-4 w-4"
+                    />
+                    <span>Require a minimum number of drives from each player</span>
+                  </label>
+                  <p>
+                    This can be used with any format. If enabled, scoring will
+                    require the scorer to mark whose drive was used on each hole.
+                  </p>
+                  {draftDriveMinimumsEnabled && (
+                    <Input
+                      label="Minimum Drives Per Player"
+                      type="number"
+                      min="1"
+                      value={draftRequiredDrivesPerPlayer}
+                      onChange={(e) =>
+                        updateDraftDriveMinimums(true, e.target.value)
+                      }
+                      disabled={actionLoading}
+                    />
+                  )}
+                  <Button
+                    variant="secondary"
+                    onClick={handleSaveDriveMinimumSettings}
+                    disabled={actionLoading}
+                  >
+                    Save Drive Minimums
+                  </Button>
+                </div>
                 <Select
                   label="Team Size"
                   value={teamSize}
@@ -1472,6 +1614,14 @@ export default function RoundSetupPage({
                     return null;
                   }
 
+                  if (
+                    ["enableDriveMinimums", "requiredDrivesPerPlayer"].includes(
+                      option.key
+                    )
+                  ) {
+                    return null;
+                  }
+
                   if (option.type === "boolean") {
                     return (
                       <label
@@ -1538,6 +1688,41 @@ export default function RoundSetupPage({
                 })}
               </div>
             )}
+
+          <div className="space-y-3 rounded border border-amber-200 bg-amber-50 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+              Drive Minimums
+            </p>
+            <label className="flex items-center gap-2 text-sm text-amber-900">
+              <input
+                type="checkbox"
+                checked={!!editFormatConfig.enableDriveMinimums}
+                onChange={(e) =>
+                  updateEditFormatConfig("enableDriveMinimums", e.target.checked)
+                }
+                className="h-4 w-4"
+              />
+              <span>Require a minimum number of drives from each player</span>
+            </label>
+            <p className="text-sm text-amber-900">
+              This works with any format and turns on drive selection during
+              scoring.
+            </p>
+            {!!editFormatConfig.enableDriveMinimums && (
+              <Input
+                label="Minimum Drives Per Player"
+                type="number"
+                min="1"
+                value={String(editFormatConfig.requiredDrivesPerPlayer ?? 4)}
+                onChange={(e) =>
+                  updateEditFormatConfig(
+                    "requiredDrivesPerPlayer",
+                    Number(e.target.value)
+                  )
+                }
+              />
+            )}
+          </div>
 
           {isEditIrishGolf && (
             <div className="space-y-3 rounded border border-amber-200 bg-amber-50 p-3">

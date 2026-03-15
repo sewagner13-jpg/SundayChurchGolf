@@ -335,7 +335,7 @@ export default function LiveScoringPage({
   }
 
   async function loadPlayerInputs() {
-    if (!round || !myTeamId || !effectiveFormat?.requiresIndividualScores) {
+    if (!round || !myTeamId || (!usesIndividualScores && !usesDriveTracking)) {
       setPlayerInputs([]);
       return;
     }
@@ -344,13 +344,32 @@ export default function LiveScoringPage({
       const team = round.teams.find((currentTeam) => currentTeam.id === myTeamId);
       if (!team) return;
 
+      if (!usesIndividualScores && usesDriveTracking) {
+        const selectedDrivePlayerId =
+          (holeData?.teamScores.find((score) => score.teamId === myTeamId)?.holeData
+            ?.drivePlayerId as string | undefined) ?? null;
+
+        setPlayerInputs(
+          team.roundPlayers.map((roundPlayer) => ({
+            playerId: roundPlayer.playerId,
+            name: roundPlayer.player.nickname || roundPlayer.player.fullName,
+            grossScore: "",
+            driveSelected: roundPlayer.playerId === selectedDrivePlayerId,
+            moneyBallLost: false,
+            wolfPartnerSelected: false,
+            wolfLone: false,
+          }))
+        );
+        return;
+      }
+
       const savedScores = await getPlayerScores(id, {
         holeNumber: currentHole,
         teamId: myTeamId,
       });
 
       const designatedPlayerId =
-        effectiveFormat.requiresDesignatedPlayer && team.roundPlayers.length > 0
+        effectiveFormat?.requiresDesignatedPlayer && team.roundPlayers.length > 0
           ? team.roundPlayers[(currentHole - 1) % team.roundPlayers.length]?.playerId
           : null;
       const designatedScore = designatedPlayerId
@@ -419,7 +438,9 @@ export default function LiveScoringPage({
       : formatDefinition
     : null;
   const usesIndividualScores = !!effectiveFormat?.requiresIndividualScores;
-  const usesDriveTracking = !!effectiveFormat?.requiresDriveTracking;
+  const usesDriveTracking =
+    !!effectiveFormat?.requiresDriveTracking ||
+    !!round?.formatConfig?.enableDriveMinimums;
   const minimumScoresRequired = effectiveFormat
     ? getMinimumScoresRequired(effectiveFormat.id)
     : null;
@@ -430,6 +451,14 @@ export default function LiveScoringPage({
           ?.roundPlayers[(currentHole - 1) %
             (round.teams.find((team) => team.id === myTeamId)?.roundPlayers.length ?? 1)]
       : null;
+  const selectedDrivePlayerId =
+    playerInputs.find((input) => input.driveSelected)?.playerId ?? null;
+
+  useEffect(() => {
+    if (round && myTeamId && usesDriveTracking && !usesIndividualScores) {
+      loadPlayerInputs();
+    }
+  }, [holeData, round, myTeamId, usesDriveTracking, usesIndividualScores]);
 
   const handleScoreEntry = async (
     teamId: string,
@@ -441,14 +470,24 @@ export default function LiveScoringPage({
       return;
     }
 
+    if (!usesIndividualScores && usesDriveTracking && !selectedDrivePlayerId) {
+      setError("Select the player whose drive was used.");
+      return;
+    }
+
     setSaving(true);
     try {
       await upsertHoleScore(id, teamId, currentHole, {
         entryType,
         value: entryType === "VALUE" ? value : undefined,
+        selectedDrivePlayerId:
+          !usesIndividualScores && usesDriveTracking
+            ? selectedDrivePlayerId
+            : undefined,
       });
       await loadHoleData();
       await loadTeamsProgress();
+      await loadPlayerInputs();
       setCustomScore("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save score");
@@ -473,7 +512,21 @@ export default function LiveScoringPage({
   };
 
   const handleClear = async (teamId: string) => {
-    await handleScoreEntry(teamId, "BLANK");
+    setSaving(true);
+    try {
+      await upsertHoleScore(id, teamId, currentHole, {
+        entryType: "BLANK",
+        selectedDrivePlayerId:
+          !usesIndividualScores && usesDriveTracking ? null : undefined,
+      });
+      await loadHoleData();
+      await loadTeamsProgress();
+      await loadPlayerInputs();
+      setCustomScore("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save score");
+    }
+    setSaving(false);
   };
 
   const updatePlayerInput = (
@@ -1074,6 +1127,18 @@ export default function LiveScoringPage({
                 </div>
               )}
 
+              {round?.formatConfig?.enableDriveMinimums === true && (
+                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  Drive minimums are enabled for this round:
+                  {" "}
+                  <strong>
+                    {Number(round.formatConfig.requiredDrivesPerPlayer ?? 4)} per
+                    player
+                  </strong>
+                  .
+                </div>
+              )}
+
               {/* Current Score Display */}
               <div className="text-center mb-6">
                 <div className="text-6xl font-bold h-20 flex items-center justify-center">
@@ -1246,6 +1311,29 @@ export default function LiveScoringPage({
                 </div>
               ) : (
                 <>
+                  {usesDriveTracking && (
+                    <div className="mb-4 space-y-3 rounded-lg border border-gray-200 p-3">
+                      <p className="text-sm font-medium text-gray-800">
+                        Select whose drive was used
+                      </p>
+                      {playerInputs.map((input) => (
+                        <label
+                          key={input.playerId}
+                          className="flex items-center gap-2 text-sm text-gray-700"
+                        >
+                          <input
+                            type="radio"
+                            name={`team-drive-${currentHole}`}
+                            checked={input.driveSelected}
+                            onChange={() => handleDriveSelection(input.playerId)}
+                            disabled={scoreEntryBlocked}
+                          />
+                          <span>{input.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-4 gap-3 mb-4">
                     {[1, 2, 3, 4].map((num) => (
                       <Button

@@ -3,7 +3,7 @@
 import { prisma } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { Decimal } from "@prisma/client/runtime/library";
-import { HoleEntryType, RoundStatus } from "@prisma/client";
+import { HoleEntryType, Prisma, RoundStatus } from "@prisma/client";
 import { FORMAT_DEFINITIONS } from "@/lib/format-definitions";
 import {
   calculateRoundResults,
@@ -18,6 +18,7 @@ import { getScoringOrder } from "@/lib/scoring-order";
 export interface ScoreEntry {
   entryType: HoleEntryType;
   value?: number | null;
+  selectedDrivePlayerId?: string | null;
 }
 
 export async function upsertHoleScore(
@@ -34,7 +35,7 @@ export async function upsertHoleScore(
   }
 
   // Single query to check round status and get existing score
-  const [round, existingScore] = await Promise.all([
+  const [round, existingScore, team] = await Promise.all([
     prisma.round.findUnique({
       where: { id: roundId },
       select: { status: true },
@@ -47,11 +48,43 @@ export async function upsertHoleScore(
           holeNumber,
         },
       },
-      select: { entryType: true, value: true, wasEdited: true },
+      select: { entryType: true, value: true, wasEdited: true, holeData: true },
     }),
+    entry.selectedDrivePlayerId !== undefined
+      ? prisma.team.findFirst({
+          where: {
+            id: teamId,
+            roundId,
+          },
+          include: {
+            roundPlayers: true,
+          },
+        })
+      : Promise.resolve(null),
   ]);
 
   if (!round) throw new Error("Round not found");
+  if (entry.selectedDrivePlayerId !== undefined) {
+    if (!team) {
+      throw new Error("Team not found in this round");
+    }
+    if (
+      entry.selectedDrivePlayerId !== null &&
+      !team.roundPlayers.some(
+        (roundPlayer) => roundPlayer.playerId === entry.selectedDrivePlayerId
+      )
+    ) {
+      throw new Error("Selected drive player does not belong to this team");
+    }
+  }
+
+  const nextHoleData =
+    entry.selectedDrivePlayerId === undefined
+      ? existingScore?.holeData
+      : {
+          ...((existingScore?.holeData as Record<string, unknown> | null) ?? {}),
+          drivePlayerId: entry.selectedDrivePlayerId,
+        };
   if (round.status !== "LIVE") {
     throw new Error("Can only enter scores while round is LIVE");
   }
@@ -75,6 +108,7 @@ export async function upsertHoleScore(
     update: {
       entryType: entry.entryType,
       value: entry.entryType === "VALUE" ? entry.value : null,
+      holeData: nextHoleData as Prisma.InputJsonValue | undefined,
       wasEdited: existingScore?.wasEdited || isEdit || false,
     },
     create: {
@@ -83,6 +117,7 @@ export async function upsertHoleScore(
       holeNumber,
       entryType: entry.entryType,
       value: entry.entryType === "VALUE" ? entry.value : null,
+      holeData: nextHoleData as Prisma.InputJsonValue | undefined,
       wasEdited: false,
     },
   });
