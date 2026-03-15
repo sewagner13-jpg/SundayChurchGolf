@@ -9,8 +9,6 @@ import { Button } from "@/components/button";
 import {
   getActivePar3Contests,
   getPar3ContestConfig,
-  getPar3ContestParticipantIds,
-  type Par3FundingType,
   type Par3PayoutTarget,
 } from "@/lib/par3-contests";
 import { computePar3PlayerBonuses } from "@/lib/payout-breakdown";
@@ -93,10 +91,6 @@ export default function RoundPayoutsPage({
     0
   );
   const par3Config = getPar3ContestConfig(round.formatConfig);
-  const par3ParticipantIds = getPar3ContestParticipantIds(
-    par3Config,
-    round.roundPlayers.map((roundPlayer) => roundPlayer.playerId)
-  );
   const activePar3Contests = getActivePar3Contests(par3Config);
   const par3Results = (par3Config?.results as
     | Array<{
@@ -108,32 +102,6 @@ export default function RoundPayoutsPage({
     | undefined) ?? [];
   const par3ResultsMap = new Map(par3Results.map((result) => [result.holeNumber, result]));
   const par3PlayerBonuses = computePar3PlayerBonuses(round.teams, par3Results);
-  const par3FundingType =
-    (par3Config?.fundingType as Par3FundingType | undefined) ??
-    "SEPARATE_BUY_IN";
-  const separatePar3BuyIn =
-    par3FundingType === "SEPARATE_BUY_IN" ? par3Config?.amountPerPlayer ?? 0 : 0;
-
-  const playerSettlements = sortedPlayers.map((roundPlayer) => {
-    const enteredPar3 = par3ParticipantIds.includes(roundPlayer.playerId);
-    const contribution =
-      round.buyInPerPlayer + (enteredPar3 ? separatePar3BuyIn : 0);
-    const payout = roundPlayer.payoutAmount;
-    const net = payout - contribution;
-    return {
-      roundPlayer,
-      enteredPar3,
-      contribution,
-      payout,
-      net,
-      par3Bonus: par3PlayerBonuses.get(roundPlayer.playerId) ?? 0,
-    };
-  });
-  const totalCollected = playerSettlements.reduce(
-    (sum, entry) => sum + entry.contribution,
-    0
-  );
-  const totalPaidOut = playerSettlements.reduce((sum, entry) => sum + entry.payout, 0);
 
   return (
     <div className="space-y-6">
@@ -141,7 +109,7 @@ export default function RoundPayoutsPage({
         <div>
           <h1 className="text-2xl font-bold">Payouts</h1>
           <p className="text-sm text-gray-600">
-            Final team and player totals for payout collection.
+            Final payout totals across the full day, including side games like Par 3.
           </p>
         </div>
         <div className="flex gap-2">
@@ -164,27 +132,19 @@ export default function RoundPayoutsPage({
               <span className="text-gray-500">Format:</span> {round.format.name}
             </p>
             <p>
-              <span className="text-gray-500">Team payouts:</span>{" "}
+              <span className="text-gray-500">Team winnings:</span>{" "}
               <strong>${totalTeamPayout.toFixed(2)}</strong>
             </p>
             <p>
               <span className="text-gray-500">Player payouts:</span>{" "}
               <strong>${totalPlayerPayout.toFixed(2)}</strong>
             </p>
-            <p>
-              <span className="text-gray-500">Collected:</span>{" "}
-              <strong>${totalCollected.toFixed(2)}</strong>
-            </p>
-            <p>
-              <span className="text-gray-500">Paid out:</span>{" "}
-              <strong>${totalPaidOut.toFixed(2)}</strong>
-            </p>
           </div>
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader>Team Totals</CardHeader>
+        <CardHeader>Team Winnings</CardHeader>
         <CardContent className="space-y-2">
           {sortedTeams.map((team, index) => (
             <div
@@ -214,49 +174,34 @@ export default function RoundPayoutsPage({
       </Card>
 
       <Card>
-        <CardHeader>Final Money Distribution</CardHeader>
+        <CardHeader>Player Payouts</CardHeader>
         <CardContent className="space-y-2">
-          {playerSettlements.map((entry, index) => (
+          {sortedPlayers.map((roundPlayer, index) => (
             <div
-              key={entry.roundPlayer.id}
+              key={roundPlayer.id}
               className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-3"
             >
               <div>
                 <p className="font-semibold">
                   #{index + 1}{" "}
-                  {entry.roundPlayer.player.nickname || entry.roundPlayer.player.fullName}
+                  {roundPlayer.player.nickname || roundPlayer.player.fullName}
                 </p>
                 <p className="text-xs text-gray-500">
-                  {entry.roundPlayer.team
-                    ? `Team ${entry.roundPlayer.team.teamNumber}`
+                  {roundPlayer.team
+                    ? `Team ${roundPlayer.team.teamNumber}`
                     : "No team"}
                 </p>
-                <p className="text-xs text-gray-500">
-                  Collected: ${entry.contribution.toFixed(2)}
-                  {entry.enteredPar3 && separatePar3BuyIn > 0
-                    ? ` (${round.buyInPerPlayer.toFixed(2)} game + ${separatePar3BuyIn.toFixed(2)} Par 3)`
-                    : ` (${round.buyInPerPlayer.toFixed(2)} game)`}
-                </p>
-                {entry.par3Bonus > 0 && (
+                {(par3PlayerBonuses.get(roundPlayer.playerId) ?? 0) > 0 && (
                   <p className="text-xs text-gray-500">
-                    Includes ${entry.par3Bonus.toFixed(2)} from Par 3 wins
+                    Includes ${(
+                      par3PlayerBonuses.get(roundPlayer.playerId) ?? 0
+                    ).toFixed(2)} from Par 3
                   </p>
                 )}
               </div>
-              <div className="text-right">
-                <p className="text-xl font-bold text-green-700">
-                  ${entry.payout.toFixed(2)}
-                </p>
-                <p
-                  className={`text-sm font-semibold ${
-                    entry.net >= 0 ? "text-green-700" : "text-red-600"
-                  }`}
-                >
-                  {entry.net >= 0
-                    ? `Pay ${entry.roundPlayer.player.nickname || entry.roundPlayer.player.fullName} $${entry.net.toFixed(2)}`
-                    : `Collect $${Math.abs(entry.net).toFixed(2)}`}
-                </p>
-              </div>
+              <p className="text-xl font-bold text-green-700">
+                ${Math.max(0, roundPlayer.payoutAmount).toFixed(2)}
+              </p>
             </div>
           ))}
         </CardContent>
