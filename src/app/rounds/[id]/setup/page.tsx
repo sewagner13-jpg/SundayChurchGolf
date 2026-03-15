@@ -725,18 +725,19 @@ export default function RoundSetupPage({
     setActionLoading(true);
     setError(null);
     try {
-      const updatedRound = await updateRoundDraft(id, {
-        formatConfig: {
-          ...(currentRound.formatConfig ?? {}),
-          enableDriveMinimums: draftDriveMinimumsEnabled,
-          requiredDrivesPerPlayer: draftDriveMinimumsEnabled
-            ? parsedRequired
-            : parsedRequired || 4,
-        },
+      const nextFormatConfig = {
+        ...(currentRound.formatConfig ?? {}),
+        enableDriveMinimums: draftDriveMinimumsEnabled,
+        requiredDrivesPerPlayer: draftDriveMinimumsEnabled
+          ? parsedRequired
+          : parsedRequired || 4,
+      };
+      await updateRoundDraft(id, {
+        formatConfig: nextFormatConfig,
       });
-      setRound(updatedRound as unknown as Round);
+      syncLocalRoundFormatConfig(nextFormatConfig);
       const nextEditableConfig = sanitizeEditableFormatConfig(
-        updatedRound.formatConfig as Record<string, unknown> | null
+        nextFormatConfig
       );
       setEditFormatConfig(nextEditableConfig);
       setDraftDriveMinimumsEnabled(
@@ -804,6 +805,17 @@ export default function RoundSetupPage({
     ...(isVegasRound ? { vegasMatchups: buildVegasMatchupEntries() } : {}),
   });
 
+  const syncLocalRoundFormatConfig = (nextFormatConfig: Record<string, unknown>) => {
+    setRound((current) =>
+      current
+        ? {
+            ...current,
+            formatConfig: nextFormatConfig,
+          }
+        : current
+    );
+  };
+
   const hasValidVegasMatchups =
     !isVegasRound ||
     (currentRound.teams.length > 0 &&
@@ -819,19 +831,21 @@ export default function RoundSetupPage({
   async function saveVegasMatchups() {
     if (!isVegasRound) return;
 
+    const nextFormatConfig = buildDraftFormatConfig();
     await updateRoundDraft(id, {
-      formatConfig: buildDraftFormatConfig(),
+      formatConfig: nextFormatConfig,
     });
+    syncLocalRoundFormatConfig(nextFormatConfig);
   }
 
   async function savePar3ContestConfig() {
     if (!par3ContestConfig) return;
 
-    const updatedRound = await updateRoundDraft(id, {
-      formatConfig: buildDraftFormatConfig(),
+    const nextFormatConfig = buildDraftFormatConfig();
+    await updateRoundDraft(id, {
+      formatConfig: nextFormatConfig,
     });
-
-    setRound(updatedRound as unknown as Round);
+    syncLocalRoundFormatConfig(nextFormatConfig);
   }
 
   const formatDate = (date: Date) =>
