@@ -101,7 +101,14 @@ export default function RoundPayoutsPage({
       }>
     | undefined) ?? [];
   const par3ResultsMap = new Map(par3Results.map((result) => [result.holeNumber, result]));
-  const par3PlayerBonuses = computePar3PlayerBonuses(round.teams, par3Results);
+  const par3ContestPayoutTargets = new Map(
+    activePar3Contests.map((contest) => [contest.holeNumber, contest.payoutTarget])
+  );
+  const par3PlayerBonuses = computePar3PlayerBonuses(
+    round.teams,
+    par3Results,
+    par3ContestPayoutTargets
+  );
   const teamByPlayerId = new Map(
     round.teams.flatMap((team) =>
       team.roundPlayers.map((roundPlayer) => [roundPlayer.playerId, team] as const)

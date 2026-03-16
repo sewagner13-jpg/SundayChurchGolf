@@ -7,6 +7,7 @@ import { getRound } from "@/actions/rounds";
 import { Card, CardContent, CardHeader } from "@/components/card";
 import { Button } from "@/components/button";
 import {
+  getActivePar3Contests,
   getPar3ContestConfig,
   type Par3PayoutTarget,
 } from "@/lib/par3-contests";
@@ -86,10 +87,17 @@ export default function FinalPayoutsPage({
           payoutTarget?: Par3PayoutTarget;
         }>
       | undefined) ?? [];
+  const par3ContestPayoutTargets = new Map(
+    getActivePar3Contests(par3Config).map((contest) => [
+      contest.holeNumber,
+      contest.payoutTarget,
+    ])
+  );
   const payoutRows = computeFinalPlayerPayoutRows(
     round.teams,
     round.roundPlayers,
-    par3Results
+    par3Results,
+    par3ContestPayoutTargets
   );
   const sortedPlayers = [...payoutRows].sort(
     (a, b) => b.totalPayout - a.totalPayout

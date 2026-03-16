@@ -51,9 +51,23 @@ export interface FinalPlayerPayoutRow {
   totalPayout: number;
 }
 
+type ContestPayoutTargetLookup = Map<number, Par3PayoutTarget>;
+
+function getEffectivePayoutTarget(
+  result: Par3ResultLike,
+  contestPayoutTargets?: ContestPayoutTargetLookup
+) {
+  return (
+    result.payoutTarget ??
+    contestPayoutTargets?.get(result.holeNumber) ??
+    "PLAYER"
+  );
+}
+
 export function computePar3PlayerBonuses(
   teams: TeamLike[],
-  par3Results: Par3ResultLike[]
+  par3Results: Par3ResultLike[],
+  contestPayoutTargets?: ContestPayoutTargetLookup
 ) {
   const bonuses = new Map<string, number>();
   const playerTeamMap = new Map<string, TeamLike>();
@@ -70,7 +84,7 @@ export function computePar3PlayerBonuses(
     const payout = result.payoutAmount ?? 0;
     if (payout <= 0) continue;
 
-    if ((result.payoutTarget ?? "PLAYER") === "PLAYER") {
+    if (getEffectivePayoutTarget(result, contestPayoutTargets) === "PLAYER") {
       bonuses.set(
         result.winnerPlayerId,
         (bonuses.get(result.winnerPlayerId) ?? 0) + payout
@@ -95,7 +109,8 @@ export function computePar3PlayerBonuses(
 
 export function computeSharedPar3TeamBonuses(
   teams: TeamLike[],
-  par3Results: Par3ResultLike[]
+  par3Results: Par3ResultLike[],
+  contestPayoutTargets?: ContestPayoutTargetLookup
 ) {
   const teamBonuses = new Map<string, number>();
   const playerTeamMap = new Map<string, TeamLike>();
@@ -109,7 +124,7 @@ export function computeSharedPar3TeamBonuses(
 
   for (const result of par3Results) {
     if (!result.winnerPlayerId) continue;
-    if ((result.payoutTarget ?? "PLAYER") !== "TEAM") continue;
+    if (getEffectivePayoutTarget(result, contestPayoutTargets) !== "TEAM") continue;
 
     const payout = result.payoutAmount ?? 0;
     if (payout <= 0) continue;
@@ -126,17 +141,19 @@ export function computeSharedPar3TeamBonuses(
 export function computeFinalPlayerPayoutRows(
   teams: TeamPayoutLike[],
   roundPlayers: RoundPlayerLike[],
-  par3Results: Par3ResultLike[]
+  par3Results: Par3ResultLike[],
+  contestPayoutTargets?: ContestPayoutTargetLookup
 ) {
-  const par3Bonuses = computePar3PlayerBonuses(teams, par3Results);
-  const sharedPar3ByTeam = computeSharedPar3TeamBonuses(teams, par3Results);
+  const par3Bonuses = computePar3PlayerBonuses(
+    teams,
+    par3Results,
+    contestPayoutTargets
+  );
 
   const baseMainGameShareByPlayer = new Map<string, number>();
   for (const team of teams) {
-    const sharedPar3 = sharedPar3ByTeam.get(team.id) ?? 0;
-    const mainGameTeamPayout = Math.max(0, team.totalPayout - sharedPar3);
     const split =
-      team.roundPlayers.length > 0 ? mainGameTeamPayout / team.roundPlayers.length : 0;
+      team.roundPlayers.length > 0 ? Math.max(0, team.totalPayout) / team.roundPlayers.length : 0;
 
     for (const roundPlayer of team.roundPlayers) {
       baseMainGameShareByPlayer.set(roundPlayer.playerId, split);
