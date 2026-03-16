@@ -97,7 +97,7 @@ export default function RoundLogPage() {
           {rounds.map((round) => {
             const primaryHref =
               round.status === "FINISHED"
-                ? `/rounds/${round.id}/summary`
+                ? `/rounds/${round.id}/final-payouts`
                 : round.status === "LIVE"
                   ? `/rounds/${round.id}/scoring`
                   : `/rounds/${round.id}/setup`;

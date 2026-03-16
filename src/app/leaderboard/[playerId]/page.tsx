@@ -141,7 +141,7 @@ export default async function PlayerDetailPage({
               {seasonData.rounds.map((round) => (
                 <Link
                   key={round.roundId}
-                  href={`/rounds/${round.roundId}/summary`}
+                  href={`/rounds/${round.roundId}/final-payouts`}
                   className="flex items-center justify-between py-3 border-b last:border-b-0 hover:bg-gray-50 -mx-4 px-4"
                 >
                   <div>

@@ -118,7 +118,10 @@ export default function FinalPayoutsPage({
         </div>
         <div className="flex gap-2">
           <Link href={`/rounds/${id}/payouts`}>
-            <Button variant="secondary">Detailed Payouts</Button>
+            <Button variant="secondary">See Payout Breakdown</Button>
+          </Link>
+          <Link href={`/rounds/${id}/summary`}>
+            <Button variant="secondary">See Round Numbers</Button>
           </Link>
           <Link href="/">
             <Button variant="secondary">Home</Button>
