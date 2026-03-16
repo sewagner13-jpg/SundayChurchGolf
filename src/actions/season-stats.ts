@@ -105,33 +105,9 @@ export async function getLeaderboard(year: number) {
     include: {
       player: true,
     },
-    orderBy: [
-      { totalWinnings: "desc" },
-      { topTeamAppearances: "desc" },
-      { roundsPlayed: "desc" },
-    ],
   });
 
-  // Additional sort by player name for ties
-  stats.sort((a, b) => {
-    const winningsDiff = b.totalWinnings.sub(a.totalWinnings).toNumber();
-    if (winningsDiff !== 0) return winningsDiff;
-
-    if (b.topTeamAppearances !== a.topTeamAppearances) {
-      return b.topTeamAppearances - a.topTeamAppearances;
-    }
-
-    if (b.roundsPlayed !== a.roundsPlayed) {
-      return b.roundsPlayed - a.roundsPlayed;
-    }
-
-    const nameA = a.player.nickname || a.player.fullName;
-    const nameB = b.player.nickname || b.player.fullName;
-    return nameA.localeCompare(nameB);
-  });
-
-  // Convert Decimal to number for client serialization
-  return stats.map((s) => {
+  const leaderboard = stats.map((s) => {
     const totalWinnings = Number(s.totalWinnings);
     const totalBuyInsPaid = Number(s.totalBuyInsPaid);
     const netWinnings = totalWinnings - totalBuyInsPaid;
@@ -149,6 +125,24 @@ export async function getLeaderboard(year: number) {
       countedScoresUsed: countedScoreUsage.get(s.playerId) ?? 0,
     };
   });
+
+  leaderboard.sort((a, b) => {
+    if (b.netWinnings !== a.netWinnings) {
+      return b.netWinnings - a.netWinnings;
+    }
+
+    if (b.topTeamAppearances !== a.topTeamAppearances) {
+      return b.topTeamAppearances - a.topTeamAppearances;
+    }
+
+    if (b.roundsPlayed !== a.roundsPlayed) {
+      return b.roundsPlayed - a.roundsPlayed;
+    }
+
+    return a.playerName.localeCompare(b.playerName);
+  });
+
+  return leaderboard;
 }
 
 export async function getPlayerSeasonDetail(playerId: string, year: number) {
