@@ -6,21 +6,39 @@ import { useRouter } from "next/navigation";
 import { getRound } from "@/actions/rounds";
 import { Card, CardContent, CardHeader } from "@/components/card";
 import { Button } from "@/components/button";
+import {
+  getPar3ContestConfig,
+  type Par3PayoutTarget,
+} from "@/lib/par3-contests";
+import { computeFinalPlayerPayoutRows } from "@/lib/payout-breakdown";
+import { getTeamDisplayLabel } from "@/lib/team-labels";
 
 interface RoundPlayer {
   id: string;
   playerId: string;
-  payoutAmount: number;
   player: { fullName: string; nickname: string | null };
   team: { id: string; teamNumber: number } | null;
+}
+
+interface Team {
+  id: string;
+  teamNumber: number;
+  totalPayout: number;
+  roundPlayers: Array<{
+    id: string;
+    playerId: string;
+    player: { fullName: string; nickname: string | null };
+  }>;
 }
 
 interface Round {
   id: string;
   date: Date;
   status: string;
+  formatConfig: Record<string, unknown> | null;
   course: { name: string };
   format: { name: string };
+  teams: Team[];
   roundPlayers: RoundPlayer[];
 }
 
@@ -58,11 +76,26 @@ export default function FinalPayoutsPage({
     return <p className="py-8 text-center">Loading final payouts...</p>;
   }
 
-  const sortedPlayers = [...round.roundPlayers].sort(
-    (a, b) => b.payoutAmount - a.payoutAmount
+  const par3Config = getPar3ContestConfig(round.formatConfig);
+  const par3Results =
+    (par3Config?.results as
+      | Array<{
+          holeNumber: number;
+          winnerPlayerId: string | null;
+          payoutAmount?: number | null;
+          payoutTarget?: Par3PayoutTarget;
+        }>
+      | undefined) ?? [];
+  const payoutRows = computeFinalPlayerPayoutRows(
+    round.teams,
+    round.roundPlayers,
+    par3Results
+  );
+  const sortedPlayers = [...payoutRows].sort(
+    (a, b) => b.totalPayout - a.totalPayout
   );
   const totalPaidOut = sortedPlayers.reduce(
-    (sum, roundPlayer) => sum + Math.max(0, roundPlayer.payoutAmount),
+    (sum, roundPlayer) => sum + Math.max(0, roundPlayer.totalPayout),
     0
   );
 
@@ -111,22 +144,30 @@ export default function FinalPayoutsPage({
         <CardContent className="space-y-2">
           {sortedPlayers.map((roundPlayer, index) => (
             <div
-              key={roundPlayer.id}
+              key={roundPlayer.roundPlayerId}
               className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-3"
             >
               <div>
                 <p className="font-semibold">
-                  #{index + 1}{" "}
-                  {roundPlayer.player.nickname || roundPlayer.player.fullName}
+                  #{index + 1} {roundPlayer.playerName}
                 </p>
                 <p className="text-xs text-gray-500">
-                  {roundPlayer.team
-                    ? `Team ${roundPlayer.team.teamNumber}`
+                  {roundPlayer.teamId
+                    ? getTeamDisplayLabel(
+                        round.teams.find((team) => team.id === roundPlayer.teamId)
+                          ?.roundPlayers ?? []
+                      )
                     : "No team"}
+                </p>
+                <p className="text-xs text-gray-500">
+                  Main game ${roundPlayer.mainGamePayout.toFixed(2)}
+                  {roundPlayer.par3Payout > 0
+                    ? ` + Par 3 ${roundPlayer.par3Payout.toFixed(2)}`
+                    : ""}
                 </p>
               </div>
               <p className="text-xl font-bold text-green-700">
-                ${Math.max(0, roundPlayer.payoutAmount).toFixed(2)}
+                ${Math.max(0, roundPlayer.totalPayout).toFixed(2)}
               </p>
             </div>
           ))}
