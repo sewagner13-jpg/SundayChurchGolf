@@ -43,6 +43,16 @@ export interface UpdateLiveRoundFormatData {
   formatConfig?: Record<string, unknown>;
 }
 
+function mergeRoundFormatConfig(
+  existingConfig: Prisma.JsonValue | null,
+  updates: Record<string, unknown>
+) {
+  return {
+    ...((existingConfig as Prisma.JsonObject | null) ?? {}),
+    ...updates,
+  } as Prisma.InputJsonValue;
+}
+
 export async function setRoundLockCode(id: string, code: string) {
   if (!/^\d{4}$/.test(code)) {
     throw new Error("Lock code must be exactly 4 digits");
@@ -204,6 +214,53 @@ export async function updateLiveRoundFormat(
   revalidatePath(`/rounds/${id}/scoring`);
   revalidatePath(`/rounds/${id}/summary`);
   return updated;
+}
+
+export async function updateRoundBurgerSelections(
+  id: string,
+  selectedPlayerIds: string[]
+) {
+  const round = await prisma.round.findUnique({
+    where: { id },
+    include: {
+      roundPlayers: {
+        select: {
+          playerId: true,
+        },
+      },
+    },
+  });
+
+  if (!round) throw new Error("Round not found");
+  if (!["LIVE", "FINISHED"].includes(round.status)) {
+    throw new Error("Burger selections can only be updated once the round has started");
+  }
+
+  const validPlayerIds = new Set(round.roundPlayers.map((roundPlayer) => roundPlayer.playerId));
+  const normalizedSelections = [...new Set(selectedPlayerIds)].filter((playerId) =>
+    validPlayerIds.has(playerId)
+  );
+
+  await prisma.round.update({
+    where: { id },
+    data: {
+      formatConfig: mergeRoundFormatConfig(round.formatConfig, {
+        burgerOrders: {
+          selectedPlayerIds: normalizedSelections,
+          updatedAt: new Date().toISOString(),
+        },
+      }),
+    },
+  });
+
+  revalidatePath(`/rounds/${id}`);
+  revalidatePath(`/rounds/${id}/scoring`);
+  revalidatePath(`/rounds/${id}/summary`);
+  revalidatePath(`/rounds/${id}/final-payouts`);
+
+  return {
+    selectedPlayerIds: normalizedSelections,
+  };
 }
 
 export async function deleteRound(id: string) {

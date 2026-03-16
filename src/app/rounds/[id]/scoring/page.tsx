@@ -18,6 +18,7 @@ import {
   getRound,
   revertToDraft,
   setRoundLockCode,
+  updateRoundBurgerSelections,
   updateLiveRoundFormat,
 } from "@/actions/rounds";
 import {
@@ -138,6 +139,11 @@ interface Round {
       player: { id: string; fullName: string; nickname: string | null };
     }[];
   }[];
+  roundPlayers: {
+    id: string;
+    playerId: string;
+    player: { id: string; fullName: string; nickname: string | null };
+  }[];
 }
 
 interface PlayerHoleInputState {
@@ -213,6 +219,19 @@ interface DriveMinimumProgress {
   }>;
 }
 
+interface BurgerOrdersConfig {
+  selectedPlayerIds?: string[];
+  updatedAt?: string;
+}
+
+function getBurgerOrdersConfig(
+  formatConfig: Record<string, unknown> | null | undefined
+): BurgerOrdersConfig | null {
+  const config = formatConfig?.burgerOrders;
+  if (!config || typeof config !== "object") return null;
+  return config as BurgerOrdersConfig;
+}
+
 function buildLiveFormatConfig(
   formatDefinition: (typeof FORMAT_DEFINITIONS)[number] | null,
   formatConfig: Record<string, unknown> | null | undefined
@@ -273,6 +292,7 @@ export default function LiveScoringPage({
   const [showEditTeamsModal, setShowEditTeamsModal] = useState(false);
   const [showEditFormatModal, setShowEditFormatModal] = useState(false);
   const [showLiveLeaderboard, setShowLiveLeaderboard] = useState(false);
+  const [showBurgerModal, setShowBurgerModal] = useState(false);
   const [unlockCode, setUnlockCode] = useState("");
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const [formatUnlockCode, setFormatUnlockCode] = useState("");
@@ -296,6 +316,9 @@ export default function LiveScoringPage({
     useState<DriveMinimumProgress | null>(null);
   const [liveLeaderboard, setLiveLeaderboard] =
     useState<LiveLeaderboardData | null>(null);
+  const [burgerSelections, setBurgerSelections] = useState<Set<string>>(new Set());
+  const [burgerSaving, setBurgerSaving] = useState(false);
+  const [burgerPromptShown, setBurgerPromptShown] = useState(false);
   const playerInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const isLive = round?.status === "LIVE";
@@ -314,6 +337,18 @@ export default function LiveScoringPage({
       loadPlayerInputs();
     }
   }, [round, currentHole, myTeamId]);
+
+  useEffect(() => {
+    if (!round) return;
+    const burgerConfig = getBurgerOrdersConfig(round.formatConfig);
+    setBurgerSelections(new Set(burgerConfig?.selectedPlayerIds ?? []));
+  }, [round]);
+
+  useEffect(() => {
+    if (!round || burgerPromptShown || currentHole < 15) return;
+    setShowBurgerModal(true);
+    setBurgerPromptShown(true);
+  }, [round, currentHole, burgerPromptShown]);
 
   useEffect(() => {
     if (!round || !myTeamId) return;
@@ -953,6 +988,45 @@ export default function LiveScoringPage({
     setSaving(false);
   };
 
+  const toggleBurgerSelection = (playerId: string) => {
+    setBurgerSelections((current) => {
+      const next = new Set(current);
+      if (next.has(playerId)) {
+        next.delete(playerId);
+      } else {
+        next.add(playerId);
+      }
+      return next;
+    });
+  };
+
+  const handleSaveBurgerSelections = async () => {
+    setBurgerSaving(true);
+    setError(null);
+    try {
+      const selectedPlayerIds = [...burgerSelections];
+      await updateRoundBurgerSelections(id, selectedPlayerIds);
+      setRound((current) =>
+        current
+          ? {
+              ...current,
+              formatConfig: {
+                ...(current.formatConfig ?? {}),
+                burgerOrders: {
+                  selectedPlayerIds,
+                  updatedAt: new Date().toISOString(),
+                },
+              },
+            }
+          : current
+      );
+      setShowBurgerModal(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save burger list");
+    }
+    setBurgerSaving(false);
+  };
+
   const handleFinish = async () => {
     setSaving(true);
     try {
@@ -1317,6 +1391,16 @@ export default function LiveScoringPage({
   }
 
   const holeInfo = round.course.holes.find((h) => h.holeNumber === currentHole);
+  const burgerSelectionList = round.teams
+    .flatMap((team) =>
+      team.roundPlayers.map((roundPlayer) => ({
+        playerId: roundPlayer.playerId,
+        playerName:
+          roundPlayer.player.nickname || roundPlayer.player.fullName,
+      }))
+    )
+    .filter((player) => burgerSelections.has(player.playerId));
+  const canManageBurgers = currentHole >= 15 || burgerSelections.size > 0;
   const currentDisplayScore =
     (myTeamScore?.holeData?.displayScore as string | undefined) ?? null;
   const currentScoreLabel = usesIndividualScores
@@ -1366,6 +1450,14 @@ export default function LiveScoringPage({
               </p>
             </div>
             <div className="flex gap-2">
+              {canManageBurgers && (
+                <button
+                  onClick={() => setShowBurgerModal(true)}
+                  className="px-3 py-1 bg-orange-100 text-orange-800 rounded text-sm"
+                >
+                  Burgers {burgerSelections.size > 0 ? `(${burgerSelections.size})` : ""}
+                </button>
+              )}
               <button
                 onClick={openEditFormatModal}
                 className="px-3 py-1 bg-amber-100 text-amber-800 rounded text-sm"
@@ -1444,6 +1536,27 @@ export default function LiveScoringPage({
 
       {/* Main Content - My Team Scoring */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {canManageBurgers && (
+          <div className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-900">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="font-semibold">Burger List</p>
+                <p className="text-xs text-orange-800">
+                  Hole 15 and later. Use this to tell the first group in who wants burgers.
+                </p>
+              </div>
+              <Button variant="secondary" onClick={() => setShowBurgerModal(true)}>
+                Edit List
+              </Button>
+            </div>
+            <p className="mt-2">
+              {burgerSelectionList.length > 0
+                ? burgerSelectionList.map((player) => player.playerName).join(", ")
+                : "No burger orders selected yet."}
+            </p>
+          </div>
+        )}
+
         {pendingImportantMessage && (
           <div className="bg-amber-50 border-2 border-amber-400 text-amber-900 px-4 py-4 rounded-lg shadow-sm">
             <div className="flex items-start justify-between gap-4">
@@ -2569,6 +2682,60 @@ export default function LiveScoringPage({
                 : round.lockCode
                   ? "Save Format"
                   : "Create Lock Code and Save"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showBurgerModal}
+        onClose={() => {
+          if (!burgerSaving) {
+            setShowBurgerModal(false);
+          }
+        }}
+        title="Burger List"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            Check everyone who wants burgers. This list is shared across the round so
+            the first group in can read it and order for everyone.
+          </p>
+          <div className="space-y-2 max-h-80 overflow-y-auto rounded border border-gray-200 p-2">
+            {round.roundPlayers.map((roundPlayer) => (
+              <label
+                key={roundPlayer.id}
+                className="flex items-center justify-between rounded px-2 py-2 hover:bg-gray-50"
+              >
+                <span className="font-medium">
+                  {roundPlayer.player.nickname || roundPlayer.player.fullName}
+                </span>
+                <input
+                  type="checkbox"
+                  checked={burgerSelections.has(roundPlayer.playerId)}
+                  onChange={() => toggleBurgerSelection(roundPlayer.playerId)}
+                  className="h-4 w-4"
+                />
+              </label>
+            ))}
+          </div>
+          <div className="rounded bg-gray-50 px-3 py-2 text-sm text-gray-700">
+            {burgerSelectionList.length > 0
+              ? `Ordering for: ${burgerSelectionList
+                  .map((player) => player.playerName)
+                  .join(", ")}`
+              : "Nobody selected yet."}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => setShowBurgerModal(false)}
+              disabled={burgerSaving}
+            >
+              Close
+            </Button>
+            <Button onClick={handleSaveBurgerSelections} disabled={burgerSaving}>
+              {burgerSaving ? "Saving..." : "Save Burger List"}
             </Button>
           </div>
         </div>
