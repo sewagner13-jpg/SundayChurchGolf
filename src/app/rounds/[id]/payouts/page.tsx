@@ -130,6 +130,9 @@ export default function RoundPayoutsPage({
           </p>
         </div>
         <div className="flex gap-2">
+          <Link href={`/rounds/${id}/final-payouts`}>
+            <Button>Final Payouts</Button>
+          </Link>
           <Link href={`/rounds/${id}/summary`}>
             <Button variant="secondary">Back to Summary</Button>
           </Link>

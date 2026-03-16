@@ -191,7 +191,7 @@ export default function RoundSummaryPage({
     try {
       await savePar3ContestResults(id, par3Results);
       await loadRound();
-      router.push(`/rounds/${id}/payouts`);
+      router.push(`/rounds/${id}/final-payouts`);
     } catch (err) {
       alert(
         err instanceof Error ? err.message : "Failed to save Par 3 contest winners"
@@ -545,9 +545,9 @@ export default function RoundSummaryPage({
               Back
             </Button>
           </Link>
-          <Link href={`/rounds/${id}/payouts`}>
+          <Link href={`/rounds/${id}/final-payouts`}>
             <Button variant="secondary" size="sm">
-              Payouts
+              Final Payouts
             </Button>
           </Link>
         </div>
