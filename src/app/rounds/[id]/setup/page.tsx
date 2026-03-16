@@ -129,7 +129,11 @@ interface EnrichedFormat {
 
 function getDriveMinimumSummary(
   formatConfig: Record<string, unknown> | null | undefined
-): { enabled: boolean; requiredDrivesPerPlayer: number | null } {
+): {
+  enabled: boolean;
+  requiredDrivesPerPlayer: number | null;
+  excludePar3s: boolean;
+} {
   const enabled = !!formatConfig?.enableDriveMinimums;
   const requiredValue = formatConfig?.requiredDrivesPerPlayer;
   return {
@@ -138,6 +142,7 @@ function getDriveMinimumSummary(
       typeof requiredValue === "number" && Number.isFinite(requiredValue)
         ? requiredValue
         : null,
+    excludePar3s: formatConfig?.excludePar3sFromDriveMinimums === true,
   };
 }
 
@@ -156,6 +161,9 @@ function buildDefaultFormatConfig(
   if (config.requiredDrivesPerPlayer === undefined) {
     config.requiredDrivesPerPlayer = 4;
   }
+  if (config.excludePar3sFromDriveMinimums === undefined) {
+    config.excludePar3sFromDriveMinimums = false;
+  }
   return config;
 }
 
@@ -166,6 +174,7 @@ function sanitizeEditableFormatConfig(
     return {
       enableDriveMinimums: false,
       requiredDrivesPerPlayer: 4,
+      excludePar3sFromDriveMinimums: false,
     };
   }
   const { par3Contest, vegasMatchups, ...editableConfig } = formatConfig;
@@ -180,6 +189,8 @@ function sanitizeEditableFormatConfig(
       typeof editableConfig.requiredDrivesPerPlayer === "number"
         ? editableConfig.requiredDrivesPerPlayer
         : 4,
+    excludePar3sFromDriveMinimums:
+      editableConfig.excludePar3sFromDriveMinimums === true,
     ...editableConfig,
   };
 }
@@ -237,6 +248,8 @@ export default function RoundSetupPage({
   );
   const [draftDriveMinimumsEnabled, setDraftDriveMinimumsEnabled] = useState(false);
   const [draftRequiredDrivesPerPlayer, setDraftRequiredDrivesPerPlayer] = useState("4");
+  const [draftExcludePar3sFromDriveMinimums, setDraftExcludePar3sFromDriveMinimums] =
+    useState(false);
 
   useEffect(() => {
     loadData();
@@ -373,6 +386,9 @@ export default function RoundSetupPage({
         String(
           (editableFormatConfig.requiredDrivesPerPlayer as number | undefined) ?? 4
         )
+      );
+      setDraftExcludePar3sFromDriveMinimums(
+        editableFormatConfig.excludePar3sFromDriveMinimums === true
       );
 
       // Check for missing handicaps
@@ -615,6 +631,8 @@ export default function RoundSetupPage({
         typeof editFormatConfig.requiredDrivesPerPlayer === "number"
           ? editFormatConfig.requiredDrivesPerPlayer
           : 4,
+      excludePar3sFromDriveMinimums:
+        editFormatConfig.excludePar3sFromDriveMinimums === true,
     };
     setEditFormatId(nextFormatId);
     setEditFormatConfig({
@@ -627,11 +645,20 @@ export default function RoundSetupPage({
     setEditFormatConfig((current) => ({ ...current, [key]: value }));
   };
 
-  const updateDraftDriveMinimums = (enabled: boolean, requiredDrives?: string) => {
+  const updateDraftDriveMinimums = (
+    enabled: boolean,
+    requiredDrives?: string,
+    excludePar3s?: boolean
+  ) => {
     const normalizedRequired = requiredDrives ?? draftRequiredDrivesPerPlayer;
+    const normalizedExcludePar3s =
+      excludePar3s ?? draftExcludePar3sFromDriveMinimums;
     setDraftDriveMinimumsEnabled(enabled);
     if (requiredDrives !== undefined) {
       setDraftRequiredDrivesPerPlayer(requiredDrives);
+    }
+    if (excludePar3s !== undefined) {
+      setDraftExcludePar3sFromDriveMinimums(excludePar3s);
     }
     const parsedRequired = Number(normalizedRequired);
     const safeRequired = Number.isFinite(parsedRequired) && parsedRequired > 0
@@ -641,6 +668,7 @@ export default function RoundSetupPage({
       ...current,
       enableDriveMinimums: enabled,
       requiredDrivesPerPlayer: safeRequired,
+      excludePar3sFromDriveMinimums: normalizedExcludePar3s,
     }));
   };
 
@@ -747,6 +775,7 @@ export default function RoundSetupPage({
         requiredDrivesPerPlayer: draftDriveMinimumsEnabled
           ? parsedRequired
           : parsedRequired || 4,
+        excludePar3sFromDriveMinimums: draftExcludePar3sFromDriveMinimums,
       };
       await updateRoundDraft(id, {
         formatConfig: nextFormatConfig,
@@ -763,6 +792,9 @@ export default function RoundSetupPage({
         String(
           (nextEditableConfig.requiredDrivesPerPlayer as number | undefined) ?? 4
         )
+      );
+      setDraftExcludePar3sFromDriveMinimums(
+        nextEditableConfig.excludePar3sFromDriveMinimums === true
       );
     } catch (err) {
       setError(
@@ -908,6 +940,7 @@ export default function RoundSetupPage({
               {driveMinimumSummary.requiredDrivesPerPlayer !== null
                 ? `: ${driveMinimumSummary.requiredDrivesPerPlayer} per player`
                 : ""}
+              {driveMinimumSummary.excludePar3s ? " • par 3s excluded" : ""}
             </p>
           )}
           <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -1046,16 +1079,34 @@ export default function RoundSetupPage({
                     require the scorer to mark whose drive was used on each hole.
                   </p>
                   {draftDriveMinimumsEnabled && (
-                    <Input
-                      label="Minimum Drives Per Player"
-                      type="number"
-                      min="1"
-                      value={draftRequiredDrivesPerPlayer}
-                      onChange={(e) =>
-                        updateDraftDriveMinimums(true, e.target.value)
-                      }
-                      disabled={actionLoading}
-                    />
+                    <div className="space-y-3">
+                      <Input
+                        label="Minimum Drives Per Player"
+                        type="number"
+                        min="1"
+                        value={draftRequiredDrivesPerPlayer}
+                        onChange={(e) =>
+                          updateDraftDriveMinimums(true, e.target.value)
+                        }
+                        disabled={actionLoading}
+                      />
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={draftExcludePar3sFromDriveMinimums}
+                          onChange={(e) =>
+                            updateDraftDriveMinimums(
+                              true,
+                              undefined,
+                              e.target.checked
+                            )
+                          }
+                          disabled={actionLoading}
+                          className="h-4 w-4"
+                        />
+                        <span>Do not count par 3 holes toward drive minimums</span>
+                      </label>
+                    </div>
                   )}
                   <Button
                     variant="secondary"
@@ -1706,7 +1757,11 @@ export default function RoundSetupPage({
                   }
 
                   if (
-                    ["enableDriveMinimums", "requiredDrivesPerPlayer"].includes(
+                    [
+                      "enableDriveMinimums",
+                      "requiredDrivesPerPlayer",
+                      "excludePar3sFromDriveMinimums",
+                    ].includes(
                       option.key
                     )
                   ) {
@@ -1800,18 +1855,34 @@ export default function RoundSetupPage({
               scoring.
             </p>
             {!!editFormatConfig.enableDriveMinimums && (
-              <Input
-                label="Minimum Drives Per Player"
-                type="number"
-                min="1"
-                value={String(editFormatConfig.requiredDrivesPerPlayer ?? 4)}
-                onChange={(e) =>
-                  updateEditFormatConfig(
-                    "requiredDrivesPerPlayer",
-                    Number(e.target.value)
-                  )
-                }
-              />
+              <div className="space-y-3">
+                <Input
+                  label="Minimum Drives Per Player"
+                  type="number"
+                  min="1"
+                  value={String(editFormatConfig.requiredDrivesPerPlayer ?? 4)}
+                  onChange={(e) =>
+                    updateEditFormatConfig(
+                      "requiredDrivesPerPlayer",
+                      Number(e.target.value)
+                    )
+                  }
+                />
+                <label className="flex items-center gap-2 text-sm text-amber-900">
+                  <input
+                    type="checkbox"
+                    checked={editFormatConfig.excludePar3sFromDriveMinimums === true}
+                    onChange={(e) =>
+                      updateEditFormatConfig(
+                        "excludePar3sFromDriveMinimums",
+                        e.target.checked
+                      )
+                    }
+                    className="h-4 w-4"
+                  />
+                  <span>Do not count par 3 holes toward drive minimums</span>
+                </label>
+              </div>
             )}
           </div>
 

@@ -550,6 +550,15 @@ export function computeDriveMinimumStatus(
   return { driveCounts, shortfalls, remainingHoles, warnings };
 }
 
+export function getEligibleDriveMinimumHoleNumbers(
+  holes: Array<{ holeNumber: number; par: number }>,
+  excludePar3s: boolean
+) {
+  return holes
+    .filter((hole) => !excludePar3s || hole.par !== 3)
+    .map((hole) => hole.holeNumber);
+}
+
 export function computePar3ContestStandings(
   playerScores: Array<{
     playerId: string;

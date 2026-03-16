@@ -51,6 +51,9 @@ function buildDefaultConfig(
   if (config.requiredDrivesPerPlayer === undefined) {
     config.requiredDrivesPerPlayer = 4;
   }
+  if (config.excludePar3sFromDriveMinimums === undefined) {
+    config.excludePar3sFromDriveMinimums = false;
+  }
   return config;
 }
 
@@ -133,6 +136,8 @@ function NewRoundForm() {
   const isIrishGolf = selectedFormat?.name === "Irish Golf / 6-6-6";
   const driveMinimumsEnabled = !!formatConfig.enableDriveMinimums;
   const requiredDrivesPerPlayer = getRequiredDrivesPerPlayer(formatConfig);
+  const excludePar3sFromDriveMinimums =
+    formatConfig.excludePar3sFromDriveMinimums === true;
   const eligibleSegmentFormats = formats.filter(
     (f) =>
       f.definitionId !== null &&
@@ -257,6 +262,8 @@ function NewRoundForm() {
                       requiredDrivesPerPlayer !== null
                         ? `, ${requiredDrivesPerPlayer} per player`
                         : ""
+                    }${
+                      excludePar3sFromDriveMinimums ? ", par 3s excluded" : ""
                     }`
                   : "OFF"}
               </p>
@@ -281,7 +288,11 @@ function NewRoundForm() {
                     return null;
 
                   if (
-                    ["enableDriveMinimums", "requiredDrivesPerPlayer"].includes(
+                    [
+                      "enableDriveMinimums",
+                      "requiredDrivesPerPlayer",
+                      "excludePar3sFromDriveMinimums",
+                    ].includes(
                       opt.key
                     )
                   ) {
@@ -355,15 +366,31 @@ function NewRoundForm() {
               you to mark whose drive was used on each hole.
             </p>
             {driveMinimumsEnabled && (
-              <Input
-                label="Minimum Drives Per Player"
-                type="number"
-                min="1"
-                value={String(requiredDrivesPerPlayer ?? 4)}
-                onChange={(e) =>
-                  updateConfig("requiredDrivesPerPlayer", Number(e.target.value))
-                }
-              />
+              <div className="space-y-3">
+                <Input
+                  label="Minimum Drives Per Player"
+                  type="number"
+                  min="1"
+                  value={String(requiredDrivesPerPlayer ?? 4)}
+                  onChange={(e) =>
+                    updateConfig("requiredDrivesPerPlayer", Number(e.target.value))
+                  }
+                />
+                <label className="flex items-center gap-2 text-sm text-amber-900">
+                  <input
+                    type="checkbox"
+                    checked={excludePar3sFromDriveMinimums}
+                    onChange={(e) =>
+                      updateConfig(
+                        "excludePar3sFromDriveMinimums",
+                        e.target.checked
+                      )
+                    }
+                    className="h-4 w-4"
+                  />
+                  <span>Do not count par 3 holes toward drive minimums</span>
+                </label>
+              </div>
             )}
           </div>
 

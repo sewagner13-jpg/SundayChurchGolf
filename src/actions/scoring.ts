@@ -14,7 +14,10 @@ import {
   findTopPayingTeams,
   TeamScore,
 } from "@/lib/scoring-engine";
-import { computeDriveMinimumStatus } from "@/lib/format-scoring";
+import {
+  computeDriveMinimumStatus,
+  getEligibleDriveMinimumHoleNumbers,
+} from "@/lib/format-scoring";
 import { getScoringOrder } from "@/lib/scoring-order";
 import { getTeamDisplayLabel } from "@/lib/team-labels";
 
@@ -748,6 +751,17 @@ export async function getTeamDriveMinimumProgress(roundId: string, teamId: strin
   const round = await prisma.round.findUnique({
     where: { id: roundId },
     include: {
+      course: {
+        include: {
+          holes: {
+            orderBy: { holeNumber: "asc" },
+            select: {
+              holeNumber: true,
+              par: true,
+            },
+          },
+        },
+      },
       teams: {
         where: { id: teamId },
         include: {
@@ -784,11 +798,16 @@ export async function getTeamDriveMinimumProgress(roundId: string, teamId: strin
   const roundFormatConfig =
     (round.formatConfig as Record<string, unknown> | null) ?? null;
   const requiredDrives = Number(roundFormatConfig?.requiredDrivesPerPlayer ?? 0);
+  const excludePar3s =
+    roundFormatConfig?.excludePar3sFromDriveMinimums === true;
+  const eligibleHoleNumbers = new Set(
+    getEligibleDriveMinimumHoleNumbers(round.course.holes, excludePar3s)
+  );
   if (!roundFormatConfig?.enableDriveMinimums || requiredDrives <= 0) {
     return {
       enabled: false,
       requiredDrives: 0,
-      remainingHoles: 18,
+      remainingHoles: round.course.holes.length,
       warnings: [] as string[],
       players: team.roundPlayers.map((roundPlayer) => ({
         playerId: roundPlayer.playerId,
@@ -803,12 +822,14 @@ export async function getTeamDriveMinimumProgress(roundId: string, teamId: strin
   const driveLogByHole = new Map<number, string>();
 
   for (const score of round.playerScores) {
+    if (!eligibleHoleNumbers.has(score.holeNumber)) continue;
     if ((score.extraData as Record<string, unknown> | null)?.driveSelected === true) {
       driveLogByHole.set(score.holeNumber, score.playerId);
     }
   }
 
   for (const holeScore of round.holeScores) {
+    if (!eligibleHoleNumbers.has(holeScore.holeNumber)) continue;
     if (driveLogByHole.has(holeScore.holeNumber)) continue;
     const drivePlayerId = (holeScore.holeData as Record<string, unknown> | null)
       ?.drivePlayerId as string | undefined;
@@ -824,12 +845,13 @@ export async function getTeamDriveMinimumProgress(roundId: string, teamId: strin
     })),
     team.roundPlayers.map((roundPlayer) => roundPlayer.playerId),
     requiredDrives,
-    18
+    eligibleHoleNumbers.size
   );
 
   return {
     enabled: true,
     requiredDrives,
+    excludePar3s,
     remainingHoles: status.remainingHoles,
     warnings: status.warnings,
     players: team.roundPlayers.map((roundPlayer) => {

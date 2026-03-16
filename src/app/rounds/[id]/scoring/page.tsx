@@ -201,6 +201,7 @@ interface LiveLeaderboardData {
 interface DriveMinimumProgress {
   enabled: boolean;
   requiredDrives: number;
+  excludePar3s?: boolean;
   remainingHoles: number;
   warnings: string[];
   players: Array<{
@@ -234,6 +235,8 @@ function buildLiveFormatConfig(
     typeof formatConfig?.requiredDrivesPerPlayer === "number"
       ? formatConfig.requiredDrivesPerPlayer
       : 4;
+  nextConfig.excludePar3sFromDriveMinimums =
+    formatConfig?.excludePar3sFromDriveMinimums === true;
 
   return nextConfig;
 }
@@ -1520,7 +1523,9 @@ export default function LiveScoringPage({
                     {Number(round.formatConfig.requiredDrivesPerPlayer ?? 4)} per
                     player
                   </strong>
-                  .
+                  {round.formatConfig.excludePar3sFromDriveMinimums === true
+                    ? ", excluding par 3 holes."
+                    : "."}
                 </div>
               )}
 
@@ -1531,6 +1536,9 @@ export default function LiveScoringPage({
                     <p className="text-xs">
                       {driveMinimumProgress.remainingHoles} hole
                       {driveMinimumProgress.remainingHoles === 1 ? "" : "s"} left
+                      {driveMinimumProgress.excludePar3s
+                        ? " that count toward the minimum"
+                        : ""}
                     </p>
                   </div>
                   <div className="mt-2 space-y-1">
@@ -2208,22 +2216,38 @@ export default function LiveScoringPage({
               <span>Require a minimum number of drives from each player</span>
             </label>
             {!!liveFormatConfigDraft.enableDriveMinimums && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700">
-                  Minimum Drives Per Player
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Minimum Drives Per Player
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={String(liveFormatConfigDraft.requiredDrivesPerPlayer ?? 4)}
+                    onChange={(e) =>
+                      updateLiveFormatDraft(
+                        "requiredDrivesPerPlayer",
+                        Number(e.target.value)
+                      )
+                    }
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
+                  />
+                </div>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={liveFormatConfigDraft.excludePar3sFromDriveMinimums === true}
+                    onChange={(e) =>
+                      updateLiveFormatDraft(
+                        "excludePar3sFromDriveMinimums",
+                        e.target.checked
+                      )
+                    }
+                    className="h-4 w-4"
+                  />
+                  <span>Do not count par 3 holes toward drive minimums</span>
                 </label>
-                <input
-                  type="number"
-                  min="1"
-                  value={String(liveFormatConfigDraft.requiredDrivesPerPlayer ?? 4)}
-                  onChange={(e) =>
-                    updateLiveFormatDraft(
-                      "requiredDrivesPerPlayer",
-                      Number(e.target.value)
-                    )
-                  }
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
-                />
               </div>
             )}
           </div>
@@ -2234,6 +2258,7 @@ export default function LiveScoringPage({
                 ![
                   "enableDriveMinimums",
                   "requiredDrivesPerPlayer",
+                  "excludePar3sFromDriveMinimums",
                   "segment1FormatId",
                   "segment2FormatId",
                   "segment3FormatId",
