@@ -146,6 +146,20 @@ export const FORMAT_DEFINITIONS: FormatDefinition[] = [
     requiresDriveTracking: false,
   },
   {
+    id: 'captains_choice',
+    name: "Captain's Choice Scramble",
+    shortLabel: 'CapChoice',
+    gameDescription:
+      "A scramble format where the team captain decides which shot to use after each stroke. All players hit from the selected position and continue until the ball is holed. The team records a single gross score per hole. Simple and accessible for groups of any skill level.",
+    formatCategory: 'stroke',
+    defaultTeamSize: 4,
+    supportedTeamSizes: [2, 3, 4],
+    configOptions: [],
+    requiresIndividualScores: false,
+    requiresDesignatedPlayer: false,
+    requiresDriveTracking: false,
+  },
+  {
     id: 'money_ball',
     name: 'Money Ball',
     shortLabel: 'MoneyBall',
@@ -276,31 +290,130 @@ export const FORMAT_DEFINITIONS: FormatDefinition[] = [
     defaultTeamSize: 4,
     supportedTeamSizes: [3, 4],
     configOptions: [
+      // Segment format selectors (rendered in custom UI section)
       {
         key: 'segment1FormatId',
-        label: 'Holes 1-6 Format',
+        label: 'Holes 1–6 Format',
         type: 'select',
         options: [],
         description: 'Format used for holes 1 through 6.',
       },
       {
+        key: 'segment1MatchPlay',
+        label: 'Segment 1: Match Play Scoring',
+        type: 'boolean',
+        defaultValue: false,
+        description: 'Score segment 1 as match play (hole-by-hole wins) instead of stroke total.',
+      },
+      {
+        key: 'segment1CarryOver',
+        label: 'Segment 1: Tied Holes Carry Over',
+        type: 'boolean',
+        defaultValue: false,
+        description: 'Tied holes within segment 1 carry their value to the next hole.',
+      },
+      {
         key: 'segment2FormatId',
-        label: 'Holes 7-12 Format',
+        label: 'Holes 7–12 Format',
         type: 'select',
         options: [],
         description: 'Format used for holes 7 through 12.',
       },
       {
+        key: 'segment2MatchPlay',
+        label: 'Segment 2: Match Play Scoring',
+        type: 'boolean',
+        defaultValue: false,
+        description: 'Score segment 2 as match play.',
+      },
+      {
+        key: 'segment2CarryOver',
+        label: 'Segment 2: Tied Holes Carry Over',
+        type: 'boolean',
+        defaultValue: false,
+        description: 'Tied holes within segment 2 carry their value to the next hole.',
+      },
+      {
         key: 'segment3FormatId',
-        label: 'Holes 13-18 Format',
+        label: 'Holes 13–18 Format',
         type: 'select',
         options: [],
         description: 'Format used for holes 13 through 18.',
+      },
+      {
+        key: 'segment3MatchPlay',
+        label: 'Segment 3: Match Play Scoring',
+        type: 'boolean',
+        defaultValue: false,
+        description: 'Score segment 3 as match play.',
+      },
+      {
+        key: 'segment3CarryOver',
+        label: 'Segment 3: Tied Holes Carry Over',
+        type: 'boolean',
+        defaultValue: false,
+        description: 'Tied holes within segment 3 carry their value to the next hole.',
+      },
+      // Optional 4th overall game
+      {
+        key: 'enableOverallGame',
+        label: 'Enable 4th: Overall 18-Hole Result',
+        type: 'boolean',
+        defaultValue: false,
+        description: 'Add a 4th competition scored across all 18 holes in addition to the three segments.',
+      },
+      {
+        key: 'overallGameMatchPlay',
+        label: 'Overall Game: Match Play Scoring',
+        type: 'boolean',
+        defaultValue: false,
+        description: 'Use match play hole-by-hole comparison for the overall 18-hole game.',
+      },
+      {
+        key: 'overallGameCarryOver',
+        label: 'Overall Game: Tied Holes Carry Over',
+        type: 'boolean',
+        defaultValue: false,
+        description: 'Tied holes in the overall match play game carry their value forward.',
       },
     ],
     requiresIndividualScores: true,
     requiresDesignatedPlayer: true,
     requiresDriveTracking: true,
+  },
+  {
+    id: 'match_play',
+    name: 'Match Play',
+    shortLabel: 'MatchPlay',
+    gameDescription:
+      'Teams compete hole-by-hole — the team with the lowest score wins the hole. Ties result in a halved hole or, with carryover enabled, the value carries forward to the next decisive hole. For 3+ teams: if two teams tie for the lowest score, all teams tie that hole. The team winning the most holes (or points with carryover) wins the match.',
+    formatCategory: 'match',
+    defaultTeamSize: 4,
+    supportedTeamSizes: [2, 3, 4],
+    configOptions: [
+      {
+        key: 'carryOver',
+        label: 'Carryover on Tied Holes',
+        type: 'boolean',
+        defaultValue: false,
+        description:
+          'When enabled, tied holes carry their value to the next hole (like skins). When disabled, ties are halved.',
+      },
+      {
+        key: 'multiTeamTieRule',
+        label: 'Multi-Team Tie Rule',
+        type: 'select',
+        options: [
+          { value: 'if_two_tie_all_tie', label: 'If two teams tie, all teams tie' },
+          { value: 'split_tied_winners', label: 'Tied teams share the win' },
+        ],
+        defaultValue: 'if_two_tie_all_tie',
+        description: 'How to handle ties when three or more teams play.',
+      },
+    ],
+    requiresIndividualScores: false,
+    requiresDesignatedPlayer: false,
+    requiresDriveTracking: false,
   },
   {
     id: 'vegas',
@@ -345,6 +458,7 @@ export function getFormatById(id: string): FormatDefinition | undefined {
 
 /** IDs for formats that can be used as Irish Golf 6-6-6 segments */
 export const IRISH_GOLF_ELIGIBLE_SEGMENT_FORMATS = [
+  'captains_choice',
   'one_best_ball_of_four',
   'two_best_balls_of_four',
   'three_best_balls_of_four',
