@@ -278,12 +278,23 @@ function NewRoundForm() {
                   Format Options
                 </p>
                 {selectedFormat.configOptions.map((opt) => {
-                  // Hide segment dropdowns — handled separately below
+                  // Hide Irish Golf segment/match-play options — handled in custom section below
                   if (
                     isIrishGolf &&
-                    ["segment1FormatId", "segment2FormatId", "segment3FormatId"].includes(
-                      opt.key
-                    )
+                    [
+                      "segment1FormatId",
+                      "segment1MatchPlay",
+                      "segment1CarryOver",
+                      "segment2FormatId",
+                      "segment2MatchPlay",
+                      "segment2CarryOver",
+                      "segment3FormatId",
+                      "segment3MatchPlay",
+                      "segment3CarryOver",
+                      "enableOverallGame",
+                      "overallGameMatchPlay",
+                      "overallGameCarryOver",
+                    ].includes(opt.key)
                   )
                     return null;
 
@@ -394,34 +405,94 @@ function NewRoundForm() {
             )}
           </div>
 
-          {/* Irish Golf segment selectors */}
+          {/* Irish Golf segment selectors + match play options */}
           {isIrishGolf && (
-            <div className="space-y-3 border border-amber-200 rounded-md p-3 bg-amber-50">
+            <div className="space-y-4 border border-amber-200 rounded-md p-3 bg-amber-50">
               <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">
                 6-6-6 Segment Formats
               </p>
+
               {(
                 [
-                  { key: "segment1FormatId", label: "Holes 1–6 Format" },
-                  { key: "segment2FormatId", label: "Holes 7–12 Format" },
-                  { key: "segment3FormatId", label: "Holes 13–18 Format" },
+                  { formatKey: "segment1FormatId", mpKey: "segment1MatchPlay", coKey: "segment1CarryOver", label: "Holes 1–6" },
+                  { formatKey: "segment2FormatId", mpKey: "segment2MatchPlay", coKey: "segment2CarryOver", label: "Holes 7–12" },
+                  { formatKey: "segment3FormatId", mpKey: "segment3MatchPlay", coKey: "segment3CarryOver", label: "Holes 13–18" },
                 ] as const
-              ).map(({ key, label }) => (
-                <Select
-                  key={key}
-                  label={label}
-                  value={String(formatConfig[key] ?? "")}
-                  onChange={(e) => updateConfig(key, e.target.value)}
-                  options={[
-                    { value: "", label: "Select a format…" },
-                    ...eligibleSegmentFormats.map((f) => ({
-                      value: f.definitionId ?? f.id,
-                      label: f.name,
-                    })),
-                  ]}
-                  required
-                />
+              ).map(({ formatKey, mpKey, coKey, label }) => (
+                <div key={formatKey} className="space-y-2 border border-amber-100 rounded-md p-2 bg-amber-50/50">
+                  <p className="text-xs font-semibold text-amber-600">{label}</p>
+                  <Select
+                    label="Format"
+                    value={String(formatConfig[formatKey] ?? "")}
+                    onChange={(e) => updateConfig(formatKey, e.target.value)}
+                    options={[
+                      { value: "", label: "Select a format…" },
+                      ...eligibleSegmentFormats.map((f) => ({
+                        value: f.definitionId ?? f.id,
+                        label: f.name,
+                      })),
+                    ]}
+                    required
+                  />
+                  <label className="flex items-center gap-2 text-sm text-amber-800">
+                    <input
+                      type="checkbox"
+                      checked={!!formatConfig[mpKey]}
+                      onChange={(e) => updateConfig(mpKey, e.target.checked)}
+                      className="h-4 w-4"
+                    />
+                    <span>Match Play scoring (hole-by-hole wins)</span>
+                  </label>
+                  {!!formatConfig[mpKey] && (
+                    <label className="flex items-center gap-2 text-sm text-amber-800 ml-6">
+                      <input
+                        type="checkbox"
+                        checked={!!formatConfig[coKey]}
+                        onChange={(e) => updateConfig(coKey, e.target.checked)}
+                        className="h-4 w-4"
+                      />
+                      <span>Tied holes carry over to next hole</span>
+                    </label>
+                  )}
+                </div>
               ))}
+
+              {/* Optional 4th overall game */}
+              <div className="border-t border-amber-200 pt-3 space-y-2">
+                <label className="flex items-center gap-2 text-sm font-medium text-amber-800">
+                  <input
+                    type="checkbox"
+                    checked={!!formatConfig.enableOverallGame}
+                    onChange={(e) => updateConfig("enableOverallGame", e.target.checked)}
+                    className="h-4 w-4"
+                  />
+                  <span>Enable 4th: Overall 18-hole result</span>
+                </label>
+                {!!formatConfig.enableOverallGame && (
+                  <div className="ml-6 space-y-2">
+                    <label className="flex items-center gap-2 text-sm text-amber-800">
+                      <input
+                        type="checkbox"
+                        checked={!!formatConfig.overallGameMatchPlay}
+                        onChange={(e) => updateConfig("overallGameMatchPlay", e.target.checked)}
+                        className="h-4 w-4"
+                      />
+                      <span>Match Play scoring for overall game</span>
+                    </label>
+                    {!!formatConfig.overallGameMatchPlay && (
+                      <label className="flex items-center gap-2 text-sm text-amber-800 ml-6">
+                        <input
+                          type="checkbox"
+                          checked={!!formatConfig.overallGameCarryOver}
+                          onChange={(e) => updateConfig("overallGameCarryOver", e.target.checked)}
+                          className="h-4 w-4"
+                        />
+                        <span>Tied holes carry over in overall game</span>
+                      </label>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

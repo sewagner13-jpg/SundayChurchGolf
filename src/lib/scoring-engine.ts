@@ -884,6 +884,10 @@ export function computeFormatScore(
         extraData: { playerPoints: result.playerPoints },
       };
     }
+    // Captain's Choice and Match Play team score = team gross score (entered at HoleScore level)
+    case "captains_choice":
+    case "match_play":
+      return null; // team gross score entered directly; no per-player computation needed
     case "irish_golf_6_6_6": {
       const segmentId = getIrishGolfSegmentFormatId(holeNumber, formatConfig);
       if (segmentId)
@@ -931,4 +935,159 @@ export function computeMoneyBallRoundTotals(
     moneyBallLossCount,
     moneyBallPenaltyTotal,
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MATCH PLAY ENGINE
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface MatchPlayHoleResult {
+  winnerTeamId: string | null; // null = tied hole
+  isTie: boolean;
+  /** Points the winner earns on this hole (1 + any carryover). 0 on a tie. */
+  pointsToWinner: number;
+  /** Carryover that rolls into the NEXT hole (0 if resolved this hole). */
+  newCarryover: number;
+}
+
+export interface MatchPlayStandings {
+  /** Cumulative points per teamId (carryover mode: winner gets 1+carryover; standard: 1 per hole won) */
+  points: Record<string, number>;
+  holesWon: Record<string, number>;
+  holesHalved: Record<string, number>;
+  /** Unresolved carryover points remaining after the last hole (e.g., round ends on a tie) */
+  unresolvedCarryover: number;
+}
+
+/**
+ * Compute the result for a single match-play hole.
+ *
+ * @param teamScores   Each team's gross score for the hole (null = no score / pick up).
+ * @param carryover    Carryover points accumulated from prior tied holes.
+ * @param multiTeamTieRule  'if_two_tie_all_tie' (default) or 'split_tied_winners'.
+ */
+export function computeMatchPlayHole(
+  teamScores: { teamId: string; grossScore: number | null }[],
+  carryover: number,
+  multiTeamTieRule: "if_two_tie_all_tie" | "split_tied_winners" = "if_two_tie_all_tie"
+): MatchPlayHoleResult {
+  const valid = teamScores.filter((t) => t.grossScore !== null) as {
+    teamId: string;
+    grossScore: number;
+  }[];
+
+  if (valid.length === 0) {
+    // No scores recorded yet — treat as tie
+    return { winnerTeamId: null, isTie: true, pointsToWinner: 0, newCarryover: carryover + 1 };
+  }
+
+  const minScore = Math.min(...valid.map((t) => t.grossScore));
+  const tied = valid.filter((t) => t.grossScore === minScore);
+
+  let isTie: boolean;
+  if (multiTeamTieRule === "if_two_tie_all_tie") {
+    // 2+ teams share lowest → all teams tie
+    isTie = tied.length > 1;
+  } else {
+    // 'split_tied_winners': tied teams share the win (still a "tie" in terms of points distribution)
+    isTie = tied.length > 1;
+  }
+
+  if (isTie) {
+    return {
+      winnerTeamId: null,
+      isTie: true,
+      pointsToWinner: 0,
+      newCarryover: carryover + 1,
+    };
+  }
+
+  return {
+    winnerTeamId: tied[0].teamId,
+    isTie: false,
+    pointsToWinner: 1 + carryover,
+    newCarryover: 0,
+  };
+}
+
+/**
+ * Compute match play standings across a sequence of holes.
+ *
+ * @param holeResults  Ordered array of holes with each team's gross score.
+ * @param config       carryOver: whether tied holes accumulate; multiTeamTieRule.
+ */
+export function computeMatchPlayStandings(
+  holeResults: Array<{
+    holeNumber: number;
+    teamScores: { teamId: string; grossScore: number | null }[];
+  }>,
+  config: {
+    carryOver: boolean;
+    multiTeamTieRule?: "if_two_tie_all_tie" | "split_tied_winners";
+  }
+): MatchPlayStandings {
+  const rule = config.multiTeamTieRule ?? "if_two_tie_all_tie";
+
+  // Collect all teamIds
+  const allTeamIds = new Set<string>();
+  for (const h of holeResults) h.teamScores.forEach((t) => allTeamIds.add(t.teamId));
+
+  const points: Record<string, number> = {};
+  const holesWon: Record<string, number> = {};
+  const holesHalved: Record<string, number> = {};
+  allTeamIds.forEach((id) => {
+    points[id] = 0;
+    holesWon[id] = 0;
+    holesHalved[id] = 0;
+  });
+
+  let carryover = 0;
+
+  for (const hole of holeResults) {
+    const result = computeMatchPlayHole(
+      hole.teamScores,
+      config.carryOver ? carryover : 0,
+      rule
+    );
+
+    if (!result.isTie && result.winnerTeamId) {
+      points[result.winnerTeamId] = (points[result.winnerTeamId] ?? 0) + result.pointsToWinner;
+      holesWon[result.winnerTeamId] = (holesWon[result.winnerTeamId] ?? 0) + 1;
+      carryover = 0;
+    } else {
+      // Tie — if carryover disabled, award 0.5 points to each team and count as halved
+      if (!config.carryOver) {
+        allTeamIds.forEach((id) => {
+          holesHalved[id] = (holesHalved[id] ?? 0) + 1;
+        });
+      }
+      carryover = config.carryOver ? result.newCarryover : 0;
+    }
+  }
+
+  return { points, holesWon, holesHalved, unresolvedCarryover: carryover };
+}
+
+/**
+ * Convenience: compute match play standings for a single 6-hole Irish Golf segment.
+ */
+export function computeIrishGolfSegmentMatchPlay(
+  segmentNum: 1 | 2 | 3,
+  allHoleResults: Array<{
+    holeNumber: number;
+    teamScores: { teamId: string; grossScore: number | null }[];
+  }>,
+  formatConfig: Record<string, unknown>
+): MatchPlayStandings {
+  const startHole = segmentNum === 1 ? 1 : segmentNum === 2 ? 7 : 13;
+  const endHole = segmentNum === 1 ? 6 : segmentNum === 2 ? 12 : 18;
+  const segmentHoles = allHoleResults.filter(
+    (h) => h.holeNumber >= startHole && h.holeNumber <= endHole
+  );
+  const mpKey = `segment${segmentNum}MatchPlay` as keyof typeof formatConfig;
+  const coKey = `segment${segmentNum}CarryOver` as keyof typeof formatConfig;
+  return computeMatchPlayStandings(segmentHoles, {
+    carryOver: !!(formatConfig[coKey]),
+    multiTeamTieRule: "if_two_tie_all_tie",
+  });
 }
