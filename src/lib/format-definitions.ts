@@ -29,6 +29,11 @@ export interface FormatDefinition {
   requiresDesignatedPlayer: boolean
   /** True if drive selection must be tracked per hole (scramble/shamble variants) */
   requiresDriveTracking: boolean
+  /**
+   * True if the team enters a raw gross stroke count per hole (e.g. scramble, captain's choice).
+   * False/absent means the team enters under-par strokes (skins-style: 1 = birdie).
+   */
+  requiresTeamGrossScore?: boolean
 }
 
 export const FORMAT_DEFINITIONS: FormatDefinition[] = [
@@ -74,6 +79,7 @@ export const FORMAT_DEFINITIONS: FormatDefinition[] = [
     requiresIndividualScores: false,
     requiresDesignatedPlayer: true,
     requiresDriveTracking: true,
+    requiresTeamGrossScore: true,
   },
   {
     id: 'one_best_ball_of_four',
@@ -144,6 +150,7 @@ export const FORMAT_DEFINITIONS: FormatDefinition[] = [
     requiresIndividualScores: false,
     requiresDesignatedPlayer: false,
     requiresDriveTracking: false,
+    requiresTeamGrossScore: true,
   },
   {
     id: 'captains_choice',
@@ -158,6 +165,7 @@ export const FORMAT_DEFINITIONS: FormatDefinition[] = [
     requiresIndividualScores: false,
     requiresDesignatedPlayer: false,
     requiresDriveTracking: false,
+    requiresTeamGrossScore: true,
   },
   {
     id: 'money_ball',
@@ -414,6 +422,7 @@ export const FORMAT_DEFINITIONS: FormatDefinition[] = [
     requiresIndividualScores: false,
     requiresDesignatedPlayer: false,
     requiresDriveTracking: false,
+    requiresTeamGrossScore: true,
   },
   {
     id: 'vegas',

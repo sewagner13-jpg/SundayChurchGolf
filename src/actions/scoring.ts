@@ -52,6 +52,11 @@ export interface ScoreEntry {
   entryType: HoleEntryType;
   value?: number | null;
   selectedDrivePlayerId?: string | null;
+  /**
+   * When true, the value IS the gross stroke count (scramble / captain's choice / match play).
+   * Setting this also writes the value to HoleScore.grossScore for consistency.
+   */
+  isTeamGrossScore?: boolean;
 }
 
 export async function upsertHoleScore(
@@ -141,6 +146,9 @@ export async function upsertHoleScore(
     update: {
       entryType: entry.entryType,
       value: entry.entryType === "VALUE" ? entry.value : null,
+      // For team gross score formats, mirror value → grossScore so live + finalization paths agree
+      grossScore:
+        entry.isTeamGrossScore && entry.entryType === "VALUE" ? entry.value : undefined,
       holeData: nextHoleData as Prisma.InputJsonValue | undefined,
       wasEdited: existingScore?.wasEdited || isEdit || false,
     },
@@ -150,6 +158,8 @@ export async function upsertHoleScore(
       holeNumber,
       entryType: entry.entryType,
       value: entry.entryType === "VALUE" ? entry.value : null,
+      grossScore:
+        entry.isTeamGrossScore && entry.entryType === "VALUE" ? entry.value : undefined,
       holeData: nextHoleData as Prisma.InputJsonValue | undefined,
       wasEdited: false,
     },

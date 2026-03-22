@@ -626,6 +626,12 @@ export default function LiveScoringPage({
       : formatDefinition
     : null;
   const usesIndividualScores = !!effectiveFormat?.requiresIndividualScores;
+  // Formats where the team enters a raw gross stroke count (e.g. scramble = "3", not "+1")
+  const isTeamGrossScore =
+    !usesIndividualScores &&
+    !!effectiveFormat &&
+    effectiveFormat.formatCategory !== "skins" &&
+    !!effectiveFormat.requiresTeamGrossScore;
   const usesDriveTracking =
     !!effectiveFormat?.requiresDriveTracking ||
     !!round?.formatConfig?.enableDriveMinimums;
@@ -713,6 +719,7 @@ export default function LiveScoringPage({
           !usesIndividualScores && usesDriveTracking
             ? selectedDrivePlayerId
             : undefined,
+        isTeamGrossScore: isTeamGrossScore || undefined,
       });
       await loadHoleData();
       await loadTeamsProgress();
@@ -1410,6 +1417,8 @@ export default function LiveScoringPage({
       : effectiveFormat?.id === "vegas"
       ? "team number"
       : "team score"
+    : isTeamGrossScore
+    ? "strokes"
     : "under par";
   const isOpenScoringView = round.visibility !== "BLIND";
 
@@ -1423,7 +1432,9 @@ export default function LiveScoringPage({
     if (hole?.entryType === "VALUE") {
       return (
         <span className="text-green-600 font-bold">
-          {usesIndividualScores ? hole.grossScore ?? hole.value : `+${hole.value}`}
+          {usesIndividualScores || isTeamGrossScore
+            ? hole.grossScore ?? hole.value
+            : `+${hole.value}`}
         </span>
       );
     }
@@ -1699,7 +1710,7 @@ export default function LiveScoringPage({
                     <span className="text-gray-500">X</span>
                   ) : currentDisplayScore ? (
                     <span className="text-green-600">{currentDisplayScore}</span>
-                  ) : usesIndividualScores ? (
+                  ) : usesIndividualScores || isTeamGrossScore ? (
                     <span className="text-green-600">{myTeamScore.value}</span>
                   ) : (
                     <span className="text-green-600">+{myTeamScore.value}</span>
@@ -1714,6 +1725,10 @@ export default function LiveScoringPage({
                     ? myTeamScore.value === null
                       ? "Enter player scores"
                       : `${myTeamScore.value} ${currentScoreLabel}`
+                    : isTeamGrossScore
+                    ? myTeamScore.entryType === "VALUE"
+                      ? `${myTeamScore.value} strokes`
+                      : "Enter team score"
                     : myTeamScore.entryType === "VALUE"
                     ? `${myTeamScore.value} under par`
                     : "Enter your score"}
@@ -1896,43 +1911,93 @@ export default function LiveScoringPage({
                     </div>
                   )}
 
-                  <div className="grid grid-cols-4 gap-3 mb-4">
-                    {[1, 2, 3, 4].map((num) => (
-                      <Button
-                        key={num}
-                        variant={myTeamScore.value === num ? "primary" : "secondary"}
-                        size="lg"
-                        onClick={() => handleScoreEntry(myTeamId, "VALUE", num)}
-                        disabled={saving || scoreEntryBlocked}
-                        className="text-2xl h-14"
-                      >
-                        +{num}
-                      </Button>
-                    ))}
-                  </div>
+                  {isTeamGrossScore ? (
+                    /* Gross score entry: tap the actual number of strokes */
+                    <>
+                      <p className="text-xs text-gray-500 mb-2">
+                        Enter the team&apos;s total strokes for this hole
+                        {holeInfo ? ` (par ${holeInfo.par})` : ""}
+                      </p>
+                      <div className="grid grid-cols-4 gap-3 mb-4">
+                        {[2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
+                          <Button
+                            key={num}
+                            variant={myTeamScore.value === num && myTeamScore.entryType === "VALUE" ? "primary" : "secondary"}
+                            size="lg"
+                            onClick={() => handleScoreEntry(myTeamId, "VALUE", num)}
+                            disabled={saving || scoreEntryBlocked}
+                            className="text-2xl h-14"
+                          >
+                            {num}
+                          </Button>
+                        ))}
+                      </div>
 
-                  <div className="flex gap-2 mb-4">
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      enterKeyHint="done"
-                      placeholder="Other score..."
-                      value={customScore}
-                      onChange={(e) => setCustomScore(e.target.value.replace(/\D/g, ""))}
-                      disabled={scoreEntryBlocked}
-                      className="flex-1 px-4 py-3 border border-gray-300 rounded-lg text-lg"
-                    />
-                    <Button
-                      variant="secondary"
-                      size="lg"
-                      onClick={handleCustomScoreSubmit}
-                      disabled={saving || !customScore || scoreEntryBlocked}
-                      className="px-6"
-                    >
-                      Set
-                    </Button>
-                  </div>
+                      <div className="flex gap-2 mb-4">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          enterKeyHint="done"
+                          placeholder="Other score..."
+                          value={customScore}
+                          onChange={(e) => setCustomScore(e.target.value.replace(/\D/g, ""))}
+                          disabled={scoreEntryBlocked}
+                          className="flex-1 px-4 py-3 border border-gray-300 rounded-lg text-lg"
+                        />
+                        <Button
+                          variant="secondary"
+                          size="lg"
+                          onClick={handleCustomScoreSubmit}
+                          disabled={saving || !customScore || scoreEntryBlocked}
+                          className="px-6"
+                        >
+                          Set
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    /* Skins-style entry: under-par strokes (+1 = birdie, +2 = eagle, …) */
+                    <>
+                      <div className="grid grid-cols-4 gap-3 mb-4">
+                        {[1, 2, 3, 4].map((num) => (
+                          <Button
+                            key={num}
+                            variant={myTeamScore.value === num ? "primary" : "secondary"}
+                            size="lg"
+                            onClick={() => handleScoreEntry(myTeamId, "VALUE", num)}
+                            disabled={saving || scoreEntryBlocked}
+                            className="text-2xl h-14"
+                          >
+                            +{num}
+                          </Button>
+                        ))}
+                      </div>
+
+                      <div className="flex gap-2 mb-4">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          enterKeyHint="done"
+                          placeholder="Other score..."
+                          value={customScore}
+                          onChange={(e) => setCustomScore(e.target.value.replace(/\D/g, ""))}
+                          disabled={scoreEntryBlocked}
+                          className="flex-1 px-4 py-3 border border-gray-300 rounded-lg text-lg"
+                        />
+                        <Button
+                          variant="secondary"
+                          size="lg"
+                          onClick={handleCustomScoreSubmit}
+                          disabled={saving || !customScore || scoreEntryBlocked}
+                          className="px-6"
+                        >
+                          Set
+                        </Button>
+                      </div>
+                    </>
+                  )}
 
                   <div className="grid grid-cols-2 gap-3">
                     <Button
@@ -1942,7 +2007,7 @@ export default function LiveScoringPage({
                       disabled={saving || scoreEntryBlocked}
                       className="text-xl h-12"
                     >
-                      X (Par or worse)
+                      {isTeamGrossScore ? "X (Pickup)" : "X (Par or worse)"}
                     </Button>
                     <Button
                       variant="ghost"
@@ -1998,7 +2063,7 @@ export default function LiveScoringPage({
                               : displayScore
                               ? displayScore
                               : teamScore.entryType === "VALUE"
-                              ? usesIndividualScores
+                              ? usesIndividualScores || isTeamGrossScore
                                 ? teamScore.grossScore ?? teamScore.value
                                 : `+${teamScore.value}`
                               : "-"}
