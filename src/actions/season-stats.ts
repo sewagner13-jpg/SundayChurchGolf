@@ -259,6 +259,24 @@ export async function rebuildSeasonStats(year: number) {
     }
   }
 
+  // Merge in manual settlement entries for the year
+  const settlements = await prisma.manualSettlement.findMany({
+    where: { year },
+    include: { entries: true },
+  });
+  for (const s of settlements) {
+    for (const entry of s.entries) {
+      const existing = playerStats.get(entry.playerId) ?? {
+        totalWinnings: new Decimal(0),
+        totalBuyInsPaid: new Decimal(0),
+        roundsPlayed: 0,
+        topTeamAppearances: 0,
+      };
+      existing.totalWinnings = existing.totalWinnings.add(entry.amount);
+      playerStats.set(entry.playerId, existing);
+    }
+  }
+
   // Insert stats
   for (const [playerId, stats] of playerStats) {
     await prisma.seasonPlayerStat.create({
@@ -274,6 +292,7 @@ export async function rebuildSeasonStats(year: number) {
   }
 
   revalidatePath("/leaderboard");
+  revalidatePath("/settlements");
 }
 
 export async function getTopTeamHistory(playerIds: string[]) {
