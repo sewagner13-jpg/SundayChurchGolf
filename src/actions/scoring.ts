@@ -1346,3 +1346,36 @@ export async function getTeamFinishStatus(roundId: string) {
     };
   });
 }
+
+export async function saveLoneRangerOrder(
+  roundId: string,
+  teamId: string,
+  playerIds: string[]
+) {
+  "use server";
+  const round = await prisma.round.findUnique({
+    where: { id: roundId },
+    select: { status: true, formatConfig: true },
+  });
+  if (!round) throw new Error("Round not found");
+  if (round.status !== "LIVE") throw new Error("Round must be LIVE");
+  if (playerIds.length === 0) throw new Error("Order must include at least one player");
+
+  const existing = (round.formatConfig as Record<string, unknown>) ?? {};
+  const existingOrder = (existing.loneRangerOrder as Record<string, string[]>) ?? {};
+
+  await prisma.round.update({
+    where: { id: roundId },
+    data: {
+      formatConfig: {
+        ...existing,
+        loneRangerOrder: {
+          ...existingOrder,
+          [teamId]: playerIds,
+        },
+      },
+    },
+  });
+
+  revalidatePath(`/rounds/${roundId}/scoring`);
+}
