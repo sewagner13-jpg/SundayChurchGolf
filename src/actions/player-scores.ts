@@ -152,7 +152,8 @@ export async function upsertPlayerScoresForHole(
   roundId: string,
   teamId: string,
   holeNumber: number,
-  entries: PlayerHoleScoreInput[]
+  entries: PlayerHoleScoreInput[],
+  overrideDesignatedPlayerId?: string | null
 ): Promise<{
   updated: number;
   teamGrossScore: number | null;
@@ -265,11 +266,23 @@ export async function upsertPlayerScoresForHole(
     };
   });
 
+  // For lone_ranger, prefer the stored per-team order from formatConfig
+  const loneRangerTeamOrder =
+    effectiveFormatId === "lone_ranger"
+      ? ((round.formatConfig as Record<string, unknown>)
+          ?.loneRangerOrder as Record<string, string[]>)?.[teamId] ?? null
+      : null;
+
   const designatedPlayerId =
-    effectiveFormatId === "money_ball" ||
-    effectiveFormatId === "lone_ranger" ||
-    effectiveFormatId === "wolf_team"
+    // Client-supplied override (free-pick holes, wolf selection, etc.) wins first
+    overrideDesignatedPlayerId !== undefined && overrideDesignatedPlayerId !== null
+      ? overrideDesignatedPlayerId
+      : effectiveFormatId === "money_ball" || effectiveFormatId === "wolf_team"
       ? team.roundPlayers[(holeNumber - 1) % team.roundPlayers.length]?.playerId ?? null
+      : effectiveFormatId === "lone_ranger"
+      ? loneRangerTeamOrder
+        ? loneRangerTeamOrder[(holeNumber - 1) % loneRangerTeamOrder.length] ?? null
+        : team.roundPlayers[(holeNumber - 1) % team.roundPlayers.length]?.playerId ?? null
       : null;
 
   const moneyBallEntry = designatedPlayerId

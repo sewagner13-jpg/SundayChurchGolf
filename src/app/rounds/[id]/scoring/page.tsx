@@ -31,6 +31,7 @@ import {
   getTeamDriveMinimumProgress,
   getLiveSkinsStatus,
   markTeamFinished,
+  saveLoneRangerOrder,
 } from "@/actions/scoring";
 import { FORMAT_DEFINITIONS } from "@/lib/format-definitions";
 import {
@@ -319,6 +320,11 @@ export default function LiveScoringPage({
   const [burgerSelections, setBurgerSelections] = useState<Set<string>>(new Set());
   const [burgerSaving, setBurgerSaving] = useState(false);
   const [burgerPromptShown, setBurgerPromptShown] = useState(false);
+
+  // Lone Ranger order setup
+  const [loneRangerDraftOrder, setLoneRangerDraftOrder] = useState<{ playerId: string; name: string }[]>([]);
+  const [loneRangerSaving, setLoneRangerSaving] = useState(false);
+  const [freePickPlayerId, setFreePickPlayerId] = useState<string | null>(null);
   const playerInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const isLive = round?.status === "LIVE";
@@ -335,6 +341,21 @@ export default function LiveScoringPage({
       loadLiveLeaderboard();
       loadChat();
       loadPlayerInputs();
+      // Seed draft order for lone ranger if needed
+      if (effectiveFormat?.id === "lone_ranger") {
+        const currentOrder = ((round.formatConfig?.loneRangerOrder as Record<string, string[]>) ?? {})[myTeamId];
+        if (!currentOrder) {
+          const team = round.teams.find((t) => t.id === myTeamId);
+          if (team) {
+            setLoneRangerDraftOrder(
+              team.roundPlayers.map((rp) => ({
+                playerId: rp.playerId,
+                name: rp.player.nickname || rp.player.fullName,
+              }))
+            );
+          }
+        }
+      }
     }
   }, [round, currentHole, myTeamId]);
 
@@ -638,13 +659,44 @@ export default function LiveScoringPage({
   const minimumScoresRequired = effectiveFormat
     ? getMinimumScoresRequired(effectiveFormat.id)
     : null;
+  const myTeam = myTeamId ? round?.teams.find((t) => t.id === myTeamId) : null;
+  const teamSize = myTeam?.roundPlayers.length ?? 1;
+  const totalHoles = round?.course?.holes?.length ?? 18;
+
+  // Lone Ranger: stored per-team order in formatConfig.loneRangerOrder[teamId]
+  const loneRangerStoredOrder =
+    effectiveFormat?.id === "lone_ranger" && myTeamId
+      ? ((round?.formatConfig?.loneRangerOrder as Record<string, string[]>) ?? {})[myTeamId] ?? null
+      : null;
+
+  // Holes beyond the last full rotation are "free pick"
+  const lastFullRotationHole = Math.floor(totalHoles / teamSize) * teamSize;
+  // scoringPosition is 0-based position in scoring order
+  const scoringPosition = scoringOrder.indexOf(currentHole); // 0-based
+  const isLoneRangerFreePick =
+    effectiveFormat?.id === "lone_ranger" &&
+    !!loneRangerStoredOrder &&
+    scoringPosition >= lastFullRotationHole;
+
   const designatedPlayer =
     myTeamId && round && effectiveFormat?.requiresDesignatedPlayer
-      ? round.teams
-          .find((team) => team.id === myTeamId)
-          ?.roundPlayers[(currentHole - 1) %
-            (round.teams.find((team) => team.id === myTeamId)?.roundPlayers.length ?? 1)]
+      ? effectiveFormat.id === "lone_ranger" && loneRangerStoredOrder
+        ? isLoneRangerFreePick
+          ? (freePickPlayerId
+              ? myTeam?.roundPlayers.find((rp) => rp.playerId === freePickPlayerId) ?? null
+              : null)
+          : (myTeam?.roundPlayers.find(
+              (rp) => rp.playerId === loneRangerStoredOrder[scoringPosition % teamSize]
+            ) ?? null)
+        : myTeam?.roundPlayers[(currentHole - 1) % teamSize] ?? null
       : null;
+
+  // Show the Lone Ranger order setup interstitial if no order is stored yet for this team
+  const showLoneRangerSetup =
+    effectiveFormat?.id === "lone_ranger" &&
+    !!myTeamId &&
+    !loneRangerStoredOrder &&
+    !!myTeam;
   const selectedDrivePlayerId =
     playerInputs.find((input) => input.driveSelected)?.playerId ?? null;
   const getTeamLabel = (teamId: string) => {
@@ -823,6 +875,11 @@ export default function LiveScoringPage({
       return;
     }
 
+    if (isLoneRangerFreePick && !freePickPlayerId) {
+      setError("Select who carries the yellow ball on this hole before entering scores.");
+      return;
+    }
+
     if (minimumScoresRequired !== null) {
       const enteredScores = playerInputs.filter(
         (input) => input.grossScore.trim() !== ""
@@ -881,7 +938,8 @@ export default function LiveScoringPage({
                 }
               : {}),
           },
-        }))
+        })),
+        isLoneRangerFreePick && freePickPlayerId ? freePickPlayerId : undefined
       );
       await loadHoleData();
       await loadTeamsProgress();
@@ -896,6 +954,27 @@ export default function LiveScoringPage({
     setSaving(false);
   };
 
+  const handleSaveLoneRangerOrder = async () => {
+    if (!myTeamId || loneRangerDraftOrder.length === 0) return;
+    setLoneRangerSaving(true);
+    try {
+      await saveLoneRangerOrder(id, myTeamId, loneRangerDraftOrder.map((p) => p.playerId));
+      // round will reload via revalidatePath — just reload manually
+      await loadRound();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save order");
+    }
+    setLoneRangerSaving(false);
+  };
+
+  const moveLoneRangerPlayer = (index: number, direction: -1 | 1) => {
+    const newOrder = [...loneRangerDraftOrder];
+    const swapIndex = index + direction;
+    if (swapIndex < 0 || swapIndex >= newOrder.length) return;
+    [newOrder[index], newOrder[swapIndex]] = [newOrder[swapIndex], newOrder[index]];
+    setLoneRangerDraftOrder(newOrder);
+  };
+
   const handlePrevHole = () => {
     if (currentIndex > 0) {
       const prevHole = scoringOrder[currentIndex - 1];
@@ -904,6 +983,7 @@ export default function LiveScoringPage({
         localStorage.setItem(`round-${id}-team-${myTeamId}-hole`, String(prevHole));
       }
       setCustomScore("");
+      setFreePickPlayerId(null);
     }
   };
 
@@ -925,6 +1005,7 @@ export default function LiveScoringPage({
       }
       setError(null);
       setCustomScore("");
+      setFreePickPlayerId(null);
     }
   };
 
@@ -1597,6 +1678,68 @@ export default function LiveScoringPage({
           </div>
         )}
 
+        {/* Lone Ranger order setup interstitial */}
+        {showLoneRangerSetup && (
+          <Card>
+            <div className="p-4">
+              <div className="mb-3">
+                <p className="font-semibold text-gray-800 text-lg">Set Yellow Ball Order</p>
+                <p className="text-sm text-gray-500 mt-1">
+                  Drag or tap the arrows to set the rotation order before you start scoring.
+                  With {teamSize} players and {totalHoles} holes, the order repeats {Math.floor(totalHoles / teamSize)} time{Math.floor(totalHoles / teamSize) !== 1 ? "s" : ""}.
+                  {totalHoles % teamSize > 0
+                    ? ` The last ${totalHoles % teamSize} hole${totalHoles % teamSize !== 1 ? "s" : ""} (${totalHoles % teamSize === 1 ? "hole" : "holes"} ${totalHoles - (totalHoles % teamSize) + 1}–${totalHoles}) will let you freely pick who carries the yellow ball.`
+                    : ""}
+                </p>
+              </div>
+              <div className="space-y-2 mb-4">
+                {loneRangerDraftOrder.map((player, index) => (
+                  <div
+                    key={player.playerId}
+                    className="flex items-center gap-3 rounded-lg border border-yellow-200 bg-yellow-50 px-3 py-2"
+                  >
+                    <span className="w-6 h-6 rounded-full bg-yellow-400 text-white text-xs font-bold flex items-center justify-center shrink-0">
+                      {index + 1}
+                    </span>
+                    <span className="flex-1 font-medium text-gray-800">{player.name}</span>
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        disabled={index === 0}
+                        onClick={() => moveLoneRangerPlayer(index, -1)}
+                        className="w-8 h-8 rounded border border-gray-300 bg-white flex items-center justify-center text-sm disabled:opacity-30"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        disabled={index === loneRangerDraftOrder.length - 1}
+                        onClick={() => moveLoneRangerPlayer(index, 1)}
+                        className="w-8 h-8 rounded border border-gray-300 bg-white flex items-center justify-center text-sm disabled:opacity-30"
+                      >
+                        ↓
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="text-xs text-gray-400 mb-4">
+                Hole-by-hole: {loneRangerDraftOrder.map((p, i) => (
+                  <span key={p.playerId}>{i > 0 ? " → " : ""}{p.name} (H{i + 1}{teamSize < totalHoles ? `, H${i + 1 + teamSize}` : ""}{teamSize * 2 < totalHoles ? `, H${i + 1 + teamSize * 2}` : ""}{teamSize * 3 < totalHoles ? `, H${i + 1 + teamSize * 3}` : ""})</span>
+                ))}
+              </div>
+              <Button
+                onClick={handleSaveLoneRangerOrder}
+                disabled={loneRangerSaving || loneRangerDraftOrder.length === 0}
+                className="w-full"
+                size="lg"
+              >
+                {loneRangerSaving ? "Saving…" : "Lock In Order"}
+              </Button>
+            </div>
+          </Card>
+        )}
+
         {myTeamId && myTeamScore && (
           <Card className="overflow-hidden border-2 border-green-500">
             <div className="bg-green-700 text-white px-4 py-3 flex justify-between items-center">
@@ -1621,14 +1764,43 @@ export default function LiveScoringPage({
                 </div>
               )}
 
-              {designatedPlayer && effectiveFormat?.requiresDesignatedPlayer && (
-                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                  Designated player on this hole:{" "}
-                  <strong>
-                    {designatedPlayer.player.nickname ||
-                      designatedPlayer.player.fullName}
-                  </strong>
-                </div>
+              {effectiveFormat?.requiresDesignatedPlayer && (
+                isLoneRangerFreePick ? (
+                  <div className="mb-4 rounded-lg border border-yellow-300 bg-yellow-50 p-3">
+                    <p className="text-sm font-semibold text-yellow-800 mb-2">
+                      Free pick — who carries the yellow ball on hole {currentHole}?
+                    </p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {myTeam?.roundPlayers.map((rp) => (
+                        <button
+                          key={rp.playerId}
+                          type="button"
+                          onClick={() => setFreePickPlayerId(rp.playerId)}
+                          className={`rounded-lg border px-3 py-2 text-sm font-medium ${
+                            freePickPlayerId === rp.playerId
+                              ? "border-yellow-500 bg-yellow-400 text-white"
+                              : "border-yellow-200 bg-white text-gray-700"
+                          }`}
+                        >
+                          {rp.player.nickname || rp.player.fullName}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : designatedPlayer ? (
+                  <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    Yellow ball carrier this hole:{" "}
+                    <strong>
+                      {designatedPlayer.player.nickname ||
+                        designatedPlayer.player.fullName}
+                    </strong>
+                    {loneRangerStoredOrder && (
+                      <span className="ml-2 text-xs text-amber-600">
+                        (#{(scoringPosition % teamSize) + 1} in rotation)
+                      </span>
+                    )}
+                  </div>
+                ) : null
               )}
 
               {minimumScoresRequired !== null && (
