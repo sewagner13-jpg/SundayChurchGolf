@@ -10,7 +10,7 @@ import { listManualSettlements, deleteManualSettlement } from "@/actions/settlem
 interface SettlementEntry {
   id: string;
   playerId: string;
-  amount: number | string;
+  amount: { toString(): string } | number | string; // Prisma Decimal | number | string
   player: { id: string; fullName: string; nickname: string | null };
 }
 
@@ -34,7 +34,7 @@ export default function SettlementsPage() {
     setLoading(true);
     try {
       const data = await listManualSettlements();
-      setSettlements(data as Settlement[]);
+      setSettlements(data as unknown as Settlement[]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load settlements");
     }
@@ -56,8 +56,8 @@ export default function SettlementsPage() {
     setDeleting(false);
   };
 
-  const fmt = (amount: number | string) => {
-    const n = Number(amount);
+  const fmt = (amount: { toString(): string } | number | string) => {
+    const n = Number(amount.toString());
     const abs = Math.abs(n).toFixed(2);
     return n >= 0 ? `+$${abs}` : `-$${abs}`;
   };
@@ -140,7 +140,7 @@ export default function SettlementsPage() {
                         </span>
                         <span
                           className={
-                            Number(entry.amount) >= 0
+                            Number(entry.amount.toString()) >= 0
                               ? "font-semibold text-green-700"
                               : "font-semibold text-red-600"
                           }
@@ -159,12 +159,13 @@ export default function SettlementsPage() {
 
       {deleteTarget && (
         <ConfirmModal
+          isOpen={!!deleteTarget}
           title="Delete Settlement"
           message={`Delete the ${fmtDate(deleteTarget.date)} settlement? This will reverse all payout credits for the players listed.`}
-          confirmLabel="Delete"
+          confirmText={deleting ? "Deleting…" : "Delete"}
+          confirmVariant="danger"
           onConfirm={handleDelete}
-          onCancel={() => setDeleteTarget(null)}
-          loading={deleting}
+          onClose={() => setDeleteTarget(null)}
         />
       )}
     </div>
