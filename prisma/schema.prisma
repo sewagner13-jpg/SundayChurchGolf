@@ -55,6 +55,7 @@ model Player {
   roundPlayers           RoundPlayer[]
   playerScores           PlayerScore[]
   seasonStats            SeasonPlayerStat[]
+  settlementEntries      ManualSettlementEntry[]
 
   @@index([isActive])
 }
@@ -326,4 +327,37 @@ model PlayerScore {
   @@unique([roundId, teamId, playerId, holeNumber])
   @@index([roundId, holeNumber])
   @@index([teamId])
+}
+
+// ============================================
+// MANUAL SETTLEMENT (Payouts entered without a round)
+// ============================================
+
+model ManualSettlement {
+  id          String   @id @default(cuid())
+  date        DateTime @db.Date
+  year        Int      // derived from date, used for season stat queries
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  entries     ManualSettlementEntry[]
+
+  @@index([year])
+  @@index([date])
+}
+
+model ManualSettlementEntry {
+  id                 String   @id @default(cuid())
+  settlementId       String
+  playerId           String
+  amount             Decimal  @db.Decimal(10, 2) // positive = won, negative = owed
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  settlement         ManualSettlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+  player             Player           @relation(fields: [playerId], references: [id])
+
+  @@unique([settlementId, playerId])
+  @@index([playerId])
 }

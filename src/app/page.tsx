@@ -96,6 +96,14 @@ export default async function Dashboard() {
                   </CardContent>
                 </Card>
               </Link>
+              <Link href="/settlements">
+                <Card className="bg-white/90 hover:bg-white transition-colors cursor-pointer">
+                  <CardContent className="p-3 text-center">
+                    <div className="text-2xl mb-1">💰</div>
+                    <p className="text-xs font-medium text-gray-700">Settlements</p>
+                  </CardContent>
+                </Card>
+              </Link>
             </div>
           </div>
         </div>
