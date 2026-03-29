@@ -1239,7 +1239,7 @@ export async function getLiveLeaderboard(
       };
     });
 
-    const segmentDisplays = segmentSummaries.map((summary) => {
+    const segmentDisplays: Array<{ label: string; formatName: string; completed: boolean; leaders: string[]; payoutPerWinningTeam: number }> = segmentSummaries.map((summary) => {
       const formatName = summary.formatId
         ? getFormatById(summary.formatId)?.name ?? summary.formatId
         : "Unassigned";
