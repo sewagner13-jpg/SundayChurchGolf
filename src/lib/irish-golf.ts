@@ -42,13 +42,23 @@ function getIrishGolfSegmentFormatId(
   return (formatConfig?.segment3FormatId as string | undefined) ?? null;
 }
 
+export interface IrishGolfOverallSummary {
+  label: string;
+  teamTotals: Map<string, number>;
+  winningTeamIds: string[];
+  payoutPerWinningTeam: number;
+  overallPot: number;
+}
+
 export function computeIrishGolfSegmentSummaries(
   teams: IrishGolfTeamLike[],
   holeScores: IrishGolfHoleScoreLike[],
   formatConfig: Record<string, unknown> | null | undefined,
   totalPot: number
 ) {
-  const segmentPot = totalPot / 3;
+  const enableOverallGame = !!formatConfig?.enableOverallGame;
+  const numGames = enableOverallGame ? 4 : 3;
+  const segmentPot = totalPot / numGames;
 
   return IRISH_GOLF_SEGMENTS.map((segment) => {
     const formatId = getIrishGolfSegmentFormatId(segment.segmentIndex, formatConfig);
@@ -96,4 +106,55 @@ export function computeIrishGolfSegmentSummaries(
       segmentPot,
     } satisfies IrishGolfSegmentSummary;
   });
+}
+
+export function computeIrishGolfOverallSummary(
+  teams: IrishGolfTeamLike[],
+  holeScores: IrishGolfHoleScoreLike[],
+  formatConfig: Record<string, unknown> | null | undefined,
+  totalPot: number
+): IrishGolfOverallSummary | null {
+  if (!formatConfig?.enableOverallGame) return null;
+
+  const overallPot = totalPot / 4;
+  const isMatchPlay = !!formatConfig?.overallGameMatchPlay;
+
+  const teamTotals = new Map<string, number>();
+  for (const team of teams) {
+    const total = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18].reduce(
+      (sum, holeNumber) => {
+        const holeScore = holeScores.find(
+          (score) =>
+            score.teamId === team.id &&
+            score.holeNumber === holeNumber &&
+            score.entryType !== "BLANK"
+        );
+        const numericScore = holeScore?.grossScore ?? holeScore?.value ?? null;
+        return sum + (numericScore ?? 0);
+      },
+      0
+    );
+    teamTotals.set(team.id, total);
+  }
+
+  const totals = [...teamTotals.values()];
+  const winningScore = totals.length
+    ? isMatchPlay
+      ? Math.max(...totals)
+      : Math.min(...totals)
+    : null;
+  const winningTeamIds =
+    winningScore === null
+      ? []
+      : teams
+          .filter((team) => teamTotals.get(team.id) === winningScore)
+          .map((team) => team.id);
+
+  return {
+    label: "Overall 18 Holes",
+    teamTotals,
+    winningTeamIds,
+    payoutPerWinningTeam: winningTeamIds.length > 0 ? overallPot / winningTeamIds.length : 0,
+    overallPot,
+  };
 }

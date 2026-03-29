@@ -13,7 +13,7 @@ import { ConfirmModal, Modal } from "@/components/modal";
 import { Select } from "@/components/select";
 import { getScoringOrder } from "@/lib/scoring-order";
 import { FORMAT_DEFINITIONS } from "@/lib/format-definitions";
-import { computeIrishGolfSegmentSummaries } from "@/lib/irish-golf";
+import { computeIrishGolfSegmentSummaries, computeIrishGolfOverallSummary } from "@/lib/irish-golf";
 import {
   computeFormatScore,
   computeVegasMatchRound,
@@ -521,6 +521,23 @@ export default function RoundSummaryPage({
         round.pot ?? 0
       )
     : [];
+  const irishGolfOverall = isIrishGolfFormat
+    ? computeIrishGolfOverallSummary(
+        round.teams.map((team) => ({
+          id: team.id,
+          teamNumber: team.teamNumber,
+        })),
+        round.holeScores.map((holeScore) => ({
+          teamId: holeScore.teamId,
+          holeNumber: holeScore.holeNumber,
+          entryType: holeScore.entryType,
+          value: holeScore.value,
+          grossScore: holeScore.grossScore,
+        })),
+        round.formatConfig ?? null,
+        round.pot ?? 0
+      )
+    : null;
 
   return (
     <div className="space-y-6">
@@ -804,6 +821,56 @@ export default function RoundSummaryPage({
                 </div>
               </div>
             ))}
+            {irishGolfOverall && (
+              <div className="rounded-lg border border-gray-200 p-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="font-semibold">{irishGolfOverall.label}</p>
+                    <p className="text-sm text-gray-500">Overall 18-hole result</p>
+                  </div>
+                  <p className="text-sm font-medium text-green-700">
+                    ${irishGolfOverall.overallPot.toFixed(2)} overall pot
+                  </p>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {round.teams.map((team) => {
+                    const isWinner = irishGolfOverall.winningTeamIds.includes(team.id);
+                    return (
+                      <div
+                        key={`overall-${team.id}`}
+                        className={`flex items-center justify-between rounded border px-3 py-2 ${
+                          isWinner
+                            ? "border-green-300 bg-green-50"
+                            : "border-gray-200 bg-white"
+                        }`}
+                      >
+                        <div>
+                          <p className="font-medium">{getTeamLabel(team)}</p>
+                          <p className="text-xs text-gray-500">
+                            {team.roundPlayers
+                              .map((roundPlayer) =>
+                                roundPlayer.player.nickname ||
+                                roundPlayer.player.fullName
+                              )
+                              .join(", ")}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-semibold">
+                            {irishGolfOverall.teamTotals.get(team.id) ?? 0}
+                          </p>
+                          {isWinner && (
+                            <p className="text-xs text-green-700">
+                              Wins ${irishGolfOverall.payoutPerWinningTeam.toFixed(2)}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
