@@ -12,7 +12,7 @@ import { Button } from "@/components/button";
 import { ConfirmModal, Modal } from "@/components/modal";
 import { Select } from "@/components/select";
 import { getScoringOrder } from "@/lib/scoring-order";
-import { FORMAT_DEFINITIONS } from "@/lib/format-definitions";
+import { FORMAT_DEFINITIONS, getFormatById } from "@/lib/format-definitions";
 import { computeIrishGolfSegmentSummaries, computeIrishGolfOverallSummary } from "@/lib/irish-golf";
 import {
   computeFormatScore,
@@ -1158,6 +1158,26 @@ export default function RoundSummaryPage({
                   const isCarryover = (result?.carrySkinsUsed ?? 0) > 1;
                   const segmentLabel = holeNumber <= 6 ? "1–6" : holeNumber <= 12 ? "7–12" : "13–18";
 
+                  // For Irish Golf: compute per-hole winner
+                  let irishHoleWinnerTeamIds: string[] = [];
+                  let irishHoleIsTie = false;
+                  if (isIrishGolfFormat) {
+                    const segmentFormatId = getIrishGolfSegmentFormatId(holeNumber, round.formatConfig ?? {});
+                    const segmentFmt = segmentFormatId ? getFormatById(segmentFormatId) : null;
+                    const higherIsBetter = segmentFmt?.formatCategory === "points" || segmentFmt?.formatCategory === "match";
+                    const teamScoreValues = round.teams.map((team) => {
+                      const s = holeScoresMap.get(`${team.id}-${holeNumber}`);
+                      return { teamId: team.id, value: s?.entryType === "VALUE" ? (s.value ?? null) : null };
+                    }).filter((t) => t.value !== null) as { teamId: string; value: number }[];
+                    if (teamScoreValues.length > 0) {
+                      const best = higherIsBetter
+                        ? Math.max(...teamScoreValues.map((t) => t.value))
+                        : Math.min(...teamScoreValues.map((t) => t.value));
+                      irishHoleWinnerTeamIds = teamScoreValues.filter((t) => t.value === best).map((t) => t.teamId);
+                      irishHoleIsTie = irishHoleWinnerTeamIds.length > 1;
+                    }
+                  }
+
                   return (
                     <tr
                       key={holeNumber}
@@ -1170,6 +1190,10 @@ export default function RoundSummaryPage({
                             : result?.isTie
                             ? "bg-yellow-50"
                             : ""
+                          : isIrishGolfFormat && !irishHoleIsTie && irishHoleWinnerTeamIds.length > 0
+                          ? "bg-green-50"
+                          : isIrishGolfFormat && irishHoleIsTie
+                          ? "bg-yellow-50"
                           : ""
                       }`}
                     >
@@ -1188,7 +1212,9 @@ export default function RoundSummaryPage({
                         const score = holeScoresMap.get(
                           `${team.id}-${holeNumber}`
                         );
-                        const isWinner = result?.winnerTeamId === team.id;
+                        const isWinner = isIrishGolfFormat
+                          ? irishHoleWinnerTeamIds.includes(team.id)
+                          : result?.winnerTeamId === team.id;
 
                         return (
                           <td
@@ -1207,7 +1233,15 @@ export default function RoundSummaryPage({
                       })}
                       <td className="py-2 pr-1 text-right text-xs whitespace-nowrap">
                         {isIrishGolfFormat ? (
-                          <span className="text-gray-400">H{segmentLabel}</span>
+                          irishHoleIsTie ? (
+                            <span className="text-yellow-600 font-medium">Tie</span>
+                          ) : irishHoleWinnerTeamIds.length > 0 ? (
+                            <span className="text-green-700 font-bold">
+                              T{round.teams.find((t) => irishHoleWinnerTeamIds.includes(t.id))?.teamNumber}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400">—</span>
+                          )
                         ) : result?.isTie ? (
                           <span className="text-yellow-600 font-medium">Carry</span>
                         ) : result?.winnerTeamId ? (
@@ -1237,7 +1271,7 @@ export default function RoundSummaryPage({
             </table>
           </div>
           <p className="text-xs text-gray-400 mt-2">
-            ×2, ×3 etc. = skins carried from ties &bull; Italic = edited score
+            {isSkins ? "×2, ×3 etc. = skins carried from ties • " : ""}Italic = edited score{isIrishGolfFormat ? " • Green = hole winner" : ""}
           </p>
         </CardContent>
       </Card>
