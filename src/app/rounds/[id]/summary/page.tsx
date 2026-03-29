@@ -1132,9 +1132,9 @@ export default function RoundSummaryPage({
       )}
 
       {/* Hole-by-Hole Results */}
-      {isSkins && (
+      {(isSkins || isIrishGolfFormat) && (
       <Card>
-        <CardHeader>Hole-by-Hole Results</CardHeader>
+        <CardHeader>Hole-by-Hole {isSkins ? "Results" : "Scores"}</CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -1146,7 +1146,7 @@ export default function RoundSummaryPage({
                       T{team.teamNumber}
                     </th>
                   ))}
-                  <th className="py-2 text-right font-medium">Result</th>
+                  <th className="py-2 text-right font-medium">{isSkins ? "Result" : "Segment"}</th>
                 </tr>
               </thead>
               <tbody>
@@ -1156,17 +1156,20 @@ export default function RoundSummaryPage({
                     (h) => h.holeNumber === holeNumber
                   );
                   const isCarryover = (result?.carrySkinsUsed ?? 0) > 1;
+                  const segmentLabel = holeNumber <= 6 ? "1–6" : holeNumber <= 12 ? "7–12" : "13–18";
 
                   return (
                     <tr
                       key={holeNumber}
                       className={`border-b ${
-                        result?.winnerTeamId
-                          ? isCarryover
-                            ? "bg-orange-50"
-                            : "bg-green-50"
-                          : result?.isTie
-                          ? "bg-yellow-50"
+                        isSkins
+                          ? result?.winnerTeamId
+                            ? isCarryover
+                              ? "bg-orange-50"
+                              : "bg-green-50"
+                            : result?.isTie
+                            ? "bg-yellow-50"
+                            : ""
                           : ""
                       }`}
                     >
@@ -1203,7 +1206,9 @@ export default function RoundSummaryPage({
                         );
                       })}
                       <td className="py-2 pr-1 text-right text-xs whitespace-nowrap">
-                        {result?.isTie ? (
+                        {isIrishGolfFormat ? (
+                          <span className="text-gray-400">H{segmentLabel}</span>
+                        ) : result?.isTie ? (
                           <span className="text-yellow-600 font-medium">Carry</span>
                         ) : result?.winnerTeamId ? (
                           <span className="text-green-700 font-bold">
