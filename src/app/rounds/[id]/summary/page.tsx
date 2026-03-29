@@ -1181,13 +1181,6 @@ export default function RoundSummaryPage({
                     <tr
                       key={holeNumber}
                       className={`border-b ${
-<<<<<<< HEAD
-                        result?.winnerTeamId
-                          ? isCarryover
-                            ? "bg-orange-50"
-                            : "bg-green-50"
-                          : result?.isTie
-=======
                         isSkins
                           ? result?.winnerTeamId
                             ? isCarryover
@@ -1199,7 +1192,6 @@ export default function RoundSummaryPage({
                           : isIrishGolfFormat && !irishHoleIsTie && irishHoleWinnerTeamIds.length > 0
                           ? "bg-green-50"
                           : isIrishGolfFormat && irishHoleIsTie
->>>>>>> 756aca3 (Add per-hole winner to Irish Golf hole-by-hole scorecard)
                           ? "bg-yellow-50"
                           : ""
                       }`}
@@ -1239,9 +1231,6 @@ export default function RoundSummaryPage({
                         );
                       })}
                       <td className="py-2 pr-1 text-right text-xs whitespace-nowrap">
-<<<<<<< HEAD
-                        {result?.isTie ? (
-=======
                         {isIrishGolfFormat ? (
                           irishHoleIsTie ? (
                             <span className="text-yellow-600 font-medium">Tie</span>
@@ -1253,7 +1242,6 @@ export default function RoundSummaryPage({
                             <span className="text-gray-400">—</span>
                           )
                         ) : result?.isTie ? (
->>>>>>> 756aca3 (Add per-hole winner to Irish Golf hole-by-hole scorecard)
                           <span className="text-yellow-600 font-medium">Carry</span>
                         ) : result?.winnerTeamId ? (
                           <span className="text-green-700 font-bold">
