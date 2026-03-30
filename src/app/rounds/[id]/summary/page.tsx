@@ -50,6 +50,7 @@ interface HoleScore {
   entryType: string;
   value: number | null;
   grossScore: number | null;
+  holeData?: Record<string, unknown> | null;
   wasEdited: boolean;
 }
 
@@ -416,6 +417,27 @@ export default function RoundSummaryPage({
   round.holeScores.forEach((hs) => {
     holeScoresMap.set(`${hs.teamId}-${hs.holeNumber}`, hs);
   });
+
+  const renderHoleScoreDisplay = (score: HoleScore | undefined) => {
+    if (!score || score.entryType === "BLANK") {
+      return "-";
+    }
+    if (score.entryType === "X") {
+      return "X";
+    }
+
+    const displayScore =
+      (score.holeData as { displayScore?: string } | null)?.displayScore ?? null;
+    if (displayScore) {
+      return displayScore;
+    }
+
+    if (score.entryType === "VALUE") {
+      return score.grossScore ?? score.value ?? "-";
+    }
+
+    return "-";
+  };
 
   const countedScoreUsage = new Map<string, number>();
   if (!isSkins && isBestBallFormat && playerScores.length > 0) {
@@ -943,7 +965,7 @@ export default function RoundSummaryPage({
       )}
 
       {/* Non-skins hole-by-hole table */}
-      {!isSkins && playerScores.length > 0 && (
+      {!isSkins && round.holeScores.length > 0 && (
         <Card>
           <CardHeader>Hole-by-Hole Scores</CardHeader>
           <CardContent>
@@ -972,11 +994,14 @@ export default function RoundSummaryPage({
                             P{holeInfo?.par}
                           </span>
                         </td>
-                        {sortedTeams.map((team) => (
-                          <td key={team.id} className="py-2 text-center">
-                            {teamTotals.get(team.id)?.displayScores[holeIndex] ?? "-"}
-                          </td>
-                        ))}
+                        {sortedTeams.map((team) => {
+                          const score = holeScoresMap.get(`${team.id}-${holeNumber}`);
+                          return (
+                            <td key={team.id} className="py-2 text-center">
+                              {renderHoleScoreDisplay(score)}
+                            </td>
+                          );
+                        })}
                       </tr>
                     );
                   })}
