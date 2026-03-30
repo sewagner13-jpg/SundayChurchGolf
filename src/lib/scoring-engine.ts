@@ -969,7 +969,8 @@ export interface MatchPlayStandings {
 export function computeMatchPlayHole(
   teamScores: { teamId: string; grossScore: number | null }[],
   carryover: number,
-  multiTeamTieRule: "if_two_tie_all_tie" | "split_tied_winners" = "if_two_tie_all_tie"
+  multiTeamTieRule: "if_two_tie_all_tie" | "split_tied_winners" = "if_two_tie_all_tie",
+  higherIsBetter: boolean = false
 ): MatchPlayHoleResult {
   const valid = teamScores.filter((t) => t.grossScore !== null) as {
     teamId: string;
@@ -981,8 +982,10 @@ export function computeMatchPlayHole(
     return { winnerTeamId: null, isTie: true, pointsToWinner: 0, newCarryover: carryover + 1 };
   }
 
-  const minScore = Math.min(...valid.map((t) => t.grossScore));
-  const tied = valid.filter((t) => t.grossScore === minScore);
+  const winningScore = higherIsBetter
+    ? Math.max(...valid.map((t) => t.grossScore))
+    : Math.min(...valid.map((t) => t.grossScore));
+  const tied = valid.filter((t) => t.grossScore === winningScore);
 
   let isTie: boolean;
   if (multiTeamTieRule === "if_two_tie_all_tie") {
@@ -1020,10 +1023,12 @@ export function computeMatchPlayStandings(
   holeResults: Array<{
     holeNumber: number;
     teamScores: { teamId: string; grossScore: number | null }[];
+    higherIsBetter?: boolean;
   }>,
   config: {
     carryOver: boolean;
     multiTeamTieRule?: "if_two_tie_all_tie" | "split_tied_winners";
+    higherIsBetter?: boolean;
   }
 ): MatchPlayStandings {
   const rule = config.multiTeamTieRule ?? "if_two_tie_all_tie";
@@ -1047,7 +1052,8 @@ export function computeMatchPlayStandings(
     const result = computeMatchPlayHole(
       hole.teamScores,
       config.carryOver ? carryover : 0,
-      rule
+      rule,
+      hole.higherIsBetter ?? config.higherIsBetter ?? false
     );
 
     if (!result.isTie && result.winnerTeamId) {
@@ -1076,8 +1082,10 @@ export function computeIrishGolfSegmentMatchPlay(
   allHoleResults: Array<{
     holeNumber: number;
     teamScores: { teamId: string; grossScore: number | null }[];
+    higherIsBetter?: boolean;
   }>,
-  formatConfig: Record<string, unknown>
+  formatConfig: Record<string, unknown>,
+  higherIsBetter: boolean = false
 ): MatchPlayStandings {
   const startHole = segmentNum === 1 ? 1 : segmentNum === 2 ? 7 : 13;
   const endHole = segmentNum === 1 ? 6 : segmentNum === 2 ? 12 : 18;
@@ -1089,5 +1097,6 @@ export function computeIrishGolfSegmentMatchPlay(
   return computeMatchPlayStandings(segmentHoles, {
     carryOver: !!(formatConfig[coKey]),
     multiTeamTieRule: "if_two_tie_all_tie",
+    higherIsBetter,
   });
 }

@@ -26,6 +26,7 @@ import {
   getHoleView,
   getLiveLeaderboard,
   finishRound,
+  getAllTeamsScorecard,
   getTeamScorecard,
   getTeamsProgress,
   getTeamDriveMinimumProgress,
@@ -87,6 +88,37 @@ interface ScorecardHole {
   value: number | null;
   grossScore: number | null;
   displayScore: string | null;
+}
+
+interface CombinedScoreboardHole {
+  holeNumber: number;
+  par: number;
+  formatName: string | null;
+  scoringMode: "skins" | "aggregate" | "match_play";
+  isComplete: boolean;
+  isTie: boolean;
+  winnerTeamIds: string[];
+  winnerLabel: string | null;
+  teamScores: Array<{
+    teamId: string;
+    teamNumber: number;
+    label: string;
+    entryType: string | null;
+    value: number | null;
+    grossScore: number | null;
+    displayScore: string | null;
+    wasEdited: boolean;
+  }>;
+}
+
+interface CombinedScoreboardData {
+  teams: Array<{
+    teamId: string;
+    teamNumber: number;
+    label: string;
+    players: string[];
+  }>;
+  holes: CombinedScoreboardHole[];
 }
 
 interface TeamProgress {
@@ -281,6 +313,9 @@ export default function LiveScoringPage({
   const [showTeamSelect, setShowTeamSelect] = useState(false);
   const [showScorecard, setShowScorecard] = useState(false);
   const [scorecard, setScorecard] = useState<ScorecardHole[]>([]);
+  const [showCombinedScoreboard, setShowCombinedScoreboard] = useState(false);
+  const [combinedScoreboard, setCombinedScoreboard] =
+    useState<CombinedScoreboardData | null>(null);
   const [showOtherTeamScorecards, setShowOtherTeamScorecards] = useState(false);
   const [selectedScorecardTeamId, setSelectedScorecardTeamId] = useState<string | null>(null);
   const [selectedScorecardTeamNumber, setSelectedScorecardTeamNumber] = useState<number | null>(null);
@@ -390,6 +425,16 @@ export default function LiveScoringPage({
 
     return () => window.clearInterval(intervalId);
   }, [round, showLiveLeaderboard]);
+
+  useEffect(() => {
+    if (!round || !showCombinedScoreboard) return;
+
+    const intervalId = window.setInterval(() => {
+      loadCombinedScoreboard();
+    }, 10000);
+
+    return () => window.clearInterval(intervalId);
+  }, [round, showCombinedScoreboard]);
 
   useEffect(() => {
     // Require team selection for scoring
@@ -511,6 +556,16 @@ export default function LiveScoringPage({
       setShowScorecard(true);
     } catch (err) {
       setError("Failed to load scorecard");
+    }
+  }
+
+  async function loadCombinedScoreboard() {
+    if (!round) return;
+    try {
+      const data = await getAllTeamsScorecard(id);
+      setCombinedScoreboard(data as CombinedScoreboardData);
+    } catch {
+      setError("Failed to load combined scoreboard");
     }
   }
 
@@ -777,6 +832,9 @@ export default function LiveScoringPage({
       await loadTeamsProgress();
       await loadDriveMinimumProgress();
       await loadLiveLeaderboard();
+      if (showCombinedScoreboard) {
+        await loadCombinedScoreboard();
+      }
       await loadPlayerInputs();
       setCustomScore("");
     } catch (err) {
@@ -813,6 +871,9 @@ export default function LiveScoringPage({
       await loadTeamsProgress();
       await loadDriveMinimumProgress();
       await loadLiveLeaderboard();
+      if (showCombinedScoreboard) {
+        await loadCombinedScoreboard();
+      }
       await loadPlayerInputs();
       setCustomScore("");
     } catch (err) {
@@ -945,6 +1006,9 @@ export default function LiveScoringPage({
       await loadTeamsProgress();
       await loadDriveMinimumProgress();
       await loadLiveLeaderboard();
+      if (showCombinedScoreboard) {
+        await loadCombinedScoreboard();
+      }
       setError(null);
     } catch (err) {
       setError(
@@ -1522,6 +1586,24 @@ export default function LiveScoringPage({
     return <span className="text-gray-300">-</span>;
   };
 
+  const renderCombinedScoreValue = (teamScore: CombinedScoreboardHole["teamScores"][number]) => {
+    if (teamScore.entryType === "X") {
+      return <span className="text-gray-500">X</span>;
+    }
+    if (teamScore.displayScore) {
+      return <span className="font-bold text-green-700">{teamScore.displayScore}</span>;
+    }
+    if (teamScore.entryType === "VALUE") {
+      if (teamScore.grossScore !== null) {
+        return <span className="font-bold text-green-700">{teamScore.grossScore}</span>;
+      }
+      if (teamScore.value !== null) {
+        return <span className="font-bold text-green-700">+{teamScore.value}</span>;
+      }
+    }
+    return <span className="text-gray-300">-</span>;
+  };
+
   return (
     <div className="flex flex-col min-h-[calc(100vh-56px)]">
       {/* Sticky Header */}
@@ -1541,7 +1623,7 @@ export default function LiveScoringPage({
                 Par {holeInfo?.par} • HCP {holeInfo?.handicapRank}
               </p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               {canManageBurgers && (
                 <button
                   onClick={() => setShowBurgerModal(true)}
@@ -1571,6 +1653,17 @@ export default function LiveScoringPage({
               >
                 Leaderboard
               </button>
+              {isOpenScoringView && (
+                <button
+                  onClick={() => {
+                    loadCombinedScoreboard();
+                    setShowCombinedScoreboard(true);
+                  }}
+                  className="px-3 py-1 bg-violet-100 text-violet-800 rounded text-sm"
+                >
+                  Scoreboard
+                </button>
+              )}
               {isOpenScoringView && (
                 <button
                   onClick={() => {
@@ -3234,6 +3327,120 @@ export default function LiveScoringPage({
             >
               Close
             </Button>
+          </div>
+        </div>
+      )}
+
+      {showCombinedScoreboard && combinedScoreboard && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setShowCombinedScoreboard(false)}
+          />
+          <div className="relative bg-white rounded-lg shadow-xl p-4 max-w-6xl w-full mx-4 max-h-[85vh] overflow-hidden">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-bold">Live Match Scoreboard</h2>
+                <p className="text-xs text-gray-500">
+                  All teams, all holes, and the winner of each completed hole
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => loadCombinedScoreboard()}
+                  className="rounded bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700"
+                >
+                  Refresh
+                </button>
+                <button
+                  onClick={() => setShowCombinedScoreboard(false)}
+                  className="rounded bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-3 overflow-x-auto overflow-y-auto max-h-[72vh]">
+              <table className="min-w-full text-sm">
+                <thead className="sticky top-0 bg-white">
+                  <tr className="border-b border-gray-200">
+                    <th className="px-2 py-2 text-left font-semibold text-gray-700">
+                      Hole
+                    </th>
+                    {combinedScoreboard.teams.map((team) => (
+                      <th
+                        key={team.teamId}
+                        className="px-2 py-2 text-left font-semibold text-gray-700 min-w-[180px]"
+                      >
+                        <div>{team.label}</div>
+                        <div className="text-xs font-normal text-gray-500">
+                          {team.players.join(", ")}
+                        </div>
+                      </th>
+                    ))}
+                    <th className="px-2 py-2 text-left font-semibold text-gray-700 min-w-[180px]">
+                      Winner
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {combinedScoreboard.holes.map((hole) => (
+                    <tr
+                      key={hole.holeNumber}
+                      className={`border-b border-gray-100 ${
+                        currentHole === hole.holeNumber ? "bg-blue-50" : ""
+                      }`}
+                    >
+                      <td className="px-2 py-3 align-top">
+                        <div className="font-semibold">#{hole.holeNumber}</div>
+                        <div className="text-xs text-gray-500">Par {hole.par}</div>
+                        {hole.formatName && (
+                          <div className="mt-1 text-xs text-gray-500">
+                            {hole.formatName}
+                            {hole.scoringMode === "match_play" ? " • Match Play" : ""}
+                          </div>
+                        )}
+                      </td>
+                      {combinedScoreboard.teams.map((team) => {
+                        const teamScore = hole.teamScores.find(
+                          (entry) => entry.teamId === team.teamId
+                        );
+                        const isWinner =
+                          !hole.isTie && hole.winnerTeamIds.includes(team.teamId);
+                        return (
+                          <td
+                            key={`${hole.holeNumber}-${team.teamId}`}
+                            className={`px-2 py-3 align-top ${
+                              isWinner ? "bg-green-50" : ""
+                            }`}
+                          >
+                            <div
+                              className={
+                                teamScore?.wasEdited ? "italic text-red-500" : undefined
+                              }
+                            >
+                              {teamScore ? renderCombinedScoreValue(teamScore) : "—"}
+                            </div>
+                          </td>
+                        );
+                      })}
+                      <td className="px-2 py-3 align-top">
+                        {!hole.isComplete ? (
+                          <span className="text-gray-400">In progress</span>
+                        ) : hole.isTie ? (
+                          <span className="font-medium text-yellow-700">Tie</span>
+                        ) : (
+                          <span className="font-semibold text-green-700">
+                            {hole.winnerLabel}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
