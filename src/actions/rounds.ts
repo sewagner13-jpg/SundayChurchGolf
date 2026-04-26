@@ -441,20 +441,24 @@ export async function getRoundLog() {
     },
   });
 
-  return rounds.map((round) => ({
-    id: round.id,
-    name: round.name,
-    date: round.date,
-    status: round.status,
-    hasLockCode: !!round.lockCode,
-    courseName: round.course.name,
-    formatName: round.format.name,
-    playerCount: round.roundPlayers.length,
-    teamCount: round.teams.length,
-    topTeamLabels: round.teams
-      .filter((team) => team.isTopPayingTeam)
-      .map((team) => getTeamDisplayLabel(team.roundPlayers)),
-  }));
+  return rounds.map((round) => {
+    const cfg = round.formatConfig as Record<string, unknown> | null;
+    return {
+      id: round.id,
+      name: round.name,
+      date: round.date,
+      status: round.status,
+      hasLockCode: !!round.lockCode,
+      courseName: round.course.name,
+      formatName: round.format.name,
+      playerCount: round.roundPlayers.length,
+      teamCount: round.teams.length,
+      isManualEntry: cfg?.manualEntry === true,
+      topTeamLabels: round.teams
+        .filter((team) => team.isTopPayingTeam)
+        .map((team) => getTeamDisplayLabel(team.roundPlayers)),
+    };
+  });
 }
 
 export async function setRoundPlayers(id: string, playerIds: string[]) {

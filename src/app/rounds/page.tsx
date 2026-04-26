@@ -4,9 +4,10 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getRoundLog, reopenRound } from "@/actions/rounds";
+import { deleteQuickRound } from "@/actions/quick-rounds";
 import { Card, CardContent } from "@/components/card";
 import { Button } from "@/components/button";
-import { Modal } from "@/components/modal";
+import { Modal, ConfirmModal } from "@/components/modal";
 
 interface RoundLogEntry {
   id: string;
@@ -18,6 +19,7 @@ interface RoundLogEntry {
   formatName: string;
   playerCount: number;
   teamCount: number;
+  isManualEntry: boolean;
   topTeamLabels: string[];
 }
 
@@ -29,6 +31,8 @@ export default function RoundLogPage() {
   const [reopenCode, setReopenCode] = useState("");
   const [reopenError, setReopenError] = useState<string | null>(null);
   const [reopening, setReopening] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<RoundLogEntry | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     loadRounds();
@@ -62,6 +66,19 @@ export default function RoundLogPage() {
     }
   }
 
+  async function handleDeleteQuickRound() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await deleteQuickRound(deleteTarget.id);
+      setDeleteTarget(null);
+      await loadRounds();
+    } catch (err) {
+      setReopenError(err instanceof Error ? err.message : "Failed to delete");
+    }
+    setDeleting(false);
+  }
+
   const formatDate = (date: Date) =>
     new Date(date).toLocaleDateString("en-US", {
       weekday: "short",
@@ -79,9 +96,14 @@ export default function RoundLogPage() {
             View every round and reopen finished rounds if you have the lock code.
           </p>
         </div>
-        <Link href="/rounds/new">
-          <Button>Create Round</Button>
-        </Link>
+        <div className="flex gap-2">
+          <Link href="/rounds/record">
+            <Button variant="secondary">Record Past Round</Button>
+          </Link>
+          <Link href="/rounds/new">
+            <Button>Create Round</Button>
+          </Link>
+        </div>
       </div>
 
       {loading ? (
@@ -107,9 +129,16 @@ export default function RoundLogPage() {
                 <CardContent className="space-y-3 p-4">
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <h2 className="font-semibold text-lg">
-                        {round.name?.trim() || formatDate(round.date)}
-                      </h2>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h2 className="font-semibold text-lg">
+                          {round.name?.trim() || formatDate(round.date)}
+                        </h2>
+                        {round.isManualEntry && (
+                          <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+                            Manual Entry
+                          </span>
+                        )}
+                      </div>
                       <p className="text-sm text-gray-600">{formatDate(round.date)}</p>
                     </div>
                     <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-700">
@@ -149,7 +178,7 @@ export default function RoundLogPage() {
                             : "Continue Setup"}
                       </Button>
                     </Link>
-                    {round.status === "FINISHED" && round.hasLockCode && (
+                    {round.status === "FINISHED" && round.hasLockCode && !round.isManualEntry && (
                       <Button
                         size="sm"
                         onClick={() => {
@@ -161,10 +190,20 @@ export default function RoundLogPage() {
                         Reopen
                       </Button>
                     )}
-                    {round.status === "FINISHED" && !round.hasLockCode && (
+                    {round.status === "FINISHED" && !round.hasLockCode && !round.isManualEntry && (
                       <span className="rounded-full bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
                         View only
                       </span>
+                    )}
+                    {round.isManualEntry && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setDeleteTarget(round)}
+                        className="text-red-600 hover:text-red-700"
+                      >
+                        Delete
+                      </Button>
                     )}
                   </div>
                 </CardContent>
@@ -172,6 +211,18 @@ export default function RoundLogPage() {
             );
           })}
         </div>
+      )}
+
+      {deleteTarget && (
+        <ConfirmModal
+          isOpen={!!deleteTarget}
+          title="Delete Manual Round"
+          message={`Delete the ${formatDate(deleteTarget.date)} manual entry${deleteTarget.name ? ` "${deleteTarget.name}"` : ""}? This will remove the round and reverse season stats for all ${deleteTarget.playerCount} players.`}
+          confirmText={deleting ? "Deleting…" : "Delete"}
+          confirmVariant="danger"
+          onConfirm={handleDeleteQuickRound}
+          onClose={() => setDeleteTarget(null)}
+        />
       )}
 
       <Modal
