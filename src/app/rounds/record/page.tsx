@@ -146,12 +146,6 @@ export default function RecordRoundPage() {
       }
     }
 
-    if (!balanceOk) {
-      return setError(
-        `Payouts don't balance — net is ${netBalance >= 0 ? "+" : ""}$${netBalance.toFixed(2)}. Adjust team payouts so they sum to $0.`
-      );
-    }
-
     setSaving(true);
     try {
       await createQuickRound({
@@ -456,8 +450,11 @@ export default function RecordRoundPage() {
             Net balance:{" "}
             <span className="font-bold">
               {netBalance >= 0 ? "+" : ""}${netBalance.toFixed(2)}
-            </span>{" "}
-            — adjust team payouts so they sum to $0
+            </span>
+            {" — "}
+            {Math.abs(netBalance) < 1
+              ? "small rounding difference, OK to save"
+              : "double-check amounts if unexpected"}
           </>
         )}
       </div>
