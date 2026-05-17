@@ -14,11 +14,13 @@ import { Select } from "@/components/select";
 import { getScoringOrder } from "@/lib/scoring-order";
 import { FORMAT_DEFINITIONS, getFormatById } from "@/lib/format-definitions";
 import { computeIrishGolfSegmentSummaries, computeIrishGolfOverallSummary } from "@/lib/irish-golf";
+import { computeNassauOverallSummary, computeNassauSegmentSummaries } from "@/lib/nassau";
 import {
   computeFormatScore,
   computeVegasMatchRound,
   getMinimumScoresRequired,
   getIrishGolfSegmentFormatId,
+  getNassauSegmentFormatId,
   type PlayerInput,
 } from "@/lib/format-scoring";
 import {
@@ -228,6 +230,7 @@ export default function RoundSummaryPage({
   const isMoneyBallFormat = formatDef?.id === "money_ball";
   const isVegasFormat = formatDef?.id === "vegas";
   const isIrishGolfFormat = formatDef?.id === "irish_golf_6_6_6";
+  const isNassauFormat = formatDef?.id === "nassau";
   const isBestBallFormat =
     !!formatDef && getMinimumScoresRequired(formatDef.id) !== null;
 
@@ -346,18 +349,26 @@ export default function RoundSummaryPage({
           formatDef?.id === "irish_golf_6_6_6"
             ? getIrishGolfSegmentFormatId(hole.holeNumber, round.formatConfig ?? {}) ??
               formatDef.id
+            : formatDef?.id === "nassau"
+            ? getNassauSegmentFormatId(hole.holeNumber, round.formatConfig ?? {}) ??
+              formatDef.id
             : (formatDef?.id ?? "");
 
         const current = teamTotals.get(team.id)!;
         let displayScore = "-";
         let holeScore: number | null = null;
+        const rotationIndex =
+          formatDef?.id === "nassau"
+            ? hole.holeNumber <= 9
+              ? hole.holeNumber - 1
+              : hole.holeNumber - 10
+            : hole.holeNumber - 1;
         const designatedPlayerId =
           effectiveFormatId === "money_ball" ||
           effectiveFormatId === "lone_ranger" ||
           effectiveFormatId === "wolf_team"
-            ? team.roundPlayers[
-                (hole.holeNumber - 1) % team.roundPlayers.length
-              ]?.playerId ?? null
+            ? team.roundPlayers[rotationIndex % team.roundPlayers.length]
+                ?.playerId ?? null
             : null;
         const designatedScore = designatedPlayerId
           ? teamPs.find((score) => score.playerId === designatedPlayerId)
@@ -404,6 +415,9 @@ export default function RoundSummaryPage({
   }
 
   const sortedTeams = [...round.teams].sort((a, b) => {
+    if (isNassauFormat) {
+      return a.teamNumber - b.teamNumber;
+    }
     const aT = teamTotals.get(a.id)?.total ?? (isPoints ? -Infinity : Infinity);
     const bT = teamTotals.get(b.id)?.total ?? (isPoints ? -Infinity : Infinity);
     return isPoints ? bT - aT : aT - bT;
@@ -462,6 +476,9 @@ export default function RoundSummaryPage({
         const effectiveFormatId =
           formatDef?.id === "irish_golf_6_6_6"
             ? getIrishGolfSegmentFormatId(hole.holeNumber, round.formatConfig ?? {}) ??
+              formatDef.id
+            : formatDef?.id === "nassau"
+            ? getNassauSegmentFormatId(hole.holeNumber, round.formatConfig ?? {}) ??
               formatDef.id
             : (formatDef?.id ?? "");
 
@@ -545,6 +562,40 @@ export default function RoundSummaryPage({
     : [];
   const irishGolfOverall = isIrishGolfFormat
     ? computeIrishGolfOverallSummary(
+        round.teams.map((team) => ({
+          id: team.id,
+          teamNumber: team.teamNumber,
+        })),
+        round.holeScores.map((holeScore) => ({
+          teamId: holeScore.teamId,
+          holeNumber: holeScore.holeNumber,
+          entryType: holeScore.entryType,
+          value: holeScore.value,
+          grossScore: holeScore.grossScore,
+        })),
+        round.formatConfig ?? null,
+        round.pot ?? 0
+      )
+    : null;
+  const nassauSegments = isNassauFormat
+    ? computeNassauSegmentSummaries(
+        round.teams.map((team) => ({
+          id: team.id,
+          teamNumber: team.teamNumber,
+        })),
+        round.holeScores.map((holeScore) => ({
+          teamId: holeScore.teamId,
+          holeNumber: holeScore.holeNumber,
+          entryType: holeScore.entryType,
+          value: holeScore.value,
+          grossScore: holeScore.grossScore,
+        })),
+        round.formatConfig ?? null,
+        round.pot ?? 0
+      )
+    : [];
+  const nassauOverall = isNassauFormat
+    ? computeNassauOverallSummary(
         round.teams.map((team) => ({
           id: team.id,
           teamNumber: team.teamNumber,
@@ -897,7 +948,121 @@ export default function RoundSummaryPage({
         </Card>
       )}
 
-      {!isSkins && !isIrishGolfFormat && playerScores.length > 0 && (
+      {isNassauFormat && nassauOverall && (
+        <Card>
+          <CardHeader>Nassau Results</CardHeader>
+          <CardContent className="space-y-4">
+            {nassauSegments.map((segment) => (
+              <div
+                key={segment.segmentIndex}
+                className="rounded-lg border border-gray-200 p-3"
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="font-semibold">{segment.label}</p>
+                    <p className="text-sm text-gray-500">
+                      {FORMAT_DEFINITIONS.find(
+                        (definition) => definition.id === segment.formatId
+                      )?.name ?? "Segment format"}
+                    </p>
+                  </div>
+                  <p className="text-sm font-medium text-green-700">
+                    ${segment.segmentPot.toFixed(2)} Nassau pot
+                  </p>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {round.teams.map((team) => {
+                    const isWinner = segment.winningTeamIds.includes(team.id);
+                    return (
+                      <div
+                        key={`nassau-${segment.segmentIndex}-${team.id}`}
+                        className={`flex items-center justify-between rounded border px-3 py-2 ${
+                          isWinner
+                            ? "border-green-300 bg-green-50"
+                            : "border-gray-200 bg-white"
+                        }`}
+                      >
+                        <div>
+                          <p className="font-medium">{getTeamLabel(team)}</p>
+                          <p className="text-xs text-gray-500">
+                            {team.roundPlayers
+                              .map((roundPlayer) =>
+                                roundPlayer.player.nickname ||
+                                roundPlayer.player.fullName
+                              )
+                              .join(", ")}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-semibold">
+                            {segment.teamTotals.get(team.id) ?? 0}
+                          </p>
+                          {isWinner && (
+                            <p className="text-xs text-green-700">
+                              Wins ${segment.payoutPerWinningTeam.toFixed(2)}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+
+            <div className="rounded-lg border border-gray-200 p-3">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="font-semibold">{nassauOverall.label}</p>
+                  <p className="text-sm text-gray-500">Front 9 plus back 9 total</p>
+                </div>
+                <p className="text-sm font-medium text-green-700">
+                  ${nassauOverall.overallPot.toFixed(2)} overall pot
+                </p>
+              </div>
+              <div className="mt-3 space-y-2">
+                {round.teams.map((team) => {
+                  const isWinner = nassauOverall.winningTeamIds.includes(team.id);
+                  return (
+                    <div
+                      key={`nassau-overall-${team.id}`}
+                      className={`flex items-center justify-between rounded border px-3 py-2 ${
+                        isWinner
+                          ? "border-green-300 bg-green-50"
+                          : "border-gray-200 bg-white"
+                      }`}
+                    >
+                      <div>
+                        <p className="font-medium">{getTeamLabel(team)}</p>
+                        <p className="text-xs text-gray-500">
+                          {team.roundPlayers
+                            .map((roundPlayer) =>
+                              roundPlayer.player.nickname ||
+                              roundPlayer.player.fullName
+                            )
+                            .join(", ")}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold">
+                          {nassauOverall.teamTotals.get(team.id) ?? 0}
+                        </p>
+                        {isWinner && (
+                          <p className="text-xs text-green-700">
+                            Wins ${nassauOverall.payoutPerWinningTeam.toFixed(2)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {!isSkins && !isIrishGolfFormat && !isNassauFormat && playerScores.length > 0 && (
         <Card>
           <CardHeader>Leaderboard — {round.format.name}</CardHeader>
           <CardContent className="space-y-2">
@@ -1182,11 +1347,13 @@ export default function RoundSummaryPage({
                   );
                   const isCarryover = (result?.carrySkinsUsed ?? 0) > 1;
 
-                  // For Irish Golf: compute per-hole winner
+                  // For segmented formats: compute per-hole winner
                   let irishHoleWinnerTeamIds: string[] = [];
                   let irishHoleIsTie = false;
-                  if (isIrishGolfFormat) {
-                    const segmentFormatId = getIrishGolfSegmentFormatId(holeNumber, round.formatConfig ?? {});
+                  if (isIrishGolfFormat || isNassauFormat) {
+                    const segmentFormatId = isNassauFormat
+                      ? getNassauSegmentFormatId(holeNumber, round.formatConfig ?? {})
+                      : getIrishGolfSegmentFormatId(holeNumber, round.formatConfig ?? {});
                     const segmentFmt = segmentFormatId ? getFormatById(segmentFormatId) : null;
                     const higherIsBetter = segmentFmt?.formatCategory === "points" || segmentFmt?.formatCategory === "match";
                     const teamScoreValues = round.teams.map((team) => {
@@ -1211,12 +1378,12 @@ export default function RoundSummaryPage({
                             ? isCarryover
                               ? "bg-orange-50"
                               : "bg-green-50"
-                            : result?.isTie
+                          : result?.isTie
                             ? "bg-yellow-50"
                             : ""
-                          : isIrishGolfFormat && !irishHoleIsTie && irishHoleWinnerTeamIds.length > 0
+                          : (isIrishGolfFormat || isNassauFormat) && !irishHoleIsTie && irishHoleWinnerTeamIds.length > 0
                           ? "bg-green-50"
-                          : isIrishGolfFormat && irishHoleIsTie
+                          : (isIrishGolfFormat || isNassauFormat) && irishHoleIsTie
                           ? "bg-yellow-50"
                           : ""
                       }`}
@@ -1237,6 +1404,7 @@ export default function RoundSummaryPage({
                           `${team.id}-${holeNumber}`
                         );
                         const isWinner = isIrishGolfFormat
+                          || isNassauFormat
                           ? irishHoleWinnerTeamIds.includes(team.id)
                           : result?.winnerTeamId === team.id;
 
@@ -1256,7 +1424,7 @@ export default function RoundSummaryPage({
                         );
                       })}
                       <td className="py-2 pr-1 text-right text-xs whitespace-nowrap">
-                        {isIrishGolfFormat ? (
+                        {isIrishGolfFormat || isNassauFormat ? (
                           irishHoleIsTie ? (
                             <span className="text-yellow-600 font-medium">Tie</span>
                           ) : irishHoleWinnerTeamIds.length > 0 ? (
@@ -1295,7 +1463,7 @@ export default function RoundSummaryPage({
             </table>
           </div>
           <p className="text-xs text-gray-400 mt-2">
-            {isSkins ? "×2, ×3 etc. = skins carried from ties • " : ""}Italic = edited score{isIrishGolfFormat ? " • Green = hole winner" : ""}
+            {isSkins ? "×2, ×3 etc. = skins carried from ties • " : ""}Italic = edited score{isIrishGolfFormat || isNassauFormat ? " • Green = hole winner" : ""}
           </p>
         </CardContent>
       </Card>

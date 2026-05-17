@@ -11,6 +11,11 @@ import {
   computeIrishGolfOverallSummary,
 } from "@/lib/irish-golf";
 import {
+  computeNassauHoleOutcomes,
+  computeNassauOverallSummary,
+  computeNassauSegmentSummaries,
+} from "@/lib/nassau";
+import {
   calculateRoundResults,
   areAllHolesComplete,
   determineHoleWinner,
@@ -46,7 +51,7 @@ export interface LiveLeaderboardSegment {
 }
 
 export interface LiveLeaderboardData {
-  mode: "skins" | "standard" | "irish_golf";
+  mode: "skins" | "standard" | "irish_golf" | "nassau";
   title: string;
   scoringLabel: string;
   entries: LiveLeaderboardEntry[];
@@ -378,6 +383,155 @@ export async function finishRound(roundId: string) {
             )
           );
         }
+      }
+
+      const topTeamIds = findTopPayingTeams(teamPayouts);
+      const year = round.date.getFullYear();
+      const buyIn = round.buyInPerPlayer;
+
+      await prisma.$transaction(async (tx) => {
+        await tx.team.updateMany({
+          where: { roundId },
+          data: {
+            totalPayout: new Decimal(0),
+            isTopPayingTeam: false,
+          },
+        });
+
+        await tx.roundPlayer.updateMany({
+          where: { roundId },
+          data: {
+            payoutAmount: new Decimal(0),
+            wasOnTopPayingTeam: false,
+          },
+        });
+
+        await tx.holeResult.deleteMany({
+          where: { roundId },
+        });
+
+        for (const team of round.teams) {
+          const payout = teamPayouts.get(team.id) ?? new Decimal(0);
+          const isTop = topTeamIds.includes(team.id);
+
+          await tx.team.update({
+            where: { id: team.id },
+            data: {
+              totalPayout: payout,
+              isTopPayingTeam: isTop,
+            },
+          });
+
+          const splitPayout =
+            team.roundPlayers.length > 0
+              ? payout.div(team.roundPlayers.length)
+              : new Decimal(0);
+
+          for (const roundPlayer of team.roundPlayers) {
+            await tx.roundPlayer.update({
+              where: { id: roundPlayer.id },
+              data: {
+                payoutAmount: splitPayout,
+                wasOnTopPayingTeam: isTop,
+              },
+            });
+
+            await tx.seasonPlayerStat.upsert({
+              where: {
+                year_playerId: {
+                  year,
+                  playerId: roundPlayer.playerId,
+                },
+              },
+              update: {
+                totalWinnings: { increment: splitPayout },
+                totalBuyInsPaid: { increment: buyIn },
+                roundsPlayed: { increment: 1 },
+                topTeamAppearances: isTop ? { increment: 1 } : undefined,
+              },
+              create: {
+                year,
+                playerId: roundPlayer.playerId,
+                totalWinnings: splitPayout,
+                totalBuyInsPaid: buyIn,
+                roundsPlayed: 1,
+                topTeamAppearances: isTop ? 1 : 0,
+              },
+            });
+          }
+        }
+
+        await tx.round.update({
+          where: { id: roundId },
+          data: {
+            status: "FINISHED",
+            tiebreakerTeamId: null,
+            tiebreakerHoleNum: null,
+            tiebreakerSkinsWon: null,
+          },
+        });
+
+        await tx.roundMessage.updateMany({
+          where: { roundId },
+          data: {
+            imageDataUrl: null,
+            imageMimeType: null,
+            imageName: null,
+          },
+        });
+      });
+
+      revalidatePath("/");
+      revalidatePath(`/rounds/${roundId}`);
+      revalidatePath(`/rounds/${roundId}/summary`);
+      revalidatePath("/leaderboard");
+      return;
+    }
+
+    if (formatDefinition.id === "nassau") {
+      const teamRefs = round.teams.map((team) => ({
+        id: team.id,
+        teamNumber: team.teamNumber,
+      }));
+      const scoreRefs = round.holeScores.map((holeScore) => ({
+        teamId: holeScore.teamId,
+        holeNumber: holeScore.holeNumber,
+        entryType: holeScore.entryType,
+        value: holeScore.value,
+        grossScore: holeScore.grossScore,
+      }));
+      const nassauConfig = (round.formatConfig as Record<string, unknown> | null) ?? null;
+      const segmentSummaries = computeNassauSegmentSummaries(
+        teamRefs,
+        scoreRefs,
+        nassauConfig,
+        Number(round.pot)
+      );
+      const overallSummary = computeNassauOverallSummary(
+        teamRefs,
+        scoreRefs,
+        nassauConfig,
+        Number(round.pot)
+      );
+
+      const teamPayouts = new Map<string, Decimal>();
+      for (const summary of segmentSummaries) {
+        for (const teamId of summary.winningTeamIds) {
+          teamPayouts.set(
+            teamId,
+            (teamPayouts.get(teamId) ?? new Decimal(0)).add(
+              new Decimal(summary.payoutPerWinningTeam)
+            )
+          );
+        }
+      }
+      for (const teamId of overallSummary.winningTeamIds) {
+        teamPayouts.set(
+          teamId,
+          (teamPayouts.get(teamId) ?? new Decimal(0)).add(
+            new Decimal(overallSummary.payoutPerWinningTeam)
+          )
+        );
       }
 
       const topTeamIds = findTopPayingTeams(teamPayouts);
@@ -997,6 +1151,7 @@ export async function getAllTeamsScorecard(
     FORMAT_DEFINITIONS.find((definition) => definition.name === round.format.name) ??
     null;
   const isIrishGolf = formatDefinition?.id === "irish_golf_6_6_6";
+  const isNassau = formatDefinition?.id === "nassau";
   const isSkins = !formatDefinition || formatDefinition.formatCategory === "skins";
   const irishGolfOutcomes = isIrishGolf
     ? computeIrishGolfHoleOutcomes(
@@ -1014,8 +1169,27 @@ export async function getAllTeamsScorecard(
         (round.formatConfig as Record<string, unknown> | null) ?? null
       )
     : [];
+  const nassauOutcomes = isNassau
+    ? computeNassauHoleOutcomes(
+        round.teams.map((team) => ({
+          id: team.id,
+          teamNumber: team.teamNumber,
+        })),
+        round.holeScores.map((holeScore) => ({
+          teamId: holeScore.teamId,
+          holeNumber: holeScore.holeNumber,
+          entryType: holeScore.entryType,
+          value: holeScore.value,
+          grossScore: holeScore.grossScore,
+        })),
+        (round.formatConfig as Record<string, unknown> | null) ?? null
+      )
+    : [];
   const irishGolfOutcomeMap = new Map<number, (typeof irishGolfOutcomes)[number]>(
     irishGolfOutcomes.map((outcome) => [outcome.holeNumber, outcome])
+  );
+  const nassauOutcomeMap = new Map<number, (typeof nassauOutcomes)[number]>(
+    nassauOutcomes.map((outcome) => [outcome.holeNumber, outcome])
   );
   const teamLabelMap = new Map(
     round.teams.map((team) => [team.id, getTeamDisplayLabel(team.roundPlayers)])
@@ -1061,6 +1235,13 @@ export async function getAllTeamsScorecard(
 
     if (isIrishGolf) {
       const outcome = irishGolfOutcomeMap.get(hole.holeNumber);
+      scoringMode = outcome?.scoringMode ?? "aggregate";
+      formatName = outcome?.formatName ?? formatName;
+      isComplete = outcome?.isComplete ?? false;
+      isTie = outcome?.isTie ?? false;
+      winnerTeamIds = outcome?.isComplete ? outcome.winningTeamIds : [];
+    } else if (isNassau) {
+      const outcome = nassauOutcomeMap.get(hole.holeNumber);
       scoringMode = outcome?.scoringMode ?? "aggregate";
       formatName = outcome?.formatName ?? formatName;
       isComplete = outcome?.isComplete ?? false;
@@ -1268,6 +1449,7 @@ export async function getLiveLeaderboard(
     FORMAT_DEFINITIONS.find((definition) => definition.name === round.format.name) ??
     null;
   const isIrishGolf = formatDefinition?.id === "irish_golf_6_6_6";
+  const isNassau = formatDefinition?.id === "nassau";
   const isSkins = !formatDefinition || formatDefinition.formatCategory === "skins";
   const isPoints =
     formatDefinition?.formatCategory === "points" ||
@@ -1495,6 +1677,147 @@ export async function getLiveLeaderboard(
       mode: "irish_golf",
       title: "Live Leaderboard",
       scoringLabel: "Completed segment payouts so far",
+      entries: entries.sort((a, b) => {
+        if (b.totalPayout !== a.totalPayout) {
+          return b.totalPayout - a.totalPayout;
+        }
+        return (b.segmentsWon ?? 0) - (a.segmentsWon ?? 0);
+      }),
+      segments: segmentDisplays,
+    };
+  }
+
+  if (isNassau) {
+    const nassauConfig = (round.formatConfig as Record<string, unknown> | null) ?? null;
+    const teamRefs = round.teams.map((team) => ({
+      id: team.id,
+      teamNumber: team.teamNumber,
+    }));
+    const scoreRefs = round.holeScores.map((holeScore) => ({
+      teamId: holeScore.teamId,
+      holeNumber: holeScore.holeNumber,
+      entryType: holeScore.entryType,
+      value: holeScore.value,
+      grossScore: holeScore.grossScore,
+    }));
+    const segmentSummaries = computeNassauSegmentSummaries(
+      teamRefs,
+      scoreRefs,
+      nassauConfig,
+      Number(round.pot ?? 0)
+    );
+    const overallSummary = computeNassauOverallSummary(
+      teamRefs,
+      scoreRefs,
+      nassauConfig,
+      Number(round.pot ?? 0)
+    );
+    const getSegmentHoles = (segmentIndex: number) =>
+      segmentIndex === 0
+        ? [1, 2, 3, 4, 5, 6, 7, 8, 9]
+        : [10, 11, 12, 13, 14, 15, 16, 17, 18];
+    const allHoles = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
+
+    const entries = round.teams.map((team) => {
+      let payout = 0;
+      let segmentsWon = 0;
+
+      for (const summary of segmentSummaries) {
+        const segmentHoles = getSegmentHoles(summary.segmentIndex);
+        const isComplete = segmentHoles.every((holeNumber) =>
+          round.teams.every((segmentTeam) =>
+            round.holeScores.some(
+              (holeScore) =>
+                holeScore.teamId === segmentTeam.id &&
+                holeScore.holeNumber === holeNumber &&
+                holeScore.entryType !== "BLANK"
+            )
+          )
+        );
+
+        if (isComplete && summary.winningTeamIds.includes(team.id)) {
+          payout += summary.payoutPerWinningTeam;
+          segmentsWon += 1;
+        }
+      }
+
+      const overallComplete = allHoles.every((holeNumber) =>
+        round.teams.every((overallTeam) =>
+          round.holeScores.some(
+            (holeScore) =>
+              holeScore.teamId === overallTeam.id &&
+              holeScore.holeNumber === holeNumber &&
+              holeScore.entryType !== "BLANK"
+          )
+        )
+      );
+      if (overallComplete && overallSummary.winningTeamIds.includes(team.id)) {
+        payout += overallSummary.payoutPerWinningTeam;
+        segmentsWon += 1;
+      }
+
+      return {
+        teamId: team.id,
+        teamNumber: team.teamNumber,
+        label: getTeamDisplayLabel(team.roundPlayers),
+        holesScored: getTeamHolesScored(team.id).length,
+        metricValue: segmentsWon,
+        metricLabel: `${segmentsWon} game${segmentsWon === 1 ? "" : "s"} won`,
+        totalPayout: payout,
+        segmentsWon,
+      };
+    });
+
+    const segmentDisplays: Array<{ label: string; formatName: string; completed: boolean; leaders: string[]; payoutPerWinningTeam: number }> = segmentSummaries.map((summary) => {
+      const baseFormatName = summary.formatId
+        ? getFormatById(summary.formatId)?.name ?? summary.formatId
+        : "Unassigned";
+      const segmentHoles = getSegmentHoles(summary.segmentIndex);
+      const isComplete = segmentHoles.every((holeNumber) =>
+        round.teams.every((team) =>
+          round.holeScores.some(
+            (holeScore) =>
+              holeScore.teamId === team.id &&
+              holeScore.holeNumber === holeNumber &&
+              holeScore.entryType !== "BLANK"
+          )
+        )
+      );
+      return {
+        label: summary.label,
+        formatName: baseFormatName,
+        completed: isComplete,
+        leaders: round.teams
+          .filter((team) => summary.winningTeamIds.includes(team.id))
+          .map((team) => getTeamDisplayLabel(team.roundPlayers)),
+        payoutPerWinningTeam: summary.payoutPerWinningTeam,
+      };
+    });
+
+    const overallComplete = allHoles.every((holeNumber) =>
+      round.teams.every((team) =>
+        round.holeScores.some(
+          (holeScore) =>
+            holeScore.teamId === team.id &&
+            holeScore.holeNumber === holeNumber &&
+            holeScore.entryType !== "BLANK"
+        )
+      )
+    );
+    segmentDisplays.push({
+      label: overallSummary.label,
+      formatName: "Overall 18 Holes",
+      completed: overallComplete,
+      leaders: round.teams
+        .filter((team) => overallSummary.winningTeamIds.includes(team.id))
+        .map((team) => getTeamDisplayLabel(team.roundPlayers)),
+      payoutPerWinningTeam: overallSummary.payoutPerWinningTeam,
+    });
+
+    return {
+      mode: "nassau",
+      title: "Live Leaderboard",
+      scoringLabel: "Completed Nassau payouts so far",
       entries: entries.sort((a, b) => {
         if (b.totalPayout !== a.totalPayout) {
           return b.totalPayout - a.totalPayout;

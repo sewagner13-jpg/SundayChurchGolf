@@ -390,6 +390,35 @@ export const FORMAT_DEFINITIONS: FormatDefinition[] = [
     requiresDriveTracking: true,
   },
   {
+    id: 'nassau',
+    name: 'Nassau',
+    shortLabel: 'Nassau',
+    gameDescription:
+      'A three-bet round with separate results for the front 9, back 9, and overall 18 holes. Choose one format for holes 1 through 9 and another format for holes 10 through 18. The overall game adds all 18 hole scores together, so a round can use Lone Ranger on the front, Step Aside Scramble on the back, and still pay an overall 18-hole winner.',
+    formatCategory: 'stroke',
+    defaultTeamSize: 4,
+    supportedTeamSizes: [2, 3, 4],
+    configOptions: [
+      {
+        key: 'frontNineFormatId',
+        label: 'Front 9 Format',
+        type: 'select',
+        options: [],
+        description: 'Format used for holes 1 through 9.',
+      },
+      {
+        key: 'backNineFormatId',
+        label: 'Back 9 Format',
+        type: 'select',
+        options: [],
+        description: 'Format used for holes 10 through 18.',
+      },
+    ],
+    requiresIndividualScores: true,
+    requiresDesignatedPlayer: false,
+    requiresDriveTracking: false,
+  },
+  {
     id: 'match_play',
     name: 'Match Play',
     shortLabel: 'MatchPlay',
@@ -467,6 +496,22 @@ export function getFormatById(id: string): FormatDefinition | undefined {
 
 /** IDs for formats that can be used as Irish Golf 6-6-6 segments */
 export const IRISH_GOLF_ELIGIBLE_SEGMENT_FORMATS = [
+  'captains_choice',
+  'one_best_ball_of_four',
+  'two_best_balls_of_four',
+  'three_best_balls_of_four',
+  'lone_ranger',
+  'money_ball',
+  'cha_cha_cha',
+  'shamble_team',
+  'chicago_points_team',
+  'train_game',
+  'scramble_rotating_drives',
+  'step_aside_scramble',
+]
+
+/** IDs for formats that can be used as Nassau front/back formats */
+export const NASSAU_ELIGIBLE_SEGMENT_FORMATS = [
   'captains_choice',
   'one_best_ball_of_four',
   'two_best_balls_of_four',

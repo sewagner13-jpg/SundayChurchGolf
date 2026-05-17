@@ -19,6 +19,7 @@ import {
   computeMoneyBallRoundTotals,
   getMinimumScoresRequired,
   getIrishGolfSegmentFormatId,
+  getNassauSegmentFormatId,
   type PlayerInput,
 } from "@/lib/format-scoring";
 
@@ -491,6 +492,24 @@ test("computeFormatScore irish_golf_6_6_6 delegates to segment format", () => {
   const r3 = computeFormatScore("irish_golf_6_6_6", samplePlayers, 15, 4, {}, formatConfig);
   assert.ok(r3);
   assert.equal(r3?.teamGrossScore, 456);
+});
+
+test("computeFormatScore nassau delegates to front and back nine formats", () => {
+  const formatConfig = {
+    frontNineFormatId: "one_best_ball_of_four",
+    backNineFormatId: "cha_cha_cha",
+  };
+
+  assert.equal(getNassauSegmentFormatId(4, formatConfig), "one_best_ball_of_four");
+  assert.equal(getNassauSegmentFormatId(12, formatConfig), "cha_cha_cha");
+
+  const front = computeFormatScore("nassau", samplePlayers, 4, 4, {}, formatConfig);
+  assert.ok(front);
+  assert.equal(front?.teamGrossScore, 4);
+
+  const back = computeFormatScore("nassau", samplePlayers, 11, 4, {}, formatConfig);
+  assert.ok(back);
+  assert.equal(back?.teamGrossScore, 9);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

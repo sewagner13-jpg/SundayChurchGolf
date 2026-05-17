@@ -67,7 +67,7 @@ async function main() {
     console.log("Timberlake Country Club updated.");
   }
 
-  // Seed all 14 formats from FORMAT_DEFINITIONS (idempotent via upsert)
+  // Seed all formats from FORMAT_DEFINITIONS (idempotent via upsert)
   console.log(`Seeding ${FORMAT_DEFINITIONS.length} formats...`);
   for (const def of FORMAT_DEFINITIONS) {
     const existingById = await prisma.format.findUnique({

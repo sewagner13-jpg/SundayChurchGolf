@@ -605,6 +605,19 @@ export function getIrishGolfSegmentFormatId(
   return null;
 }
 
+export function getNassauSegmentFormatId(
+  holeNumber: number,
+  formatConfig: Record<string, unknown>
+): string | null {
+  if (holeNumber >= 1 && holeNumber <= 9) {
+    return (formatConfig.frontNineFormatId as string) ?? null;
+  }
+  if (holeNumber >= 10 && holeNumber <= 18) {
+    return (formatConfig.backNineFormatId as string) ?? null;
+  }
+  return null;
+}
+
 export function computeFormatScore(
   formatId: string,
   players: PlayerInput[],
@@ -668,6 +681,18 @@ export function computeFormatScore(
     }
     case "irish_golf_6_6_6": {
       const segmentFormatId = getIrishGolfSegmentFormatId(holeNumber, formatConfig);
+      if (!segmentFormatId) return null;
+      return computeFormatScore(
+        segmentFormatId,
+        players,
+        holeNumber,
+        par,
+        holeMetadata,
+        formatConfig
+      );
+    }
+    case "nassau": {
+      const segmentFormatId = getNassauSegmentFormatId(holeNumber, formatConfig);
       if (!segmentFormatId) return null;
       return computeFormatScore(
         segmentFormatId,

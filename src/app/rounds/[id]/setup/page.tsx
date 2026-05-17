@@ -32,6 +32,7 @@ import {
 import {
   FORMAT_DEFINITIONS,
   IRISH_GOLF_ELIGIBLE_SEGMENT_FORMATS,
+  NASSAU_ELIGIBLE_SEGMENT_FORMATS,
   type FormatConfigOption,
 } from "@/lib/format-definitions";
 import { isHandicapStale } from "@/lib/ghin";
@@ -588,10 +589,16 @@ export default function RoundSetupPage({
   const selectedEditFormat =
     formats.find((format) => format.id === editFormatId) ?? null;
   const isEditIrishGolf = selectedEditFormat?.name === "Irish Golf / 6-6-6";
+  const isEditNassau = selectedEditFormat?.name === "Nassau";
   const editEligibleSegmentFormats = formats.filter(
     (format) =>
       format.definitionId !== null &&
       IRISH_GOLF_ELIGIBLE_SEGMENT_FORMATS.includes(format.definitionId ?? "")
+  );
+  const editEligibleNassauFormats = formats.filter(
+    (format) =>
+      format.definitionId !== null &&
+      NASSAU_ELIGIBLE_SEGMENT_FORMATS.includes(format.definitionId ?? "")
   );
   const par3HoleNumbers = currentRound.course.holes
     .filter((hole) => hole.par === 3)
@@ -717,6 +724,13 @@ export default function RoundSetupPage({
         setError(
           "Irish Golf / 6-6-6 requires a format selected for all three segments."
         );
+        return;
+      }
+    }
+
+    if (isEditNassau) {
+      if (!editFormatConfig.frontNineFormatId || !editFormatConfig.backNineFormatId) {
+        setError("Nassau requires a format selected for the front 9 and back 9.");
         return;
       }
     }
@@ -1746,11 +1760,13 @@ export default function RoundSetupPage({
                 </p>
                 {selectedEditFormat.configOptions.map((option) => {
                   if (
-                    isEditIrishGolf &&
+                    (isEditIrishGolf || isEditNassau) &&
                     [
                       "segment1FormatId",
                       "segment2FormatId",
                       "segment3FormatId",
+                      "frontNineFormatId",
+                      "backNineFormatId",
                     ].includes(option.key)
                   ) {
                     return null;
@@ -1908,6 +1924,37 @@ export default function RoundSetupPage({
                   options={[
                     { value: "", label: "Select a format..." },
                     ...editEligibleSegmentFormats.map((format) => ({
+                      value: format.definitionId ?? format.id,
+                      label: format.name,
+                    })),
+                  ]}
+                  required
+                />
+              ))}
+            </div>
+          )}
+
+          {isEditNassau && (
+            <div className="space-y-3 rounded border border-amber-200 bg-amber-50 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+                Nassau Formats
+              </p>
+              {(
+                [
+                  { key: "frontNineFormatId", label: "Front 9 Format" },
+                  { key: "backNineFormatId", label: "Back 9 Format" },
+                ] as const
+              ).map(({ key, label }) => (
+                <Select
+                  key={key}
+                  label={label}
+                  value={String(editFormatConfig[key] ?? "")}
+                  onChange={(e) =>
+                    updateEditFormatConfig(key, e.target.value)
+                  }
+                  options={[
+                    { value: "", label: "Select a format..." },
+                    ...editEligibleNassauFormats.map((format) => ({
                       value: format.definitionId ?? format.id,
                       label: format.name,
                     })),

@@ -7,6 +7,7 @@ import { FORMAT_DEFINITIONS } from "@/lib/format-definitions";
 import {
   computeFormatScore,
   getIrishGolfSegmentFormatId,
+  getNassauSegmentFormatId,
   type PlayerInput,
 } from "@/lib/format-scoring";
 
@@ -254,6 +255,9 @@ export async function upsertPlayerScoresForHole(
     formatDefinition.id === "irish_golf_6_6_6"
       ? getIrishGolfSegmentFormatId(holeNumber, (round.formatConfig as Record<string, unknown>) ?? {}) ??
         formatDefinition.id
+      : formatDefinition.id === "nassau"
+      ? getNassauSegmentFormatId(holeNumber, (round.formatConfig as Record<string, unknown>) ?? {}) ??
+        formatDefinition.id
       : formatDefinition.id;
 
   const players: PlayerInput[] = team.roundPlayers.map((roundPlayer) => {
@@ -272,17 +276,23 @@ export async function upsertPlayerScoresForHole(
       ? ((round.formatConfig as Record<string, unknown>)
           ?.loneRangerOrder as Record<string, string[]>)?.[teamId] ?? null
       : null;
+  const rotationIndex =
+    formatDefinition.id === "nassau"
+      ? holeNumber <= 9
+        ? holeNumber - 1
+        : holeNumber - 10
+      : holeNumber - 1;
 
   const designatedPlayerId =
     // Client-supplied override (free-pick holes, wolf selection, etc.) wins first
     overrideDesignatedPlayerId !== undefined && overrideDesignatedPlayerId !== null
       ? overrideDesignatedPlayerId
       : effectiveFormatId === "money_ball" || effectiveFormatId === "wolf_team"
-      ? team.roundPlayers[(holeNumber - 1) % team.roundPlayers.length]?.playerId ?? null
+      ? team.roundPlayers[rotationIndex % team.roundPlayers.length]?.playerId ?? null
       : effectiveFormatId === "lone_ranger"
       ? loneRangerTeamOrder
-        ? loneRangerTeamOrder[(holeNumber - 1) % loneRangerTeamOrder.length] ?? null
-        : team.roundPlayers[(holeNumber - 1) % team.roundPlayers.length]?.playerId ?? null
+        ? loneRangerTeamOrder[rotationIndex % loneRangerTeamOrder.length] ?? null
+        : team.roundPlayers[rotationIndex % team.roundPlayers.length]?.playerId ?? null
       : null;
 
   const moneyBallEntry = designatedPlayerId

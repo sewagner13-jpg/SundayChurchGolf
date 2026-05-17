@@ -3,7 +3,13 @@
 import { prisma } from "@/lib/db";
 import { Decimal } from "@prisma/client/runtime/library";
 import { revalidatePath } from "next/cache";
-import { computeFormatScore, getIrishGolfSegmentFormatId, getMinimumScoresRequired, type PlayerInput } from "@/lib/format-scoring";
+import {
+  computeFormatScore,
+  getIrishGolfSegmentFormatId,
+  getMinimumScoresRequired,
+  getNassauSegmentFormatId,
+  type PlayerInput,
+} from "@/lib/format-scoring";
 
 async function getCountedScoreUsageByPlayer(year: number) {
   const rounds = await prisma.round.findMany({
@@ -70,6 +76,11 @@ async function getCountedScoreUsageByPlayer(year: number) {
         const effectiveFormatId =
           round.formatId === "irish_golf_6_6_6"
             ? getIrishGolfSegmentFormatId(
+                hole.holeNumber,
+                (round.formatConfig as Record<string, unknown>) ?? {}
+              ) ?? round.formatId
+            : round.formatId === "nassau"
+            ? getNassauSegmentFormatId(
                 hole.holeNumber,
                 (round.formatConfig as Record<string, unknown>) ?? {}
               ) ?? round.formatId

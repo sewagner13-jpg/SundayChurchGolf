@@ -37,11 +37,13 @@ import {
 import { FORMAT_DEFINITIONS } from "@/lib/format-definitions";
 import {
   IRISH_GOLF_ELIGIBLE_SEGMENT_FORMATS,
+  NASSAU_ELIGIBLE_SEGMENT_FORMATS,
   type FormatConfigOption,
 } from "@/lib/format-definitions";
 import {
   getIrishGolfSegmentFormatId,
   getMinimumScoresRequired,
+  getNassauSegmentFormatId,
 } from "@/lib/format-scoring";
 import {
   PAR3_CONTEST_TYPE_OPTIONS,
@@ -230,7 +232,7 @@ interface LiveLeaderboardSegment {
 }
 
 interface LiveLeaderboardData {
-  mode: "skins" | "standard" | "irish_golf";
+  mode: "skins" | "standard" | "irish_golf" | "nassau";
   title: string;
   scoringLabel: string;
   entries: LiveLeaderboardEntry[];
@@ -699,6 +701,15 @@ export default function LiveScoringPage({
               round.formatConfig ?? {}
             )
         ) ?? formatDefinition
+      : formatDefinition?.id === "nassau"
+      ? FORMAT_DEFINITIONS.find(
+          (definition) =>
+            definition.id ===
+            getNassauSegmentFormatId(
+              currentHole,
+              round.formatConfig ?? {}
+            )
+        ) ?? formatDefinition
       : formatDefinition
     : null;
   const usesIndividualScores = !!effectiveFormat?.requiresIndividualScores;
@@ -717,6 +728,8 @@ export default function LiveScoringPage({
   const myTeam = myTeamId ? round?.teams.find((t) => t.id === myTeamId) : null;
   const teamSize = myTeam?.roundPlayers.length ?? 1;
   const totalHoles = round?.course?.holes?.length ?? 18;
+  const nassauSegmentPosition =
+    currentHole <= 9 ? currentHole - 1 : currentHole - 10;
 
   // Lone Ranger: stored per-team order in formatConfig.loneRangerOrder[teamId]
   const loneRangerStoredOrder =
@@ -725,9 +738,15 @@ export default function LiveScoringPage({
       : null;
 
   // Holes beyond the last full rotation are "free pick"
-  const lastFullRotationHole = Math.floor(totalHoles / teamSize) * teamSize;
+  const effectiveRotationHoleCount =
+    formatDefinition?.id === "nassau" ? 9 : totalHoles;
+  const lastFullRotationHole =
+    Math.floor(effectiveRotationHoleCount / teamSize) * teamSize;
   // scoringPosition is 0-based position in scoring order
-  const scoringPosition = scoringOrder.indexOf(currentHole); // 0-based
+  const scoringPosition =
+    formatDefinition?.id === "nassau"
+      ? nassauSegmentPosition
+      : scoringOrder.indexOf(currentHole); // 0-based
   const isLoneRangerFreePick =
     effectiveFormat?.id === "lone_ranger" &&
     !!loneRangerStoredOrder &&
@@ -743,7 +762,7 @@ export default function LiveScoringPage({
           : (myTeam?.roundPlayers.find(
               (rp) => rp.playerId === loneRangerStoredOrder[scoringPosition % teamSize]
             ) ?? null)
-        : myTeam?.roundPlayers[(currentHole - 1) % teamSize] ?? null
+        : myTeam?.roundPlayers[scoringPosition % teamSize] ?? null
       : null;
 
   // Show the Lone Ranger order setup interstitial if no order is stored yet for this team
@@ -759,8 +778,12 @@ export default function LiveScoringPage({
     return team ? getTeamDisplayLabel(team.roundPlayers) : "Team";
   };
   const isLiveIrishGolf = formatDefinition?.id === "irish_golf_6_6_6";
+  const isLiveNassau = formatDefinition?.id === "nassau";
   const liveEligibleSegmentFormats = FORMAT_DEFINITIONS.filter((definition) =>
     IRISH_GOLF_ELIGIBLE_SEGMENT_FORMATS.includes(definition.id)
+  );
+  const liveEligibleNassauFormats = FORMAT_DEFINITIONS.filter((definition) =>
+    NASSAU_ELIGIBLE_SEGMENT_FORMATS.includes(definition.id)
   );
   const currentPar3Contest = (() => {
     const par3Contest = round?.formatConfig?.par3Contest as
@@ -1273,6 +1296,18 @@ export default function LiveScoringPage({
       ) {
         setFormatEditError(
           "Irish Golf / 6-6-6 requires a format selected for all three segments."
+        );
+        return;
+      }
+    }
+
+    if (isLiveNassau) {
+      if (
+        !liveFormatConfigDraft.frontNineFormatId ||
+        !liveFormatConfigDraft.backNineFormatId
+      ) {
+        setFormatEditError(
+          "Nassau requires a format selected for the front 9 and back 9."
         );
         return;
       }
@@ -1853,7 +1888,8 @@ export default function LiveScoringPage({
 
               {effectiveFormat && effectiveFormat.id !== formatDefinition?.id && (
                 <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
-                  Irish Golf segment: <strong>{effectiveFormat.name}</strong>
+                  {formatDefinition?.id === "nassau" ? "Nassau segment" : "Irish Golf segment"}:{" "}
+                  <strong>{effectiveFormat.name}</strong>
                 </div>
               )}
 
@@ -2705,6 +2741,8 @@ export default function LiveScoringPage({
                   "segment1FormatId",
                   "segment2FormatId",
                   "segment3FormatId",
+                  "frontNineFormatId",
+                  "backNineFormatId",
                 ].includes(option.key)
             )
             .map((option) => {
@@ -2800,6 +2838,38 @@ export default function LiveScoringPage({
                   >
                     <option value="">Select a format...</option>
                     {liveEligibleSegmentFormats.map((format) => (
+                      <option key={format.id} value={format.id}>
+                        {format.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {isLiveNassau && (
+            <div className="space-y-3 rounded border border-blue-200 bg-blue-50 px-3 py-3 text-sm text-blue-900">
+              <p className="font-semibold">Nassau Formats</p>
+              {(
+                [
+                  { key: "frontNineFormatId", label: "Front 9 Format" },
+                  { key: "backNineFormatId", label: "Back 9 Format" },
+                ] as const
+              ).map(({ key, label }) => (
+                <div key={key}>
+                  <label className="block text-sm font-medium text-gray-700">
+                    {label}
+                  </label>
+                  <select
+                    value={String(liveFormatConfigDraft[key] ?? "")}
+                    onChange={(e) =>
+                      updateLiveFormatDraft(key, e.target.value)
+                    }
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
+                  >
+                    <option value="">Select a format...</option>
+                    {liveEligibleNassauFormats.map((format) => (
                       <option key={format.id} value={format.id}>
                         {format.name}
                       </option>
@@ -3264,12 +3334,14 @@ export default function LiveScoringPage({
                     <div className="text-right">
                       <p className="font-bold text-green-700">
                         {liveLeaderboard.mode === "skins" ||
-                        liveLeaderboard.mode === "irish_golf"
+                        liveLeaderboard.mode === "irish_golf" ||
+                        liveLeaderboard.mode === "nassau"
                           ? `$${entry.totalPayout.toFixed(2)}`
                           : entry.metricLabel}
                       </p>
                       {(liveLeaderboard.mode === "skins" ||
-                        liveLeaderboard.mode === "irish_golf") && (
+                        liveLeaderboard.mode === "irish_golf" ||
+                        liveLeaderboard.mode === "nassau") && (
                         <p className="text-xs text-gray-500">{entry.metricLabel}</p>
                       )}
                     </div>
@@ -3278,7 +3350,8 @@ export default function LiveScoringPage({
               ))}
             </div>
 
-            {liveLeaderboard.mode === "irish_golf" &&
+            {(liveLeaderboard.mode === "irish_golf" ||
+              liveLeaderboard.mode === "nassau") &&
               liveLeaderboard.segments &&
               liveLeaderboard.segments.length > 0 && (
                 <div className="mt-4 space-y-2">

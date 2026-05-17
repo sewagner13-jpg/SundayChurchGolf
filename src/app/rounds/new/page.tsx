@@ -10,6 +10,7 @@ import { createRound } from "@/actions/rounds";
 import { VisibilityMode, BlindRevealMode } from "@prisma/client";
 import {
   IRISH_GOLF_ELIGIBLE_SEGMENT_FORMATS,
+  NASSAU_ELIGIBLE_SEGMENT_FORMATS,
   type FormatConfigOption,
 } from "@/lib/format-definitions";
 
@@ -134,6 +135,7 @@ function NewRoundForm() {
   const selectedFormat = formats.find((f) => f.id === formatId) ?? null;
   const isVegas = selectedFormat?.name === "Vegas";
   const isIrishGolf = selectedFormat?.name === "Irish Golf / 6-6-6";
+  const isNassau = selectedFormat?.name === "Nassau";
   const driveMinimumsEnabled = !!formatConfig.enableDriveMinimums;
   const requiredDrivesPerPlayer = getRequiredDrivesPerPlayer(formatConfig);
   const excludePar3sFromDriveMinimums =
@@ -142,6 +144,11 @@ function NewRoundForm() {
     (f) =>
       f.definitionId !== null &&
       IRISH_GOLF_ELIGIBLE_SEGMENT_FORMATS.includes(f.definitionId ?? "")
+  );
+  const eligibleNassauFormats = formats.filter(
+    (f) =>
+      f.definitionId !== null &&
+      NASSAU_ELIGIBLE_SEGMENT_FORMATS.includes(f.definitionId ?? "")
   );
 
   function handleFormatChange(newFormatId: string) {
@@ -168,6 +175,14 @@ function NewRoundForm() {
         setError(
           "Irish Golf / 6-6-6 requires a format selected for all three segments."
         );
+        setLoading(false);
+        return;
+      }
+    }
+
+    if (isNassau) {
+      if (!formatConfig.frontNineFormatId || !formatConfig.backNineFormatId) {
+        setError("Nassau requires a format selected for the front 9 and back 9.");
         setLoading(false);
         return;
       }
@@ -280,7 +295,7 @@ function NewRoundForm() {
                 {selectedFormat.configOptions.map((opt) => {
                   // Hide Irish Golf segment/match-play options — handled in custom section below
                   if (
-                    isIrishGolf &&
+                    (isIrishGolf || isNassau) &&
                     [
                       "segment1FormatId",
                       "segment1MatchPlay",
@@ -294,6 +309,8 @@ function NewRoundForm() {
                       "enableOverallGame",
                       "overallGameMatchPlay",
                       "overallGameCarryOver",
+                      "frontNineFormatId",
+                      "backNineFormatId",
                     ].includes(opt.key)
                   )
                     return null;
@@ -493,6 +510,39 @@ function NewRoundForm() {
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {isNassau && (
+            <div className="space-y-4 border border-amber-200 rounded-md p-3 bg-amber-50">
+              <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">
+                Nassau Formats
+              </p>
+              {(
+                [
+                  { key: "frontNineFormatId", label: "Front 9 Format" },
+                  { key: "backNineFormatId", label: "Back 9 Format" },
+                ] as const
+              ).map(({ key, label }) => (
+                <Select
+                  key={key}
+                  label={label}
+                  value={String(formatConfig[key] ?? "")}
+                  onChange={(e) => updateConfig(key, e.target.value)}
+                  options={[
+                    { value: "", label: "Select a format..." },
+                    ...eligibleNassauFormats.map((f) => ({
+                      value: f.definitionId ?? f.id,
+                      label: f.name,
+                    })),
+                  ]}
+                  required
+                />
+              ))}
+              <p className="text-sm text-amber-900">
+                The pot is split into three games: front 9, back 9, and overall
+                18 holes.
+              </p>
             </div>
           )}
 
