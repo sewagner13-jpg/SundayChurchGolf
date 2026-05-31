@@ -13,6 +13,7 @@ import {
   NASSAU_ELIGIBLE_SEGMENT_FORMATS,
   type FormatConfigOption,
 } from "@/lib/format-definitions";
+import { isAllBirdiesCountEligibleFormat } from "@/lib/all-birdies-count";
 
 interface Course {
   id: string;
@@ -431,11 +432,11 @@ function NewRoundForm() {
 
               {(
                 [
-                  { formatKey: "segment1FormatId", mpKey: "segment1MatchPlay", coKey: "segment1CarryOver", label: "Holes 1–6" },
-                  { formatKey: "segment2FormatId", mpKey: "segment2MatchPlay", coKey: "segment2CarryOver", label: "Holes 7–12" },
-                  { formatKey: "segment3FormatId", mpKey: "segment3MatchPlay", coKey: "segment3CarryOver", label: "Holes 13–18" },
+                  { formatKey: "segment1FormatId", mpKey: "segment1MatchPlay", coKey: "segment1CarryOver", abcKey: "segment1AllBirdiesCount", label: "Holes 1–6" },
+                  { formatKey: "segment2FormatId", mpKey: "segment2MatchPlay", coKey: "segment2CarryOver", abcKey: "segment2AllBirdiesCount", label: "Holes 7–12" },
+                  { formatKey: "segment3FormatId", mpKey: "segment3MatchPlay", coKey: "segment3CarryOver", abcKey: "segment3AllBirdiesCount", label: "Holes 13–18" },
                 ] as const
-              ).map(({ formatKey, mpKey, coKey, label }) => (
+              ).map(({ formatKey, mpKey, coKey, abcKey, label }) => (
                 <div key={formatKey} className="space-y-2 border border-amber-100 rounded-md p-2 bg-amber-50/50">
                   <p className="text-xs font-semibold text-amber-600">{label}</p>
                   <Select
@@ -451,6 +452,19 @@ function NewRoundForm() {
                     ]}
                     required
                   />
+                  {isAllBirdiesCountEligibleFormat(
+                    String(formatConfig[formatKey] ?? "")
+                  ) && (
+                    <label className="flex items-center gap-2 text-sm text-amber-800">
+                      <input
+                        type="checkbox"
+                        checked={!!formatConfig[abcKey]}
+                        onChange={(e) => updateConfig(abcKey, e.target.checked)}
+                        className="h-4 w-4"
+                      />
+                      <span>All Birdies Count</span>
+                    </label>
+                  )}
                   <label className="flex items-center gap-2 text-sm text-amber-800">
                     <input
                       type="checkbox"
@@ -520,24 +534,38 @@ function NewRoundForm() {
               </p>
               {(
                 [
-                  { key: "frontNineFormatId", label: "Front 9 Format" },
-                  { key: "backNineFormatId", label: "Back 9 Format" },
+                  { key: "frontNineFormatId", abcKey: "frontNineAllBirdiesCount", label: "Front 9 Format" },
+                  { key: "backNineFormatId", abcKey: "backNineAllBirdiesCount", label: "Back 9 Format" },
                 ] as const
-              ).map(({ key, label }) => (
-                <Select
-                  key={key}
-                  label={label}
-                  value={String(formatConfig[key] ?? "")}
-                  onChange={(e) => updateConfig(key, e.target.value)}
-                  options={[
-                    { value: "", label: "Select a format..." },
-                    ...eligibleNassauFormats.map((f) => ({
-                      value: f.definitionId ?? f.id,
-                      label: f.name,
-                    })),
-                  ]}
-                  required
-                />
+              ).map(({ key, abcKey, label }) => (
+                <div key={key} className="space-y-2">
+                  <Select
+                    label={label}
+                    value={String(formatConfig[key] ?? "")}
+                    onChange={(e) => updateConfig(key, e.target.value)}
+                    options={[
+                      { value: "", label: "Select a format..." },
+                      ...eligibleNassauFormats.map((f) => ({
+                        value: f.definitionId ?? f.id,
+                        label: f.name,
+                      })),
+                    ]}
+                    required
+                  />
+                  {isAllBirdiesCountEligibleFormat(
+                    String(formatConfig[key] ?? "")
+                  ) && (
+                    <label className="flex items-center gap-2 text-sm text-amber-800">
+                      <input
+                        type="checkbox"
+                        checked={!!formatConfig[abcKey]}
+                        onChange={(e) => updateConfig(abcKey, e.target.checked)}
+                        className="h-4 w-4"
+                      />
+                      <span>All Birdies Count</span>
+                    </label>
+                  )}
+                </div>
               ))}
               <p className="text-sm text-amber-900">
                 The pot is split into three games: front 9, back 9, and overall

@@ -37,6 +37,7 @@ import {
 } from "@/lib/format-definitions";
 import { isHandicapStale } from "@/lib/ghin";
 import { getTeamDisplayLabel } from "@/lib/team-labels";
+import { isAllBirdiesCountEligibleFormat } from "@/lib/all-birdies-count";
 interface Player {
   id: string;
   fullName: string;
@@ -1909,27 +1910,43 @@ export default function RoundSetupPage({
               </p>
               {(
                 [
-                  { key: "segment1FormatId", label: "Holes 1-6 Format" },
-                  { key: "segment2FormatId", label: "Holes 7-12 Format" },
-                  { key: "segment3FormatId", label: "Holes 13-18 Format" },
+                  { key: "segment1FormatId", abcKey: "segment1AllBirdiesCount", label: "Holes 1-6 Format" },
+                  { key: "segment2FormatId", abcKey: "segment2AllBirdiesCount", label: "Holes 7-12 Format" },
+                  { key: "segment3FormatId", abcKey: "segment3AllBirdiesCount", label: "Holes 13-18 Format" },
                 ] as const
-              ).map(({ key, label }) => (
-                <Select
-                  key={key}
-                  label={label}
-                  value={String(editFormatConfig[key] ?? "")}
-                  onChange={(e) =>
-                    updateEditFormatConfig(key, e.target.value)
-                  }
-                  options={[
-                    { value: "", label: "Select a format..." },
-                    ...editEligibleSegmentFormats.map((format) => ({
-                      value: format.definitionId ?? format.id,
-                      label: format.name,
-                    })),
-                  ]}
-                  required
-                />
+              ).map(({ key, abcKey, label }) => (
+                <div key={key} className="space-y-2">
+                  <Select
+                    label={label}
+                    value={String(editFormatConfig[key] ?? "")}
+                    onChange={(e) =>
+                      updateEditFormatConfig(key, e.target.value)
+                    }
+                    options={[
+                      { value: "", label: "Select a format..." },
+                      ...editEligibleSegmentFormats.map((format) => ({
+                        value: format.definitionId ?? format.id,
+                        label: format.name,
+                      })),
+                    ]}
+                    required
+                  />
+                  {isAllBirdiesCountEligibleFormat(
+                    String(editFormatConfig[key] ?? "")
+                  ) && (
+                    <label className="flex items-center gap-2 text-sm text-amber-800">
+                      <input
+                        type="checkbox"
+                        checked={!!editFormatConfig[abcKey]}
+                        onChange={(e) =>
+                          updateEditFormatConfig(abcKey, e.target.checked)
+                        }
+                        className="h-4 w-4"
+                      />
+                      <span>All Birdies Count</span>
+                    </label>
+                  )}
+                </div>
               ))}
             </div>
           )}
@@ -1941,26 +1958,42 @@ export default function RoundSetupPage({
               </p>
               {(
                 [
-                  { key: "frontNineFormatId", label: "Front 9 Format" },
-                  { key: "backNineFormatId", label: "Back 9 Format" },
+                  { key: "frontNineFormatId", abcKey: "frontNineAllBirdiesCount", label: "Front 9 Format" },
+                  { key: "backNineFormatId", abcKey: "backNineAllBirdiesCount", label: "Back 9 Format" },
                 ] as const
-              ).map(({ key, label }) => (
-                <Select
-                  key={key}
-                  label={label}
-                  value={String(editFormatConfig[key] ?? "")}
-                  onChange={(e) =>
-                    updateEditFormatConfig(key, e.target.value)
-                  }
-                  options={[
-                    { value: "", label: "Select a format..." },
-                    ...editEligibleNassauFormats.map((format) => ({
-                      value: format.definitionId ?? format.id,
-                      label: format.name,
-                    })),
-                  ]}
-                  required
-                />
+              ).map(({ key, abcKey, label }) => (
+                <div key={key} className="space-y-2">
+                  <Select
+                    label={label}
+                    value={String(editFormatConfig[key] ?? "")}
+                    onChange={(e) =>
+                      updateEditFormatConfig(key, e.target.value)
+                    }
+                    options={[
+                      { value: "", label: "Select a format..." },
+                      ...editEligibleNassauFormats.map((format) => ({
+                        value: format.definitionId ?? format.id,
+                        label: format.name,
+                      })),
+                    ]}
+                    required
+                  />
+                  {isAllBirdiesCountEligibleFormat(
+                    String(editFormatConfig[key] ?? "")
+                  ) && (
+                    <label className="flex items-center gap-2 text-sm text-amber-800">
+                      <input
+                        type="checkbox"
+                        checked={!!editFormatConfig[abcKey]}
+                        onChange={(e) =>
+                          updateEditFormatConfig(abcKey, e.target.checked)
+                        }
+                        className="h-4 w-4"
+                      />
+                      <span>All Birdies Count</span>
+                    </label>
+                  )}
+                </div>
               ))}
             </div>
           )}

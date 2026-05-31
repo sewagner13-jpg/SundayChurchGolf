@@ -36,6 +36,15 @@ export interface FormatDefinition {
   requiresTeamGrossScore?: boolean
 }
 
+const ALL_BIRDIES_COUNT_OPTION: FormatConfigOption = {
+  key: 'allBirdiesCount',
+  label: 'All Birdies Count',
+  type: 'boolean',
+  defaultValue: false,
+  description:
+    'For scramble scoring, enter how many players made the birdie putt. The app stores that as a negative score for the hole.',
+}
+
 export const FORMAT_DEFINITIONS: FormatDefinition[] = [
   {
     id: 'default-sunday-church',
@@ -61,6 +70,7 @@ export const FORMAT_DEFINITIONS: FormatDefinition[] = [
     defaultTeamSize: 4,
     supportedTeamSizes: [2, 3, 4],
     configOptions: [
+      ALL_BIRDIES_COUNT_OPTION,
       {
         key: 'enableDriveMinimums',
         label: 'Enforce Drive Minimums',
@@ -146,7 +156,7 @@ export const FORMAT_DEFINITIONS: FormatDefinition[] = [
     formatCategory: 'stroke',
     defaultTeamSize: 4,
     supportedTeamSizes: [4],
-    configOptions: [],
+    configOptions: [ALL_BIRDIES_COUNT_OPTION],
     requiresIndividualScores: false,
     requiresDesignatedPlayer: false,
     requiresDriveTracking: false,
@@ -161,7 +171,7 @@ export const FORMAT_DEFINITIONS: FormatDefinition[] = [
     formatCategory: 'stroke',
     defaultTeamSize: 4,
     supportedTeamSizes: [2, 3, 4],
-    configOptions: [],
+    configOptions: [ALL_BIRDIES_COUNT_OPTION],
     requiresIndividualScores: false,
     requiresDesignatedPlayer: false,
     requiresDriveTracking: false,
@@ -228,6 +238,7 @@ export const FORMAT_DEFINITIONS: FormatDefinition[] = [
     defaultTeamSize: 4,
     supportedTeamSizes: [2, 3, 4],
     configOptions: [
+      ALL_BIRDIES_COUNT_OPTION,
       {
         key: 'shambleCountMode',
         label: 'How Many Scores Count',

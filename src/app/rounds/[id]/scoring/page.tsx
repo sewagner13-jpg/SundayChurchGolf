@@ -59,6 +59,10 @@ import {
 } from "@/lib/par3-contests";
 import { getScoringOrder } from "@/lib/scoring-order";
 import { getTeamDisplayLabel } from "@/lib/team-labels";
+import {
+  isAllBirdiesCountEligibleFormat,
+  isAllBirdiesCountEnabledForHole,
+} from "@/lib/all-birdies-count";
 import { HoleEntryType } from "@prisma/client";
 
 interface TeamScore {
@@ -271,7 +275,7 @@ function buildLiveFormatConfig(
   formatDefinition: (typeof FORMAT_DEFINITIONS)[number] | null,
   formatConfig: Record<string, unknown> | null | undefined
 ) {
-  const nextConfig: Record<string, unknown> = {};
+  const nextConfig: Record<string, unknown> = { ...(formatConfig ?? {}) };
 
   for (const option of formatDefinition?.configOptions ?? []) {
     if (formatConfig?.[option.key] !== undefined) {
@@ -712,9 +716,22 @@ export default function LiveScoringPage({
         ) ?? formatDefinition
       : formatDefinition
     : null;
-  const usesIndividualScores = !!effectiveFormat?.requiresIndividualScores;
+  const myTeam = myTeamId ? round?.teams.find((t) => t.id === myTeamId) : null;
+  const teamSize = myTeam?.roundPlayers.length ?? 1;
+  const isAllBirdiesCountActive =
+    !!round &&
+    !!effectiveFormat &&
+    isAllBirdiesCountEnabledForHole(
+      formatDefinition?.id ?? round.formatId,
+      effectiveFormat.id,
+      currentHole,
+      round.formatConfig ?? {}
+    );
+  const usesIndividualScores =
+    !!effectiveFormat?.requiresIndividualScores && !isAllBirdiesCountActive;
   // Formats where the team enters a raw gross stroke count (e.g. scramble = "3", not "+1")
   const isTeamGrossScore =
+    !isAllBirdiesCountActive &&
     !usesIndividualScores &&
     !!effectiveFormat &&
     effectiveFormat.formatCategory !== "skins" &&
@@ -725,8 +742,6 @@ export default function LiveScoringPage({
   const minimumScoresRequired = effectiveFormat
     ? getMinimumScoresRequired(effectiveFormat.id)
     : null;
-  const myTeam = myTeamId ? round?.teams.find((t) => t.id === myTeamId) : null;
-  const teamSize = myTeam?.roundPlayers.length ?? 1;
   const totalHoles = round?.course?.holes?.length ?? 18;
   const nassauSegmentPosition =
     currentHole <= 9 ? currentHole - 1 : currentHole - 10;
@@ -850,6 +865,7 @@ export default function LiveScoringPage({
             ? selectedDrivePlayerId
             : undefined,
         isTeamGrossScore: isTeamGrossScore || undefined,
+        allBirdiesCount: isAllBirdiesCountActive || undefined,
       });
       await loadHoleData();
       await loadTeamsProgress();
@@ -873,8 +889,15 @@ export default function LiveScoringPage({
     }
 
     const value = parseInt(customScore);
-    if (isNaN(value) || value < 1) {
-      setError("Please enter a valid positive number");
+    if (
+      isNaN(value) ||
+      (isAllBirdiesCountActive ? value < 0 || value > teamSize : value < 1)
+    ) {
+      setError(
+        isAllBirdiesCountActive
+          ? `Enter a birdie count from 0 to ${teamSize}.`
+          : "Please enter a valid positive number"
+      );
       return;
     }
     if (myTeamId) {
@@ -1590,7 +1613,9 @@ export default function LiveScoringPage({
   const canManageBurgers = currentHole >= 15 || burgerSelections.size > 0;
   const currentDisplayScore =
     (myTeamScore?.holeData?.displayScore as string | undefined) ?? null;
-  const currentScoreLabel = usesIndividualScores
+  const currentScoreLabel = isAllBirdiesCountActive
+    ? "birdies made"
+    : usesIndividualScores
     ? effectiveFormat?.formatCategory === "points" ||
       effectiveFormat?.formatCategory === "match"
       ? "points"
@@ -1612,7 +1637,7 @@ export default function LiveScoringPage({
     if (hole?.entryType === "VALUE") {
       return (
         <span className="text-green-600 font-bold">
-          {usesIndividualScores || isTeamGrossScore
+          {usesIndividualScores || isTeamGrossScore || isAllBirdiesCountActive
             ? hole.grossScore ?? hole.value
             : `+${hole.value}`}
         </span>
@@ -2011,7 +2036,7 @@ export default function LiveScoringPage({
                     <span className="text-gray-500">X</span>
                   ) : currentDisplayScore ? (
                     <span className="text-green-600">{currentDisplayScore}</span>
-                  ) : usesIndividualScores || isTeamGrossScore ? (
+                  ) : usesIndividualScores || isTeamGrossScore || isAllBirdiesCountActive ? (
                     <span className="text-green-600">{myTeamScore.value}</span>
                   ) : (
                     <span className="text-green-600">+{myTeamScore.value}</span>
@@ -2022,6 +2047,12 @@ export default function LiveScoringPage({
                     ? "Par or worse"
                     : currentDisplayScore
                     ? `${currentScoreLabel}: ${currentDisplayScore}`
+                    : isAllBirdiesCountActive
+                    ? myTeamScore.entryType === "VALUE"
+                      ? `${Math.abs(myTeamScore.value ?? 0)} birdie${
+                          Math.abs(myTeamScore.value ?? 0) === 1 ? "" : "s"
+                        } made`
+                      : "Enter birdies made"
                     : usesIndividualScores
                     ? myTeamScore.value === null
                       ? "Enter player scores"
@@ -2212,7 +2243,34 @@ export default function LiveScoringPage({
                     </div>
                   )}
 
-                  {isTeamGrossScore ? (
+                  {isAllBirdiesCountActive ? (
+                    <>
+                      <p className="text-xs text-gray-500 mb-2">
+                        Enter how many players made the birdie putt
+                        {holeInfo ? ` (par ${holeInfo.par})` : ""}. The app
+                        stores this as a negative score for the hole.
+                      </p>
+                      <div className="grid grid-cols-4 gap-3 mb-4">
+                        {Array.from({ length: teamSize + 1 }, (_, num) => (
+                          <Button
+                            key={num}
+                            variant={
+                              myTeamScore.value === (num === 0 ? 0 : -num) &&
+                              myTeamScore.entryType === "VALUE"
+                                ? "primary"
+                                : "secondary"
+                            }
+                            size="lg"
+                            onClick={() => handleScoreEntry(myTeamId, "VALUE", num)}
+                            disabled={saving || scoreEntryBlocked}
+                            className="text-2xl h-14"
+                          >
+                            {num}
+                          </Button>
+                        ))}
+                      </div>
+                    </>
+                  ) : isTeamGrossScore ? (
                     /* Gross score entry: tap the actual number of strokes */
                     <>
                       <p className="text-xs text-gray-500 mb-2">
@@ -2300,22 +2358,24 @@ export default function LiveScoringPage({
                     </>
                   )}
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <Button
-                      variant={myTeamScore.entryType === "X" ? "primary" : "secondary"}
-                      size="lg"
-                      onClick={() => handleScoreEntry(myTeamId, "X")}
-                      disabled={saving || scoreEntryBlocked}
-                      className="text-xl h-12"
-                    >
-                      {isTeamGrossScore ? "X (Pickup)" : "X (Par or worse)"}
-                    </Button>
+                  <div className={isAllBirdiesCountActive ? "" : "grid grid-cols-2 gap-3"}>
+                    {!isAllBirdiesCountActive && (
+                      <Button
+                        variant={myTeamScore.entryType === "X" ? "primary" : "secondary"}
+                        size="lg"
+                        onClick={() => handleScoreEntry(myTeamId, "X")}
+                        disabled={saving || scoreEntryBlocked}
+                        className="text-xl h-12"
+                      >
+                        {isTeamGrossScore ? "X (Pickup)" : "X (Par or worse)"}
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="lg"
                       onClick={() => handleClear(myTeamId)}
                       disabled={saving || myTeamScore.entryType === null || scoreEntryBlocked}
-                      className="text-xl h-12"
+                      className={isAllBirdiesCountActive ? "w-full text-xl h-12" : "text-xl h-12"}
                     >
                       Clear
                     </Button>
@@ -2364,7 +2424,7 @@ export default function LiveScoringPage({
                               : displayScore
                               ? displayScore
                               : teamScore.entryType === "VALUE"
-                              ? usesIndividualScores || isTeamGrossScore
+                              ? usesIndividualScores || isTeamGrossScore || isAllBirdiesCountActive
                                 ? teamScore.grossScore ?? teamScore.value
                                 : `+${teamScore.value}`
                               : "-"}
@@ -2820,11 +2880,11 @@ export default function LiveScoringPage({
               <p className="font-semibold">6-6-6 Segment Formats</p>
               {(
                 [
-                  { key: "segment1FormatId", label: "Holes 1-6 Format" },
-                  { key: "segment2FormatId", label: "Holes 7-12 Format" },
-                  { key: "segment3FormatId", label: "Holes 13-18 Format" },
+                  { key: "segment1FormatId", abcKey: "segment1AllBirdiesCount", label: "Holes 1-6 Format" },
+                  { key: "segment2FormatId", abcKey: "segment2AllBirdiesCount", label: "Holes 7-12 Format" },
+                  { key: "segment3FormatId", abcKey: "segment3AllBirdiesCount", label: "Holes 13-18 Format" },
                 ] as const
-              ).map(({ key, label }) => (
+              ).map(({ key, abcKey, label }) => (
                 <div key={key}>
                   <label className="block text-sm font-medium text-gray-700">
                     {label}
@@ -2843,6 +2903,21 @@ export default function LiveScoringPage({
                       </option>
                     ))}
                   </select>
+                  {isAllBirdiesCountEligibleFormat(
+                    String(liveFormatConfigDraft[key] ?? "")
+                  ) && (
+                    <label className="mt-2 flex items-center gap-2 text-sm text-blue-900">
+                      <input
+                        type="checkbox"
+                        checked={!!liveFormatConfigDraft[abcKey]}
+                        onChange={(e) =>
+                          updateLiveFormatDraft(abcKey, e.target.checked)
+                        }
+                        className="h-4 w-4"
+                      />
+                      <span>All Birdies Count</span>
+                    </label>
+                  )}
                 </div>
               ))}
             </div>
@@ -2853,10 +2928,10 @@ export default function LiveScoringPage({
               <p className="font-semibold">Nassau Formats</p>
               {(
                 [
-                  { key: "frontNineFormatId", label: "Front 9 Format" },
-                  { key: "backNineFormatId", label: "Back 9 Format" },
+                  { key: "frontNineFormatId", abcKey: "frontNineAllBirdiesCount", label: "Front 9 Format" },
+                  { key: "backNineFormatId", abcKey: "backNineAllBirdiesCount", label: "Back 9 Format" },
                 ] as const
-              ).map(({ key, label }) => (
+              ).map(({ key, abcKey, label }) => (
                 <div key={key}>
                   <label className="block text-sm font-medium text-gray-700">
                     {label}
@@ -2875,6 +2950,21 @@ export default function LiveScoringPage({
                       </option>
                     ))}
                   </select>
+                  {isAllBirdiesCountEligibleFormat(
+                    String(liveFormatConfigDraft[key] ?? "")
+                  ) && (
+                    <label className="mt-2 flex items-center gap-2 text-sm text-blue-900">
+                      <input
+                        type="checkbox"
+                        checked={!!liveFormatConfigDraft[abcKey]}
+                        onChange={(e) =>
+                          updateLiveFormatDraft(abcKey, e.target.checked)
+                        }
+                        className="h-4 w-4"
+                      />
+                      <span>All Birdies Count</span>
+                    </label>
+                  )}
                 </div>
               ))}
             </div>

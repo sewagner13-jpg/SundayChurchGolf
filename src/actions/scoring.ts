@@ -28,6 +28,7 @@ import {
   computeDriveMinimumStatus,
   getEligibleDriveMinimumHoleNumbers,
 } from "@/lib/format-scoring";
+import { getAllBirdiesCountScore } from "@/lib/all-birdies-count";
 import { getScoringOrder } from "@/lib/scoring-order";
 import { getTeamDisplayLabel } from "@/lib/team-labels";
 
@@ -100,6 +101,7 @@ export interface ScoreEntry {
    * Setting this also writes the value to HoleScore.grossScore for consistency.
    */
   isTeamGrossScore?: boolean;
+  allBirdiesCount?: boolean;
 }
 
 export async function upsertHoleScore(
@@ -110,7 +112,16 @@ export async function upsertHoleScore(
 ) {
   // Validate entry
   if (entry.entryType === "VALUE") {
-    if (!entry.value || entry.value <= 0) {
+    if (entry.allBirdiesCount) {
+      if (
+        entry.value === undefined ||
+        entry.value === null ||
+        !Number.isInteger(entry.value) ||
+        entry.value < 0
+      ) {
+        throw new Error("Birdies made must be a whole number of 0 or higher");
+      }
+    } else if (!entry.value || entry.value <= 0) {
       throw new Error("Value must be a positive integer");
     }
   }
@@ -131,7 +142,7 @@ export async function upsertHoleScore(
       },
       select: { entryType: true, value: true, wasEdited: true, holeData: true },
     }),
-    entry.selectedDrivePlayerId !== undefined
+    entry.selectedDrivePlayerId !== undefined || entry.allBirdiesCount
       ? prisma.team.findFirst({
           where: {
             id: teamId,
@@ -158,12 +169,55 @@ export async function upsertHoleScore(
       throw new Error("Selected drive player does not belong to this team");
     }
   }
+  if (entry.allBirdiesCount && !team) {
+    throw new Error("Team not found in this round");
+  }
+  if (
+    entry.allBirdiesCount &&
+    entry.entryType === "VALUE" &&
+    (entry.value ?? 0) > (team?.roundPlayers.length ?? 0)
+  ) {
+    throw new Error("Birdies made cannot exceed the number of players on the team");
+  }
+
+  const allBirdiesScore =
+    entry.allBirdiesCount && entry.entryType === "VALUE"
+      ? getAllBirdiesCountScore(entry.value ?? 0)
+      : null;
+  const storedValue =
+    entry.entryType === "VALUE"
+      ? allBirdiesScore?.storedScore ?? entry.value ?? null
+      : null;
+
+  const existingHoleData =
+    (existingScore?.holeData as Record<string, unknown> | null) ?? {};
+  const {
+    allBirdiesCount,
+    birdiesMade,
+    displayScore,
+    ...existingHoleDataWithoutAllBirdies
+  } = existingHoleData;
+  void allBirdiesCount;
+  void birdiesMade;
+  void displayScore;
 
   const nextHoleData =
-    entry.selectedDrivePlayerId === undefined
-      ? existingScore?.holeData
+    entry.allBirdiesCount && allBirdiesScore
+      ? {
+          ...existingHoleDataWithoutAllBirdies,
+          ...(entry.selectedDrivePlayerId !== undefined
+            ? { drivePlayerId: entry.selectedDrivePlayerId }
+            : {}),
+          allBirdiesCount: true,
+          birdiesMade: entry.value ?? 0,
+          displayScore: allBirdiesScore.displayScore,
+        }
+      : entry.selectedDrivePlayerId === undefined
+      ? Object.keys(existingHoleDataWithoutAllBirdies).length > 0
+        ? existingHoleDataWithoutAllBirdies
+        : undefined
       : {
-          ...((existingScore?.holeData as Record<string, unknown> | null) ?? {}),
+          ...existingHoleDataWithoutAllBirdies,
           drivePlayerId: entry.selectedDrivePlayerId,
         };
   if (round.status !== "LIVE") {
@@ -174,7 +228,7 @@ export async function upsertHoleScore(
     existingScore &&
     existingScore.entryType !== "BLANK" &&
     (existingScore.entryType !== entry.entryType ||
-      existingScore.value !== entry.value);
+      existingScore.value !== storedValue);
 
   // Upsert the score - no recalculation needed during live play
   // Final results are calculated when round is finished
@@ -188,10 +242,13 @@ export async function upsertHoleScore(
     },
     update: {
       entryType: entry.entryType,
-      value: entry.entryType === "VALUE" ? entry.value : null,
+      value: storedValue,
       // For team gross score formats, mirror value → grossScore so live + finalization paths agree
       grossScore:
-        entry.isTeamGrossScore && entry.entryType === "VALUE" ? entry.value : undefined,
+        (entry.isTeamGrossScore || entry.allBirdiesCount) &&
+        entry.entryType === "VALUE"
+          ? storedValue
+          : undefined,
       holeData: nextHoleData as Prisma.InputJsonValue | undefined,
       wasEdited: existingScore?.wasEdited || isEdit || false,
     },
@@ -200,9 +257,12 @@ export async function upsertHoleScore(
       teamId,
       holeNumber,
       entryType: entry.entryType,
-      value: entry.entryType === "VALUE" ? entry.value : null,
+      value: storedValue,
       grossScore:
-        entry.isTeamGrossScore && entry.entryType === "VALUE" ? entry.value : undefined,
+        (entry.isTeamGrossScore || entry.allBirdiesCount) &&
+        entry.entryType === "VALUE"
+          ? storedValue
+          : undefined,
       holeData: nextHoleData as Prisma.InputJsonValue | undefined,
       wasEdited: false,
     },
