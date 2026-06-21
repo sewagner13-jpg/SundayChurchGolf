@@ -11,6 +11,14 @@ import {
   getPar3ContestConfig,
   getPar3ContestParticipantIds,
 } from "@/lib/par3-contests";
+import {
+  SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID,
+  validateSundayChurchHoleGamesConfig,
+} from "@/lib/sunday-church-hole-games";
+import {
+  SUNDAY_CHURCH_SIMON_SAYS_FORMAT_ID,
+  validateSundayChurchSimonSaysConfig,
+} from "@/lib/sunday-church-simon-says";
 import { getPar3ContestTotalPotDecimal } from "@/lib/par3-contests.server";
 import { getTeamDisplayLabel } from "@/lib/team-labels";
 
@@ -51,6 +59,31 @@ function mergeRoundFormatConfig(
     ...((existingConfig as Prisma.JsonObject | null) ?? {}),
     ...updates,
   } as Prisma.InputJsonValue;
+}
+
+function assertSundayChurchHoleGamesConfig(
+  formatId: string | undefined,
+  formatConfig: Record<string, unknown> | undefined,
+  teamSize?: number | null
+) {
+  if (formatId !== SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID) return;
+
+  const errors = validateSundayChurchHoleGamesConfig(formatConfig, teamSize);
+  if (errors.length > 0) {
+    throw new Error(errors[0]);
+  }
+}
+
+function assertSundayChurchSimonSaysConfig(
+  formatId: string | undefined,
+  formatConfig: Record<string, unknown> | undefined
+) {
+  if (formatId !== SUNDAY_CHURCH_SIMON_SAYS_FORMAT_ID) return;
+
+  const errors = validateSundayChurchSimonSaysConfig(formatConfig);
+  if (errors.length > 0) {
+    throw new Error(errors[0]);
+  }
 }
 
 export async function setRoundLockCode(id: string, code: string) {
@@ -102,6 +135,8 @@ export async function createRound(data: CreateRoundData) {
   if (data.buyInPerPlayer <= 0) {
     throw new Error("Buy-in must be greater than 0");
   }
+  assertSundayChurchHoleGamesConfig(data.formatId, data.formatConfig);
+  assertSundayChurchSimonSaysConfig(data.formatId, data.formatConfig);
 
   const round = await prisma.round.create({
     data: {
@@ -137,6 +172,12 @@ export async function updateRoundDraft(id: string, data: UpdateRoundDraftData) {
   if (data.buyInPerPlayer !== undefined && data.buyInPerPlayer <= 0) {
     throw new Error("Buy-in must be greater than 0");
   }
+  const nextFormatId = data.formatId ?? round.formatId;
+  const nextFormatConfig =
+    data.formatConfig ??
+    ((round.formatConfig as Record<string, unknown> | null) ?? undefined);
+  assertSundayChurchHoleGamesConfig(nextFormatId, nextFormatConfig, round.teamSize);
+  assertSundayChurchSimonSaysConfig(nextFormatId, nextFormatConfig);
 
   const updated = await prisma.round.update({
     where: { id },
@@ -189,6 +230,17 @@ export async function updateLiveRoundFormat(
   if (round.lockCode !== unlockCode) {
     throw new Error("Invalid lock code");
   }
+  assertSundayChurchHoleGamesConfig(
+    round.formatId,
+    data.formatConfig ??
+      ((round.formatConfig as Record<string, unknown> | null) ?? undefined),
+    round.teamSize
+  );
+  assertSundayChurchSimonSaysConfig(
+    round.formatId,
+    data.formatConfig ??
+      ((round.formatConfig as Record<string, unknown> | null) ?? undefined)
+  );
 
   const updated = await prisma.round.update({
     where: { id },
@@ -517,6 +569,16 @@ export async function startRound(id: string, startingHole: 1 | 10) {
   if (!round.lockCode) {
     throw new Error("Lock teams with a 4-digit code before starting the round");
   }
+
+  assertSundayChurchHoleGamesConfig(
+    round.formatId,
+    (round.formatConfig as Record<string, unknown> | undefined) ?? undefined,
+    round.teamSize
+  );
+  assertSundayChurchSimonSaysConfig(
+    round.formatId,
+    (round.formatConfig as Record<string, unknown> | undefined) ?? undefined
+  );
 
   if (round.formatId === "vegas") {
     if (round.teamSize !== 2) {

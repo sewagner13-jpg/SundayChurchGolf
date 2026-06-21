@@ -28,6 +28,13 @@ import {
   computeDriveMinimumStatus,
   getEligibleDriveMinimumHoleNumbers,
 } from "@/lib/format-scoring";
+import {
+  SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID,
+  calculateSundayChurchHoleGameResults,
+  computeSundayChurchHoleGameOutcomes,
+  resolveSundayChurchHoleGameCarryoverTiebreaker,
+  toSundayChurchHoleGameScores,
+} from "@/lib/sunday-church-hole-games";
 import { getAllBirdiesCountScore } from "@/lib/all-birdies-count";
 import { getScoringOrder } from "@/lib/scoring-order";
 import { getTeamDisplayLabel } from "@/lib/team-labels";
@@ -96,6 +103,7 @@ export interface ScoreEntry {
   entryType: HoleEntryType;
   value?: number | null;
   selectedDrivePlayerId?: string | null;
+  designatedPlayerId?: string | null;
   /**
    * When true, the value IS the gross stroke count (scramble / captain's choice / match play).
    * Setting this also writes the value to HoleScore.grossScore for consistency.
@@ -142,7 +150,9 @@ export async function upsertHoleScore(
       },
       select: { entryType: true, value: true, wasEdited: true, holeData: true },
     }),
-    entry.selectedDrivePlayerId !== undefined || entry.allBirdiesCount
+    entry.selectedDrivePlayerId !== undefined ||
+    entry.designatedPlayerId !== undefined ||
+    entry.allBirdiesCount
       ? prisma.team.findFirst({
           where: {
             id: teamId,
@@ -167,6 +177,19 @@ export async function upsertHoleScore(
       )
     ) {
       throw new Error("Selected drive player does not belong to this team");
+    }
+  }
+  if (entry.designatedPlayerId !== undefined) {
+    if (!team) {
+      throw new Error("Team not found in this round");
+    }
+    if (
+      entry.designatedPlayerId !== null &&
+      !team.roundPlayers.some(
+        (roundPlayer) => roundPlayer.playerId === entry.designatedPlayerId
+      )
+    ) {
+      throw new Error("Designated player does not belong to this team");
     }
   }
   if (entry.allBirdiesCount && !team) {
@@ -201,24 +224,31 @@ export async function upsertHoleScore(
   void birdiesMade;
   void displayScore;
 
+  const scoreMetadata = {
+    ...(entry.selectedDrivePlayerId !== undefined
+      ? { drivePlayerId: entry.selectedDrivePlayerId }
+      : {}),
+    ...(entry.designatedPlayerId !== undefined
+      ? { designatedPlayerId: entry.designatedPlayerId }
+      : {}),
+  };
+
   const nextHoleData =
     entry.allBirdiesCount && allBirdiesScore
       ? {
           ...existingHoleDataWithoutAllBirdies,
-          ...(entry.selectedDrivePlayerId !== undefined
-            ? { drivePlayerId: entry.selectedDrivePlayerId }
-            : {}),
+          ...scoreMetadata,
           allBirdiesCount: true,
           birdiesMade: entry.value ?? 0,
           displayScore: allBirdiesScore.displayScore,
         }
-      : entry.selectedDrivePlayerId === undefined
+      : Object.keys(scoreMetadata).length === 0
       ? Object.keys(existingHoleDataWithoutAllBirdies).length > 0
         ? existingHoleDataWithoutAllBirdies
         : undefined
       : {
           ...existingHoleDataWithoutAllBirdies,
-          drivePlayerId: entry.selectedDrivePlayerId,
+          ...scoreMetadata,
         };
   if (round.status !== "LIVE") {
     throw new Error("Can only enter scores while round is LIVE");
@@ -308,14 +338,23 @@ export async function recalculateRound(roundId: string) {
   }));
 
   // Calculate results
-  const { holeResults, teamPayouts, unresolvedCarryover } =
-    calculateRoundResults(
-      allScores,
-      teams,
-      round.startingHole,
-      round.pot,
-      courseHoles
-    );
+  const { holeResults, teamPayouts } =
+    round.formatId === SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID
+      ? calculateSundayChurchHoleGameResults(
+          toSundayChurchHoleGameScores(round.holeScores),
+          teams,
+          round.startingHole,
+          round.pot,
+          courseHoles,
+          (round.formatConfig as Record<string, unknown> | null) ?? null
+        )
+      : calculateRoundResults(
+          allScores,
+          teams,
+          round.startingHole,
+          round.pot,
+          courseHoles
+        );
 
   // Update hole results in database
   for (const result of holeResults) {
@@ -768,15 +807,27 @@ export async function finishRound(roundId: string) {
     handicapRank: h.handicapRank,
   }));
 
+  const isSundayChurchHoleGames =
+    (formatDefinition?.id ?? round.formatId) === SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID;
+
   // Calculate final results
   const { holeResults, teamPayouts, unresolvedCarryover } =
-    calculateRoundResults(
-      allScores,
-      teams,
-      round.startingHole,
-      round.pot,
-      courseHoles
-    );
+    isSundayChurchHoleGames
+      ? calculateSundayChurchHoleGameResults(
+          toSundayChurchHoleGameScores(round.holeScores),
+          teams,
+          round.startingHole,
+          round.pot,
+          courseHoles,
+          (round.formatConfig as Record<string, unknown> | null) ?? null
+        )
+      : calculateRoundResults(
+          allScores,
+          teams,
+          round.startingHole,
+          round.pot,
+          courseHoles
+        );
 
   // Handle end-of-round carryover tiebreaker if needed
   const finalTeamPayouts = teamPayouts;
@@ -787,13 +838,22 @@ export async function finishRound(roundId: string) {
   } | null = null;
 
   if (unresolvedCarryover > 0) {
-    const tiebreakerResult = resolveCarryoverTiebreaker(
-      allScores,
-      teams,
-      courseHoles,
-      unresolvedCarryover,
-      round.baseSkinValue
-    );
+    const tiebreakerResult = isSundayChurchHoleGames
+      ? resolveSundayChurchHoleGameCarryoverTiebreaker(
+          toSundayChurchHoleGameScores(round.holeScores),
+          teams,
+          courseHoles,
+          unresolvedCarryover,
+          round.baseSkinValue,
+          (round.formatConfig as Record<string, unknown> | null) ?? null
+        )
+      : resolveCarryoverTiebreaker(
+          allScores,
+          teams,
+          courseHoles,
+          unresolvedCarryover,
+          round.baseSkinValue
+        );
 
     tiebreakerInfo = {
       winnerTeamId: tiebreakerResult.winnerTeamId,
@@ -1210,6 +1270,8 @@ export async function getAllTeamsScorecard(
     FORMAT_DEFINITIONS.find((definition) => definition.id === round.formatId) ??
     FORMAT_DEFINITIONS.find((definition) => definition.name === round.format.name) ??
     null;
+  const isSundayChurchHoleGames =
+    (formatDefinition?.id ?? round.formatId) === SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID;
   const isIrishGolf = formatDefinition?.id === "irish_golf_6_6_6";
   const isNassau = formatDefinition?.id === "nassau";
   const isSkins = !formatDefinition || formatDefinition.formatCategory === "skins";
@@ -1245,12 +1307,26 @@ export async function getAllTeamsScorecard(
         (round.formatConfig as Record<string, unknown> | null) ?? null
       )
     : [];
+  const sundayChurchHoleGameOutcomes = isSundayChurchHoleGames
+    ? computeSundayChurchHoleGameOutcomes(
+        round.teams.map((team) => ({
+          id: team.id,
+          teamNumber: team.teamNumber,
+        })),
+        toSundayChurchHoleGameScores(round.holeScores),
+        (round.formatConfig as Record<string, unknown> | null) ?? null
+      )
+    : [];
   const irishGolfOutcomeMap = new Map<number, (typeof irishGolfOutcomes)[number]>(
     irishGolfOutcomes.map((outcome) => [outcome.holeNumber, outcome])
   );
   const nassauOutcomeMap = new Map<number, (typeof nassauOutcomes)[number]>(
     nassauOutcomes.map((outcome) => [outcome.holeNumber, outcome])
   );
+  const sundayChurchHoleGameOutcomeMap = new Map<
+    number,
+    (typeof sundayChurchHoleGameOutcomes)[number]
+  >(sundayChurchHoleGameOutcomes.map((outcome) => [outcome.holeNumber, outcome]));
   const teamLabelMap = new Map(
     round.teams.map((team) => [team.id, getTeamDisplayLabel(team.roundPlayers)])
   );
@@ -1293,7 +1369,14 @@ export async function getAllTeamsScorecard(
     let isTie = false;
     let winnerTeamIds: string[] = [];
 
-    if (isIrishGolf) {
+    if (isSundayChurchHoleGames) {
+      const outcome = sundayChurchHoleGameOutcomeMap.get(hole.holeNumber);
+      scoringMode = "skins";
+      formatName = outcome?.formatName ?? formatName;
+      isComplete = outcome?.isComplete ?? false;
+      isTie = outcome?.isTie ?? false;
+      winnerTeamIds = outcome?.isComplete ? outcome.winningTeamIds : [];
+    } else if (isIrishGolf) {
       const outcome = irishGolfOutcomeMap.get(hole.holeNumber);
       scoringMode = outcome?.scoringMode ?? "aggregate";
       formatName = outcome?.formatName ?? formatName;
@@ -1413,6 +1496,7 @@ export async function getLiveSkinsStatus(roundId: string, startingHole: number) 
   const round = await prisma.round.findUnique({
     where: { id: roundId },
     include: {
+      format: true,
       teams: { orderBy: { teamNumber: "asc" } },
       holeScores: true,
       course: { include: { holes: true } },
@@ -1440,13 +1524,23 @@ export async function getLiveSkinsStatus(roundId: string, startingHole: number) 
     handicapRank: h.handicapRank,
   }));
 
-  const { holeResults } = calculateRoundResults(
-    allScores,
-    round.teams,
-    startingHole,
-    pot,
-    courseHoles
-  );
+  const { holeResults } =
+    round.formatId === SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID
+      ? calculateSundayChurchHoleGameResults(
+          toSundayChurchHoleGameScores(round.holeScores),
+          round.teams,
+          startingHole,
+          pot,
+          courseHoles,
+          (round.formatConfig as Record<string, unknown> | null) ?? null
+        )
+      : calculateRoundResults(
+          allScores,
+          round.teams,
+          startingHole,
+          pot,
+          courseHoles
+        );
 
   const holeResultsMap = new Map(holeResults.map((hr) => [hr.holeNumber, hr]));
 
@@ -1508,6 +1602,8 @@ export async function getLiveLeaderboard(
     FORMAT_DEFINITIONS.find((definition) => definition.id === round.formatId) ??
     FORMAT_DEFINITIONS.find((definition) => definition.name === round.format.name) ??
     null;
+  const isSundayChurchHoleGames =
+    (formatDefinition?.id ?? round.formatId) === SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID;
   const isIrishGolf = formatDefinition?.id === "irish_golf_6_6_6";
   const isNassau = formatDefinition?.id === "nassau";
   const isSkins = !formatDefinition || formatDefinition.formatCategory === "skins";
@@ -1528,17 +1624,27 @@ export async function getLiveLeaderboard(
       value: holeScore.value,
     }));
 
-    const { holeResults } = calculateRoundResults(
-      allScores,
-      round.teams,
-      round.startingHole ?? 1,
-      round.pot ?? new Decimal(0),
-      round.course.holes.map((hole) => ({
-        holeNumber: hole.holeNumber,
-        par: hole.par,
-        handicapRank: hole.handicapRank,
-      }))
-    );
+    const courseHoles = round.course.holes.map((hole) => ({
+      holeNumber: hole.holeNumber,
+      par: hole.par,
+      handicapRank: hole.handicapRank,
+    }));
+    const { holeResults } = isSundayChurchHoleGames
+      ? calculateSundayChurchHoleGameResults(
+          toSundayChurchHoleGameScores(round.holeScores),
+          round.teams,
+          round.startingHole ?? 1,
+          round.pot ?? new Decimal(0),
+          courseHoles,
+          (round.formatConfig as Record<string, unknown> | null) ?? null
+        )
+      : calculateRoundResults(
+          allScores,
+          round.teams,
+          round.startingHole ?? 1,
+          round.pot ?? new Decimal(0),
+          courseHoles
+        );
 
     const teamStats = new Map<string, { payout: number; skinsWon: number }>();
     for (const team of round.teams) {

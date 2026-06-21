@@ -1,3 +1,5 @@
+import { getSundayChurchHoleGameAssignment } from "@/lib/sunday-church-hole-games";
+
 export interface PlayerInput {
   playerId: string;
   playerName: string;
@@ -696,6 +698,17 @@ export function computeFormatScore(
       if (!segmentFormatId) return null;
       return computeFormatScore(
         segmentFormatId,
+        players,
+        holeNumber,
+        par,
+        holeMetadata,
+        formatConfig
+      );
+    }
+    case "sunday_church_hole_games": {
+      const assignment = getSundayChurchHoleGameAssignment(formatConfig, holeNumber);
+      return computeFormatScore(
+        assignment.formatId,
         players,
         holeNumber,
         par,

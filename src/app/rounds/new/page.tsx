@@ -6,6 +6,8 @@ import { Button } from "@/components/button";
 import { Card, CardHeader, CardContent } from "@/components/card";
 import { Input } from "@/components/input";
 import { Select } from "@/components/select";
+import { SundayChurchHoleGamesGrid } from "@/components/sunday-church-hole-games-grid";
+import { SundayChurchSimonSaysGrid } from "@/components/sunday-church-simon-says-grid";
 import { createRound } from "@/actions/rounds";
 import { VisibilityMode, BlindRevealMode } from "@prisma/client";
 import {
@@ -14,10 +16,21 @@ import {
   type FormatConfigOption,
 } from "@/lib/format-definitions";
 import { isAllBirdiesCountEligibleFormat } from "@/lib/all-birdies-count";
+import {
+  SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID,
+  createDefaultSundayChurchHoleGamesConfig,
+  validateSundayChurchHoleGamesConfig,
+} from "@/lib/sunday-church-hole-games";
+import {
+  SUNDAY_CHURCH_SIMON_SAYS_FORMAT_ID,
+  createDefaultSundayChurchSimonSaysConfig,
+  validateSundayChurchSimonSaysConfig,
+} from "@/lib/sunday-church-simon-says";
 
 interface Course {
   id: string;
   name: string;
+  holes?: { holeNumber: number; par: number }[];
 }
 
 interface EnrichedFormat {
@@ -55,6 +68,12 @@ function buildDefaultConfig(
   }
   if (config.excludePar3sFromDriveMinimums === undefined) {
     config.excludePar3sFromDriveMinimums = false;
+  }
+  if ((format.definitionId ?? format.id) === SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID) {
+    Object.assign(config, createDefaultSundayChurchHoleGamesConfig());
+  }
+  if ((format.definitionId ?? format.id) === SUNDAY_CHURCH_SIMON_SAYS_FORMAT_ID) {
+    Object.assign(config, createDefaultSundayChurchSimonSaysConfig());
   }
   return config;
 }
@@ -137,6 +156,12 @@ function NewRoundForm() {
   const isVegas = selectedFormat?.name === "Vegas";
   const isIrishGolf = selectedFormat?.name === "Irish Golf / 6-6-6";
   const isNassau = selectedFormat?.name === "Nassau";
+  const isSundayHoleGames =
+    (selectedFormat?.definitionId ?? selectedFormat?.id) ===
+    SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID;
+  const isSimonSays =
+    (selectedFormat?.definitionId ?? selectedFormat?.id) ===
+    SUNDAY_CHURCH_SIMON_SAYS_FORMAT_ID;
   const driveMinimumsEnabled = !!formatConfig.enableDriveMinimums;
   const requiredDrivesPerPlayer = getRequiredDrivesPerPlayer(formatConfig);
   const excludePar3sFromDriveMinimums =
@@ -184,6 +209,24 @@ function NewRoundForm() {
     if (isNassau) {
       if (!formatConfig.frontNineFormatId || !formatConfig.backNineFormatId) {
         setError("Nassau requires a format selected for the front 9 and back 9.");
+        setLoading(false);
+        return;
+      }
+    }
+
+    if (isSundayHoleGames) {
+      const errors = validateSundayChurchHoleGamesConfig(formatConfig);
+      if (errors.length > 0) {
+        setError(errors[0]);
+        setLoading(false);
+        return;
+      }
+    }
+
+    if (isSimonSays) {
+      const errors = validateSundayChurchSimonSaysConfig(formatConfig);
+      if (errors.length > 0) {
+        setError(errors[0]);
         setLoading(false);
         return;
       }
@@ -422,6 +465,29 @@ function NewRoundForm() {
               </div>
             )}
           </div>
+
+          {isSundayHoleGames && (
+            <SundayChurchHoleGamesGrid
+              holes={
+                courses.find((course) => course.id === courseId)?.holes ??
+                undefined
+              }
+              formats={formats}
+              formatConfig={formatConfig}
+              onChange={setFormatConfig}
+            />
+          )}
+
+          {isSimonSays && (
+            <SundayChurchSimonSaysGrid
+              holes={
+                courses.find((course) => course.id === courseId)?.holes ??
+                undefined
+              }
+              formatConfig={formatConfig}
+              onChange={setFormatConfig}
+            />
+          )}
 
           {/* Irish Golf segment selectors + match play options */}
           {isIrishGolf && (

@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/button";
 import { Card } from "@/components/card";
 import { ConfirmModal, Modal } from "@/components/modal";
+import { SundayChurchHoleGamesGrid } from "@/components/sunday-church-hole-games-grid";
+import { SundayChurchSimonSaysGrid } from "@/components/sunday-church-simon-says-grid";
 import {
   getPlayerScores,
   upsertPlayerScoresForHole,
@@ -63,6 +65,18 @@ import {
   isAllBirdiesCountEligibleFormat,
   isAllBirdiesCountEnabledForHole,
 } from "@/lib/all-birdies-count";
+import {
+  SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID,
+  createDefaultSundayChurchHoleGamesConfig,
+  getEffectiveHoleFormatId,
+  validateSundayChurchHoleGamesConfig,
+} from "@/lib/sunday-church-hole-games";
+import {
+  SUNDAY_CHURCH_SIMON_SAYS_FORMAT_ID,
+  createDefaultSundayChurchSimonSaysConfig,
+  getSundayChurchSimonSaysInstruction,
+  validateSundayChurchSimonSaysConfig,
+} from "@/lib/sunday-church-simon-says";
 import { HoleEntryType } from "@prisma/client";
 
 interface TeamScore {
@@ -159,6 +173,7 @@ interface Round {
   visibility: string;
   blindRevealMode: string;
   startingHole: number;
+  teamSize: number | null;
   formatId: string;
   formatConfig: Record<string, unknown> | null;
   format: {
@@ -296,6 +311,17 @@ function buildLiveFormatConfig(
   nextConfig.excludePar3sFromDriveMinimums =
     formatConfig?.excludePar3sFromDriveMinimums === true;
 
+  if (formatDefinition?.id === SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID) {
+    nextConfig.holeGames =
+      nextConfig.holeGames ??
+      createDefaultSundayChurchHoleGamesConfig().holeGames;
+  }
+  if (formatDefinition?.id === SUNDAY_CHURCH_SIMON_SAYS_FORMAT_ID) {
+    nextConfig.simonSaysInstructions =
+      nextConfig.simonSaysInstructions ??
+      createDefaultSundayChurchSimonSaysConfig().simonSaysInstructions;
+  }
+
   return nextConfig;
 }
 
@@ -361,6 +387,7 @@ export default function LiveScoringPage({
   const [burgerSelections, setBurgerSelections] = useState<Set<string>>(new Set());
   const [burgerSaving, setBurgerSaving] = useState(false);
   const [burgerPromptShown, setBurgerPromptShown] = useState(false);
+  const [simonSaysPromptHole, setSimonSaysPromptHole] = useState<number | null>(null);
 
   // Lone Ranger order setup
   const [loneRangerDraftOrder, setLoneRangerDraftOrder] = useState<{ playerId: string; name: string }[]>([]);
@@ -615,9 +642,17 @@ export default function LiveScoringPage({
       if (!team) return;
 
       if (!usesIndividualScores && usesDriveTracking) {
+        const teamHoleData =
+          holeData?.teamScores.find((score) => score.teamId === myTeamId)?.holeData ??
+          null;
+        const storedDesignatedPlayerId =
+          (teamHoleData?.designatedPlayerId as string | undefined) ?? null;
         const selectedDrivePlayerId =
-          (holeData?.teamScores.find((score) => score.teamId === myTeamId)?.holeData
-            ?.drivePlayerId as string | undefined) ?? null;
+          (teamHoleData?.drivePlayerId as string | undefined) ??
+          storedDesignatedPlayerId;
+        if (storedDesignatedPlayerId) {
+          setFreePickPlayerId(storedDesignatedPlayerId);
+        }
 
         setPlayerInputs(
           team.roundPlayers.map((roundPlayer) => ({
@@ -638,10 +673,19 @@ export default function LiveScoringPage({
         teamId: myTeamId,
       });
 
+      const storedDesignatedPlayerId =
+        (holeData?.teamScores.find((score) => score.teamId === myTeamId)?.holeData
+          ?.designatedPlayerId as string | undefined) ?? null;
+      if (storedDesignatedPlayerId) {
+        setFreePickPlayerId(storedDesignatedPlayerId);
+      }
       const designatedPlayerId =
-        effectiveFormat?.requiresDesignatedPlayer && team.roundPlayers.length > 0
+        storedDesignatedPlayerId ??
+        (effectiveFormat?.requiresDesignatedPlayer &&
+        team.roundPlayers.length > 0 &&
+        !isSundayHoleGames
           ? team.roundPlayers[(currentHole - 1) % team.roundPlayers.length]?.playerId
-          : null;
+          : null);
       const designatedScore = designatedPlayerId
         ? savedScores.find((score) => score.playerId === designatedPlayerId)
         : null;
@@ -695,27 +739,25 @@ export default function LiveScoringPage({
       FORMAT_DEFINITIONS.find((definition) => definition.name === round.format.name) ??
       null
     : null;
-  const effectiveFormat = round
+  const effectiveFormatId = round
     ? formatDefinition?.id === "irish_golf_6_6_6"
-      ? FORMAT_DEFINITIONS.find(
-          (definition) =>
-            definition.id ===
-            getIrishGolfSegmentFormatId(
-              currentHole,
-              round.formatConfig ?? {}
-            )
-        ) ?? formatDefinition
+      ? getIrishGolfSegmentFormatId(currentHole, round.formatConfig ?? {})
       : formatDefinition?.id === "nassau"
-      ? FORMAT_DEFINITIONS.find(
-          (definition) =>
-            definition.id ===
-            getNassauSegmentFormatId(
-              currentHole,
-              round.formatConfig ?? {}
-            )
-        ) ?? formatDefinition
-      : formatDefinition
+      ? getNassauSegmentFormatId(currentHole, round.formatConfig ?? {})
+      : getEffectiveHoleFormatId(
+          formatDefinition?.id ?? round.formatId,
+          currentHole,
+          round.formatConfig ?? {}
+        )
     : null;
+  const effectiveFormat =
+    (effectiveFormatId
+      ? FORMAT_DEFINITIONS.find((definition) => definition.id === effectiveFormatId)
+      : null) ??
+    formatDefinition ??
+    null;
+  const isSundayHoleGames =
+    (formatDefinition?.id ?? round?.formatId) === SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID;
   const myTeam = myTeamId ? round?.teams.find((t) => t.id === myTeamId) : null;
   const teamSize = myTeam?.roundPlayers.length ?? 1;
   const isAllBirdiesCountActive =
@@ -748,7 +790,7 @@ export default function LiveScoringPage({
 
   // Lone Ranger: stored per-team order in formatConfig.loneRangerOrder[teamId]
   const loneRangerStoredOrder =
-    effectiveFormat?.id === "lone_ranger" && myTeamId
+    effectiveFormat?.id === "lone_ranger" && myTeamId && !isSundayHoleGames
       ? ((round?.formatConfig?.loneRangerOrder as Record<string, string[]>) ?? {})[myTeamId] ?? null
       : null;
 
@@ -767,9 +809,22 @@ export default function LiveScoringPage({
     !!loneRangerStoredOrder &&
     scoringPosition >= lastFullRotationHole;
 
+  const manualDesignatedForHole =
+    isSundayHoleGames && !!effectiveFormat?.requiresDesignatedPlayer;
+  const storedDesignatedPlayerId =
+    (myTeamScore?.holeData?.designatedPlayerId as string | undefined) ?? null;
+  const selectedManualDesignatedPlayerId =
+    freePickPlayerId ?? storedDesignatedPlayerId;
+
   const designatedPlayer =
     myTeamId && round && effectiveFormat?.requiresDesignatedPlayer
-      ? effectiveFormat.id === "lone_ranger" && loneRangerStoredOrder
+      ? manualDesignatedForHole
+        ? (selectedManualDesignatedPlayerId
+            ? myTeam?.roundPlayers.find(
+                (rp) => rp.playerId === selectedManualDesignatedPlayerId
+              ) ?? null
+            : null)
+        : effectiveFormat.id === "lone_ranger" && loneRangerStoredOrder
         ? isLoneRangerFreePick
           ? (freePickPlayerId
               ? myTeam?.roundPlayers.find((rp) => rp.playerId === freePickPlayerId) ?? null
@@ -785,7 +840,8 @@ export default function LiveScoringPage({
     effectiveFormat?.id === "lone_ranger" &&
     !!myTeamId &&
     !loneRangerStoredOrder &&
-    !!myTeam;
+    !!myTeam &&
+    !isSundayHoleGames;
   const selectedDrivePlayerId =
     playerInputs.find((input) => input.driveSelected)?.playerId ?? null;
   const getTeamLabel = (teamId: string) => {
@@ -794,6 +850,12 @@ export default function LiveScoringPage({
   };
   const isLiveIrishGolf = formatDefinition?.id === "irish_golf_6_6_6";
   const isLiveNassau = formatDefinition?.id === "nassau";
+  const isLiveSundayHoleGames =
+    formatDefinition?.id === SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID;
+  const isSimonSaysRound =
+    (formatDefinition?.id ?? round?.formatId) === SUNDAY_CHURCH_SIMON_SAYS_FORMAT_ID;
+  const isLiveSimonSays =
+    formatDefinition?.id === SUNDAY_CHURCH_SIMON_SAYS_FORMAT_ID;
   const liveEligibleSegmentFormats = FORMAT_DEFINITIONS.filter((definition) =>
     IRISH_GOLF_ELIGIBLE_SEGMENT_FORMATS.includes(definition.id)
   );
@@ -834,6 +896,45 @@ export default function LiveScoringPage({
     liveFormatConfigDraft as Record<string, unknown>
   );
 
+  const showSimonSaysPromptForHole = (holeNumber: number, force = false) => {
+    if (!round || !myTeamId || !isSimonSaysRound) return;
+
+    const instruction = getSundayChurchSimonSaysInstruction(
+      round.formatConfig,
+      holeNumber
+    );
+    if (!instruction) return;
+
+    const storageKey = `round-${id}-team-${myTeamId}-simon-hole-${holeNumber}`;
+    if (!force && localStorage.getItem(storageKey) === "seen") return;
+
+    localStorage.setItem(storageKey, "seen");
+    setSimonSaysPromptHole(holeNumber);
+  };
+
+  const showNextSimonSaysPrompt = () => {
+    const nextHole = scoringOrder[currentIndex + 1];
+    if (nextHole) {
+      showSimonSaysPromptForHole(nextHole, true);
+    }
+  };
+
+  useEffect(() => {
+    if (!round || !myTeamId || !isSimonSaysRound) return;
+
+    const instruction = getSundayChurchSimonSaysInstruction(
+      round.formatConfig,
+      currentHole
+    );
+    if (!instruction) return;
+
+    const storageKey = `round-${id}-team-${myTeamId}-simon-hole-${currentHole}`;
+    if (localStorage.getItem(storageKey) === "seen") return;
+
+    localStorage.setItem(storageKey, "seen");
+    setSimonSaysPromptHole(currentHole);
+  }, [round, myTeamId, currentHole, id, isSimonSaysRound]);
+
   useEffect(() => {
     if (round && myTeamId && usesDriveTracking && !usesIndividualScores) {
       loadPlayerInputs();
@@ -854,6 +955,10 @@ export default function LiveScoringPage({
       setError("Select the player whose drive was used.");
       return;
     }
+    if (manualDesignatedForHole && !usesIndividualScores && !selectedDrivePlayerId) {
+      setError("Choose the designated player for this hole.");
+      return;
+    }
 
     setSaving(true);
     try {
@@ -862,6 +967,10 @@ export default function LiveScoringPage({
         value: entryType === "VALUE" ? value : undefined,
         selectedDrivePlayerId:
           !usesIndividualScores && usesDriveTracking
+            ? selectedDrivePlayerId
+            : undefined,
+        designatedPlayerId:
+          manualDesignatedForHole && !usesIndividualScores
             ? selectedDrivePlayerId
             : undefined,
         isTeamGrossScore: isTeamGrossScore || undefined,
@@ -876,6 +985,7 @@ export default function LiveScoringPage({
       }
       await loadPlayerInputs();
       setCustomScore("");
+      showNextSimonSaysPrompt();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save score");
     }
@@ -912,6 +1022,8 @@ export default function LiveScoringPage({
         entryType: "BLANK",
         selectedDrivePlayerId:
           !usesIndividualScores && usesDriveTracking ? null : undefined,
+        designatedPlayerId:
+          manualDesignatedForHole && !usesIndividualScores ? null : undefined,
       });
       await loadHoleData();
       await loadTeamsProgress();
@@ -982,8 +1094,8 @@ export default function LiveScoringPage({
       return;
     }
 
-    if (isLoneRangerFreePick && !freePickPlayerId) {
-      setError("Select who carries the yellow ball on this hole before entering scores.");
+    if ((isLoneRangerFreePick || manualDesignatedForHole) && !freePickPlayerId) {
+      setError("Choose the designated player for this hole before entering scores.");
       return;
     }
 
@@ -1046,7 +1158,9 @@ export default function LiveScoringPage({
               : {}),
           },
         })),
-        isLoneRangerFreePick && freePickPlayerId ? freePickPlayerId : undefined
+        (isLoneRangerFreePick || manualDesignatedForHole) && freePickPlayerId
+          ? freePickPlayerId
+          : undefined
       );
       await loadHoleData();
       await loadTeamsProgress();
@@ -1056,6 +1170,7 @@ export default function LiveScoringPage({
         await loadCombinedScoreboard();
       }
       setError(null);
+      showNextSimonSaysPrompt();
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to save player scores"
@@ -1336,6 +1451,25 @@ export default function LiveScoringPage({
       }
     }
 
+    if (isLiveSundayHoleGames) {
+      const errors = validateSundayChurchHoleGamesConfig(
+        liveFormatConfigDraft,
+        round?.teamSize
+      );
+      if (errors.length > 0) {
+        setFormatEditError(errors[0]);
+        return;
+      }
+    }
+
+    if (isLiveSimonSays) {
+      const errors = validateSundayChurchSimonSaysConfig(liveFormatConfigDraft);
+      if (errors.length > 0) {
+        setFormatEditError(errors[0]);
+        return;
+      }
+    }
+
     const livePar3Draft = getPar3ContestConfig(
       liveFormatConfigDraft as Record<string, unknown>
     );
@@ -1611,6 +1745,9 @@ export default function LiveScoringPage({
     )
     .filter((player) => burgerSelections.has(player.playerId));
   const canManageBurgers = currentHole >= 15 || burgerSelections.size > 0;
+  const simonSaysPromptInstruction = simonSaysPromptHole
+    ? getSundayChurchSimonSaysInstruction(round.formatConfig, simonSaysPromptHole)
+    : "";
   const currentDisplayScore =
     (myTeamScore?.holeData?.displayScore as string | undefined) ?? null;
   const currentScoreLabel = isAllBirdiesCountActive
@@ -1919,7 +2056,34 @@ export default function LiveScoringPage({
               )}
 
               {effectiveFormat?.requiresDesignatedPlayer && (
-                isLoneRangerFreePick ? (
+                manualDesignatedForHole ? (
+                  <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                    <p className="mb-2 text-sm font-semibold text-amber-900">
+                      Designated player for {effectiveFormat.name} on hole {currentHole}
+                    </p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {myTeam?.roundPlayers.map((rp) => (
+                        <button
+                          key={rp.playerId}
+                          type="button"
+                          onClick={() => {
+                            setFreePickPlayerId(rp.playerId);
+                            if (!usesIndividualScores && usesDriveTracking) {
+                              handleDriveSelection(rp.playerId);
+                            }
+                          }}
+                          className={`rounded-lg border px-3 py-2 text-sm font-medium ${
+                            selectedManualDesignatedPlayerId === rp.playerId
+                              ? "border-amber-500 bg-amber-400 text-white"
+                              : "border-amber-200 bg-white text-gray-700"
+                          }`}
+                        >
+                          {rp.player.nickname || rp.player.fullName}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : isLoneRangerFreePick ? (
                   <div className="mb-4 rounded-lg border border-yellow-300 bg-yellow-50 p-3">
                     <p className="text-sm font-semibold text-yellow-800 mb-2">
                       Free pick — who carries the yellow ball on hole {currentHole}?
@@ -2970,6 +3134,23 @@ export default function LiveScoringPage({
             </div>
           )}
 
+          {isLiveSundayHoleGames && (
+            <SundayChurchHoleGamesGrid
+              holes={round.course.holes}
+              formats={FORMAT_DEFINITIONS}
+              formatConfig={liveFormatConfigDraft}
+              onChange={setLiveFormatConfigDraft}
+            />
+          )}
+
+          {isLiveSimonSays && (
+            <SundayChurchSimonSaysGrid
+              holes={round.course.holes}
+              formatConfig={liveFormatConfigDraft}
+              onChange={setLiveFormatConfigDraft}
+            />
+          )}
+
           {round.course.holes.some((hole) => hole.par === 3) && livePar3DraftConfig && (
             <div className="space-y-3 rounded border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-900">
               <p className="font-semibold">Par 3 Contest</p>
@@ -3173,6 +3354,51 @@ export default function LiveScoringPage({
                   ? "Save Format"
                   : "Create Lock Code and Save"}
             </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={simonSaysPromptHole !== null}
+        onClose={() => setSimonSaysPromptHole(null)}
+        title={
+          simonSaysPromptHole
+            ? `Simon Says: Hole ${simonSaysPromptHole}`
+            : "Simon Says"
+        }
+      >
+        <div className="space-y-4">
+          <div className="whitespace-pre-wrap rounded border border-sky-200 bg-sky-50 p-4 text-sm leading-6 text-sky-950">
+            {simonSaysPromptInstruction}
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <Button
+              variant="secondary"
+              onClick={() => setSimonSaysPromptHole(null)}
+            >
+              Got It
+            </Button>
+            {simonSaysPromptHole !== null && simonSaysPromptHole !== currentHole && (
+              <Button
+                onClick={() => {
+                  const targetHole = simonSaysPromptHole;
+                  if (targetHole === null) return;
+                  setSimonSaysPromptHole(null);
+                  setCurrentHole(targetHole);
+                  if (myTeamId) {
+                    localStorage.setItem(
+                      `round-${id}-team-${myTeamId}-hole`,
+                      String(targetHole)
+                    );
+                  }
+                  setError(null);
+                  setCustomScore("");
+                  setFreePickPlayerId(null);
+                }}
+              >
+                Go to Hole {simonSaysPromptHole}
+              </Button>
+            )}
           </div>
         </div>
       </Modal>

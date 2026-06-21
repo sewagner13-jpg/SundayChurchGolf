@@ -10,6 +10,10 @@ import {
   getNassauSegmentFormatId,
   type PlayerInput,
 } from "@/lib/format-scoring";
+import {
+  SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID,
+  getEffectiveHoleFormatId,
+} from "@/lib/sunday-church-hole-games";
 
 export interface PlayerScoreEntry {
   roundId: string;
@@ -201,7 +205,25 @@ export async function upsertPlayerScoresForHole(
     FORMAT_DEFINITIONS.find((definition) => definition.id === round.formatId) ??
     FORMAT_DEFINITIONS.find((definition) => definition.name === round.format.name);
 
-  if (!formatDefinition?.requiresIndividualScores) {
+  const effectiveFormatId =
+    formatDefinition?.id === "irish_golf_6_6_6"
+      ? getIrishGolfSegmentFormatId(holeNumber, (round.formatConfig as Record<string, unknown>) ?? {}) ??
+        formatDefinition.id
+      : formatDefinition?.id === "nassau"
+      ? getNassauSegmentFormatId(holeNumber, (round.formatConfig as Record<string, unknown>) ?? {}) ??
+        formatDefinition.id
+      : getEffectiveHoleFormatId(
+          formatDefinition?.id ?? round.formatId,
+          holeNumber,
+          (round.formatConfig as Record<string, unknown>) ?? {}
+        ) ??
+        formatDefinition?.id ??
+        round.formatId;
+  const effectiveFormatDefinition =
+    FORMAT_DEFINITIONS.find((definition) => definition.id === effectiveFormatId) ??
+    formatDefinition;
+
+  if (!effectiveFormatDefinition?.requiresIndividualScores) {
     throw new Error("This format does not use per-player scoring");
   }
 
@@ -251,14 +273,9 @@ export async function upsertPlayerScoresForHole(
     })
   );
 
-  const effectiveFormatId =
-    formatDefinition.id === "irish_golf_6_6_6"
-      ? getIrishGolfSegmentFormatId(holeNumber, (round.formatConfig as Record<string, unknown>) ?? {}) ??
-        formatDefinition.id
-      : formatDefinition.id === "nassau"
-      ? getNassauSegmentFormatId(holeNumber, (round.formatConfig as Record<string, unknown>) ?? {}) ??
-        formatDefinition.id
-      : formatDefinition.id;
+  const usesManualDesignatedPlayer =
+    (formatDefinition?.id ?? round.formatId) === SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID &&
+    effectiveFormatDefinition.requiresDesignatedPlayer;
 
   const players: PlayerInput[] = team.roundPlayers.map((roundPlayer) => {
     const entry = scoreEntries.find((scoreEntry) => scoreEntry.playerId === roundPlayer.playerId);
@@ -277,15 +294,17 @@ export async function upsertPlayerScoresForHole(
           ?.loneRangerOrder as Record<string, string[]>)?.[teamId] ?? null
       : null;
   const rotationIndex =
-    formatDefinition.id === "nassau"
+    formatDefinition?.id === "nassau"
       ? holeNumber <= 9
         ? holeNumber - 1
         : holeNumber - 10
       : holeNumber - 1;
 
   const designatedPlayerId =
-    // Client-supplied override (free-pick holes, wolf selection, etc.) wins first
-    overrideDesignatedPlayerId !== undefined && overrideDesignatedPlayerId !== null
+    usesManualDesignatedPlayer
+      ? overrideDesignatedPlayerId ?? null
+      : // Client-supplied override (free-pick holes, wolf selection, etc.) wins first
+      overrideDesignatedPlayerId !== undefined && overrideDesignatedPlayerId !== null
       ? overrideDesignatedPlayerId
       : effectiveFormatId === "money_ball" || effectiveFormatId === "wolf_team"
       ? team.roundPlayers[rotationIndex % team.roundPlayers.length]?.playerId ?? null
@@ -294,6 +313,13 @@ export async function upsertPlayerScoresForHole(
         ? loneRangerTeamOrder[rotationIndex % loneRangerTeamOrder.length] ?? null
         : team.roundPlayers[rotationIndex % team.roundPlayers.length]?.playerId ?? null
       : null;
+
+  if (usesManualDesignatedPlayer && !designatedPlayerId) {
+    throw new Error("Choose the designated player for this hole");
+  }
+  if (designatedPlayerId && !teamPlayerIds.has(designatedPlayerId)) {
+    throw new Error("Designated player does not belong to this team");
+  }
 
   const moneyBallEntry = designatedPlayerId
     ? scoreEntries.find((entry) => entry.playerId === designatedPlayerId)

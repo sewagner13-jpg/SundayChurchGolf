@@ -45,6 +45,18 @@ export function isAllBirdiesCountEnabledForHole(
   formatConfig: FormatConfig
 ) {
   if (!isAllBirdiesCountEligibleFormat(effectiveFormatId)) return false;
+
+  if (roundFormatId === "sunday_church_hole_games") {
+    const holeGames = formatConfig?.holeGames;
+    if (!holeGames || typeof holeGames !== "object" || Array.isArray(holeGames)) {
+      return false;
+    }
+    const assignment = (holeGames as Record<string, Record<string, unknown>>)[
+      String(holeNumber)
+    ];
+    return assignment?.allBirdiesCount === true;
+  }
+
   const configKey = getAllBirdiesCountConfigKey(roundFormatId, holeNumber);
   return configKey ? formatConfig?.[configKey] === true : false;
 }

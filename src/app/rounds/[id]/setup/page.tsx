@@ -8,6 +8,8 @@ import { Card, CardHeader, CardContent } from "@/components/card";
 import { Input } from "@/components/input";
 import { Select } from "@/components/select";
 import { Modal, ConfirmModal } from "@/components/modal";
+import { SundayChurchHoleGamesGrid } from "@/components/sunday-church-hole-games-grid";
+import { SundayChurchSimonSaysGrid } from "@/components/sunday-church-simon-says-grid";
 import {
   getRound,
   setRoundPlayers,
@@ -38,6 +40,16 @@ import {
 import { isHandicapStale } from "@/lib/ghin";
 import { getTeamDisplayLabel } from "@/lib/team-labels";
 import { isAllBirdiesCountEligibleFormat } from "@/lib/all-birdies-count";
+import {
+  SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID,
+  createDefaultSundayChurchHoleGamesConfig,
+  validateSundayChurchHoleGamesConfig,
+} from "@/lib/sunday-church-hole-games";
+import {
+  SUNDAY_CHURCH_SIMON_SAYS_FORMAT_ID,
+  createDefaultSundayChurchSimonSaysConfig,
+  validateSundayChurchSimonSaysConfig,
+} from "@/lib/sunday-church-simon-says";
 interface Player {
   id: string;
   fullName: string;
@@ -165,6 +177,12 @@ function buildDefaultFormatConfig(
   }
   if (config.excludePar3sFromDriveMinimums === undefined) {
     config.excludePar3sFromDriveMinimums = false;
+  }
+  if ((format?.definitionId ?? format?.id) === SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID) {
+    Object.assign(config, createDefaultSundayChurchHoleGamesConfig());
+  }
+  if ((format?.definitionId ?? format?.id) === SUNDAY_CHURCH_SIMON_SAYS_FORMAT_ID) {
+    Object.assign(config, createDefaultSundayChurchSimonSaysConfig());
   }
   return config;
 }
@@ -591,6 +609,12 @@ export default function RoundSetupPage({
     formats.find((format) => format.id === editFormatId) ?? null;
   const isEditIrishGolf = selectedEditFormat?.name === "Irish Golf / 6-6-6";
   const isEditNassau = selectedEditFormat?.name === "Nassau";
+  const isEditSundayHoleGames =
+    (selectedEditFormat?.definitionId ?? selectedEditFormat?.id) ===
+    SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID;
+  const isEditSimonSays =
+    (selectedEditFormat?.definitionId ?? selectedEditFormat?.id) ===
+    SUNDAY_CHURCH_SIMON_SAYS_FORMAT_ID;
   const editEligibleSegmentFormats = formats.filter(
     (format) =>
       format.definitionId !== null &&
@@ -615,6 +639,8 @@ export default function RoundSetupPage({
   const driveMinimumSummary = getDriveMinimumSummary(currentRound.formatConfig);
 
   const openEditRoundModal = () => {
+    const currentFormat =
+      formats.find((format) => format.id === currentRound.formatId) ?? null;
     const editableFormatConfig = sanitizeEditableFormatConfig(
       currentRound.formatConfig
     );
@@ -627,7 +653,10 @@ export default function RoundSetupPage({
     setEditBlindRevealMode(
       currentRound.blindRevealMode ?? "REVEAL_AFTER_ROUND"
     );
-    setEditFormatConfig(editableFormatConfig);
+    setEditFormatConfig({
+      ...buildDefaultFormatConfig(currentFormat),
+      ...editableFormatConfig,
+    });
     setShowEditRoundModal(true);
   };
 
@@ -732,6 +761,25 @@ export default function RoundSetupPage({
     if (isEditNassau) {
       if (!editFormatConfig.frontNineFormatId || !editFormatConfig.backNineFormatId) {
         setError("Nassau requires a format selected for the front 9 and back 9.");
+        return;
+      }
+    }
+
+    if (isEditSundayHoleGames) {
+      const errors = validateSundayChurchHoleGamesConfig(
+        editFormatConfig,
+        currentRound.teamSize
+      );
+      if (errors.length > 0) {
+        setError(errors[0]);
+        return;
+      }
+    }
+
+    if (isEditSimonSays) {
+      const errors = validateSundayChurchSimonSaysConfig(editFormatConfig);
+      if (errors.length > 0) {
+        setError(errors[0]);
         return;
       }
     }
@@ -1902,6 +1950,23 @@ export default function RoundSetupPage({
               </div>
             )}
           </div>
+
+          {isEditSundayHoleGames && (
+            <SundayChurchHoleGamesGrid
+              holes={currentRound.course.holes}
+              formats={formats}
+              formatConfig={editFormatConfig}
+              onChange={setEditFormatConfig}
+            />
+          )}
+
+          {isEditSimonSays && (
+            <SundayChurchSimonSaysGrid
+              holes={currentRound.course.holes}
+              formatConfig={editFormatConfig}
+              onChange={setEditFormatConfig}
+            />
+          )}
 
           {isEditIrishGolf && (
             <div className="space-y-3 rounded border border-amber-200 bg-amber-50 p-3">
