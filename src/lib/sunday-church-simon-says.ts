@@ -22,11 +22,22 @@ export function getSundayChurchSimonSaysInstruction(
   formatConfig: Record<string, unknown> | null | undefined,
   holeNumber: number
 ) {
+  const instruction = getSundayChurchSimonSaysInstructionDraftValue(
+    formatConfig,
+    holeNumber
+  );
+  return instruction.trim();
+}
+
+export function getSundayChurchSimonSaysInstructionDraftValue(
+  formatConfig: Record<string, unknown> | null | undefined,
+  holeNumber: number
+) {
   const instructions = isInstructionMap(formatConfig?.simonSaysInstructions)
     ? formatConfig.simonSaysInstructions
     : {};
   const instruction = instructions[String(holeNumber)];
-  return typeof instruction === "string" ? instruction.trim() : "";
+  return typeof instruction === "string" ? instruction : "";
 }
 
 export function validateSundayChurchSimonSaysConfig(

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   createDefaultSundayChurchSimonSaysConfig,
   getSundayChurchSimonSaysInstruction,
+  getSundayChurchSimonSaysInstructionDraftValue,
   validateSundayChurchSimonSaysConfig,
 } from "@/lib/sunday-church-simon-says";
 
@@ -56,5 +57,18 @@ test("simon says instruction lookup trims stored instructions", () => {
   assert.equal(
     getSundayChurchSimonSaysInstruction(config, 3),
     "Putt with the flagstick in."
+  );
+});
+
+test("simon says draft lookup preserves spaces while typing", () => {
+  const config = createDefaultSundayChurchSimonSaysConfig();
+  config.simonSaysInstructions = {
+    ...config.simonSaysInstructions,
+    "4": "Use only irons on this hole ",
+  };
+
+  assert.equal(
+    getSundayChurchSimonSaysInstructionDraftValue(config, 4),
+    "Use only irons on this hole "
   );
 });

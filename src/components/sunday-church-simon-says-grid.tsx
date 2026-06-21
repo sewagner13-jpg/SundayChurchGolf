@@ -3,7 +3,7 @@
 import { Button } from "@/components/button";
 import {
   createDefaultSundayChurchSimonSaysConfig,
-  getSundayChurchSimonSaysInstruction,
+  getSundayChurchSimonSaysInstructionDraftValue,
 } from "@/lib/sunday-church-simon-says";
 
 interface HoleInfo {
@@ -25,7 +25,10 @@ function buildInstructionMap(formatConfig: Record<string, unknown>) {
   return Object.fromEntries(
     DEFAULT_HOLES.map((hole) => [
       String(hole.holeNumber),
-      getSundayChurchSimonSaysInstruction(formatConfig, hole.holeNumber),
+      getSundayChurchSimonSaysInstructionDraftValue(
+        formatConfig,
+        hole.holeNumber
+      ),
     ])
   );
 }
