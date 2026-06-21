@@ -1748,6 +1748,9 @@ export default function LiveScoringPage({
   const simonSaysPromptInstruction = simonSaysPromptHole
     ? getSundayChurchSimonSaysInstruction(round.formatConfig, simonSaysPromptHole)
     : "";
+  const currentSimonSaysInstruction = isSimonSaysRound
+    ? getSundayChurchSimonSaysInstruction(round.formatConfig, currentHole)
+    : "";
   const currentDisplayScore =
     (myTeamScore?.holeData?.displayScore as string | undefined) ?? null;
   const currentScoreLabel = isAllBirdiesCountActive
@@ -1918,6 +1921,28 @@ export default function LiveScoringPage({
 
       {/* Main Content - My Team Scoring */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {currentSimonSaysInstruction && (
+          <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wide text-sky-700">
+                  Simon Says - Hole {currentHole}
+                </p>
+                <p className="mt-2 whitespace-pre-wrap leading-6">
+                  {currentSimonSaysInstruction}
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSimonSaysPromptHole(currentHole)}
+              >
+                Open
+              </Button>
+            </div>
+          </div>
+        )}
+
         {canManageBurgers && (
           <div className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-900">
             <div className="flex items-center justify-between gap-4">
