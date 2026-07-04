@@ -10,6 +10,7 @@ import { Select } from "@/components/select";
 import { Modal, ConfirmModal } from "@/components/modal";
 import { SundayChurchHoleGamesGrid } from "@/components/sunday-church-hole-games-grid";
 import { SundayChurchSimonSaysGrid } from "@/components/sunday-church-simon-says-grid";
+import { CrossFoursome66618Setup } from "@/components/cross-foursome-66618-setup";
 import {
   getRound,
   setRoundPlayers,
@@ -17,7 +18,7 @@ import {
   deleteRound,
   updateRoundDraft,
 } from "@/actions/rounds";
-import { generateTeams, swapTeamMembers, getTeamsWithMissingHandicaps, lockTeams, unlockTeams, getTeamLockStatus, getTeammateHistoryForRound } from "@/actions/teams";
+import { generateTeams, swapTeamMembers, getTeamsWithMissingHandicaps, lockTeams, unlockTeams, getTeamLockStatus, getTeammateHistoryForRound, setCrossFoursome66618Assignments } from "@/actions/teams";
 import {
   PAR3_CONTEST_TYPE_OPTIONS,
   PAR3_FUNDING_OPTIONS,
@@ -50,6 +51,11 @@ import {
   createDefaultSundayChurchSimonSaysConfig,
   validateSundayChurchSimonSaysConfig,
 } from "@/lib/sunday-church-simon-says";
+import {
+  CROSS_FOURSOME_66618_FORMAT_ID,
+  createDefaultCrossFoursome66618Config,
+  validateCrossFoursome66618Config,
+} from "@/lib/cross-foursome-66618";
 interface Player {
   id: string;
   fullName: string;
@@ -184,6 +190,9 @@ function buildDefaultFormatConfig(
   if ((format?.definitionId ?? format?.id) === SUNDAY_CHURCH_SIMON_SAYS_FORMAT_ID) {
     Object.assign(config, createDefaultSundayChurchSimonSaysConfig());
   }
+  if ((format?.definitionId ?? format?.id) === CROSS_FOURSOME_66618_FORMAT_ID) {
+    Object.assign(config, createDefaultCrossFoursome66618Config());
+  }
   return config;
 }
 
@@ -270,6 +279,9 @@ export default function RoundSetupPage({
   const [draftRequiredDrivesPerPlayer, setDraftRequiredDrivesPerPlayer] = useState("4");
   const [draftExcludePar3sFromDriveMinimums, setDraftExcludePar3sFromDriveMinimums] =
     useState(false);
+  const [crossFoursomeConfigDraft, setCrossFoursomeConfigDraft] = useState<
+    Record<string, unknown>
+  >({});
 
   useEffect(() => {
     loadData();
@@ -333,6 +345,8 @@ export default function RoundSetupPage({
         if (roundData.teamSize) setTeamSize(String(roundData.teamSize));
         if (roundData.teamMode)
           setTeamMode(roundData.teamMode as "RANDOM" | "BALANCED");
+      } else if (roundData.formatId === CROSS_FOURSOME_66618_FORMAT_ID) {
+        setTeamSize("4");
       } else if (roundData.format?.name === "Vegas") {
         setTeamSize("2");
       }
@@ -410,6 +424,10 @@ export default function RoundSetupPage({
       setDraftExcludePar3sFromDriveMinimums(
         editableFormatConfig.excludePar3sFromDriveMinimums === true
       );
+      setCrossFoursomeConfigDraft({
+        ...createDefaultCrossFoursome66618Config(),
+        ...((roundData.formatConfig as Record<string, unknown> | null) ?? {}),
+      });
 
       // Check for missing handicaps
       const missing = await getTeamsWithMissingHandicaps(id);
@@ -432,10 +450,16 @@ export default function RoundSetupPage({
   }
 
   const togglePlayer = (playerId: string) => {
+    const isCrossFoursomeRound =
+      (round?.formatId ?? "") === CROSS_FOURSOME_66618_FORMAT_ID;
     const newSelected = new Set(selectedPlayerIds);
     if (newSelected.has(playerId)) {
       newSelected.delete(playerId);
     } else {
+      if (isCrossFoursomeRound && newSelected.size >= 8) {
+        setError("Cross-Foursome 6-6-6-18 uses exactly 8 players");
+        return;
+      }
       if (newSelected.size >= 12) {
         setError("Maximum 12 players allowed");
         return;
@@ -447,6 +471,11 @@ export default function RoundSetupPage({
   };
 
   const handleSavePlayers = async () => {
+    if (round?.formatId === CROSS_FOURSOME_66618_FORMAT_ID && selectedPlayerIds.size !== 8) {
+      setError("Cross-Foursome 6-6-6-18 requires exactly 8 players");
+      return;
+    }
+
     if (selectedPlayerIds.size < 2) {
       setError("Minimum 2 players required");
       return;
@@ -469,6 +498,10 @@ export default function RoundSetupPage({
   };
 
   const handleGenerateTeams = async () => {
+    if (currentRound.formatId === CROSS_FOURSOME_66618_FORMAT_ID) {
+      return;
+    }
+
     const size = isVegasRound ? 2 : Number(teamSize);
     console.log("Generate teams called:", { size, selectedCount: selectedPlayerIds.size, teamMode });
 
@@ -534,6 +567,15 @@ export default function RoundSetupPage({
         throw new Error("Lock teams with a 4-digit code before starting the round");
       }
       await savePar3ContestConfig();
+      if (isCrossFoursomeRound) {
+        const errors = validateCrossFoursome66618Config(
+          currentRound.formatConfig,
+          currentRound.roundPlayers.map((roundPlayer) => roundPlayer.playerId)
+        );
+        if (errors.length > 0) {
+          throw new Error(errors[0]);
+        }
+      }
       if (isVegasRound) {
         if (!hasValidVegasMatchups) {
           throw new Error("Select an opponent for every Vegas team before starting");
@@ -605,6 +647,7 @@ export default function RoundSetupPage({
 
   const currentRound = round;
   const isVegasRound = currentRound.format.name === "Vegas";
+  const isCrossFoursomeRound = currentRound.formatId === CROSS_FOURSOME_66618_FORMAT_ID;
   const selectedEditFormat =
     formats.find((format) => format.id === editFormatId) ?? null;
   const isEditIrishGolf = selectedEditFormat?.name === "Irish Golf / 6-6-6";
@@ -615,6 +658,9 @@ export default function RoundSetupPage({
   const isEditSimonSays =
     (selectedEditFormat?.definitionId ?? selectedEditFormat?.id) ===
     SUNDAY_CHURCH_SIMON_SAYS_FORMAT_ID;
+  const isEditCrossFoursome =
+    (selectedEditFormat?.definitionId ?? selectedEditFormat?.id) ===
+    CROSS_FOURSOME_66618_FORMAT_ID;
   const editEligibleSegmentFormats = formats.filter(
     (format) =>
       format.definitionId !== null &&
@@ -778,6 +824,17 @@ export default function RoundSetupPage({
 
     if (isEditSimonSays) {
       const errors = validateSundayChurchSimonSaysConfig(editFormatConfig);
+      if (errors.length > 0) {
+        setError(errors[0]);
+        return;
+      }
+    }
+
+    if (isEditCrossFoursome && currentRound.roundPlayers.length > 0) {
+      const errors = validateCrossFoursome66618Config(
+        editFormatConfig,
+        currentRound.roundPlayers.map((roundPlayer) => roundPlayer.playerId)
+      );
       if (errors.length > 0) {
         setError(errors[0]);
         return;
@@ -975,6 +1032,42 @@ export default function RoundSetupPage({
   const canGenerateTeams = selectedPlayerIds.size % Number(teamSize) === 0;
   const hasTeams = round.teams.length > 0;
   const getTeamLabel = (team: Team) => getTeamDisplayLabel(team.roundPlayers);
+  const crossFoursomePlayers = currentRound.roundPlayers.map((roundPlayer) => ({
+    playerId: roundPlayer.playerId,
+    name: roundPlayer.player.nickname || roundPlayer.player.fullName,
+    handicapIndex: roundPlayer.player.handicapIndex,
+  }));
+  const crossFoursomeValidationErrors = isCrossFoursomeRound
+    ? validateCrossFoursome66618Config(
+        crossFoursomeConfigDraft,
+        currentRound.roundPlayers.map((roundPlayer) => roundPlayer.playerId)
+      )
+    : [];
+
+  const handleSaveCrossFoursomeAssignments = async () => {
+    const errors = validateCrossFoursome66618Config(
+      crossFoursomeConfigDraft,
+      currentRound.roundPlayers.map((roundPlayer) => roundPlayer.playerId)
+    );
+    if (errors.length > 0) {
+      setError(errors[0]);
+      return;
+    }
+
+    setActionLoading(true);
+    setError(null);
+    try {
+      await setCrossFoursome66618Assignments(id, crossFoursomeConfigDraft);
+      await loadData();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to save Cross-Foursome assignments"
+      );
+    }
+    setActionLoading(false);
+  };
 
   return (
     <div className="space-y-4">
@@ -1070,8 +1163,16 @@ export default function RoundSetupPage({
       {step === "players" && (
         <div className="space-y-4">
           <Card>
-            <CardHeader>Select Players ({selectedPlayerIds.size}/12)</CardHeader>
+            <CardHeader>
+              Select Players ({selectedPlayerIds.size}/
+              {isCrossFoursomeRound ? "8" : "12"})
+            </CardHeader>
             <CardContent>
+              {isCrossFoursomeRound && (
+                <p className="mb-3 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                  Cross-Foursome 6-6-6-18 requires exactly 8 selected players.
+                </p>
+              )}
               <div className="space-y-2 max-h-96 overflow-y-auto">
                 {allPlayers.map((player) => (
                   <label
@@ -1108,7 +1209,9 @@ export default function RoundSetupPage({
             onClick={handleSavePlayers}
             className="w-full"
             disabled={
-              actionLoading || selectedPlayerIds.size < 2
+              actionLoading ||
+              selectedPlayerIds.size < 2 ||
+              (isCrossFoursomeRound && selectedPlayerIds.size !== 8)
             }
           >
             {actionLoading ? "Saving..." : "Continue to Teams"}
@@ -1118,8 +1221,32 @@ export default function RoundSetupPage({
 
       {step === "teams" && (
         <div className="space-y-4">
+          {!hasTeams && isCrossFoursomeRound && (
+            <Card>
+              <CardHeader>Assign Physical Foursomes</CardHeader>
+              <CardContent className="space-y-4">
+                <CrossFoursome66618Setup
+                  players={crossFoursomePlayers}
+                  formatConfig={crossFoursomeConfigDraft}
+                  onChange={setCrossFoursomeConfigDraft}
+                  disabled={actionLoading}
+                />
+                <Button
+                  onClick={handleSaveCrossFoursomeAssignments}
+                  className="w-full"
+                  disabled={
+                    actionLoading ||
+                    crossFoursomeValidationErrors.length > 0
+                  }
+                >
+                  {actionLoading ? "Saving..." : "Create Foursomes"}
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Team Generation Options */}
-          {!hasTeams && (
+          {!hasTeams && !isCrossFoursomeRound && (
               <Card>
                 <CardHeader>Team Settings</CardHeader>
                 <CardContent className="space-y-4">
@@ -1259,10 +1386,12 @@ export default function RoundSetupPage({
 
               <div className="flex gap-2 justify-between items-center">
                 <span className="text-sm text-gray-600">
-                  {round.teams.length} teams of {round.teamSize}
+                  {isCrossFoursomeRound
+                    ? "2 physical foursomes of 4"
+                    : `${round.teams.length} teams of ${round.teamSize}`}
                 </span>
                 <div className="flex gap-2">
-                  {!isLocked && (
+                  {!isLocked && !isCrossFoursomeRound && (
                     <>
                       <Button
                         variant={swapMode ? "danger" : "secondary"}
@@ -1285,6 +1414,19 @@ export default function RoundSetupPage({
                           : "Regenerate"}
                       </Button>
                     </>
+                  )}
+                  {!isLocked && isCrossFoursomeRound && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={handleSaveCrossFoursomeAssignments}
+                      disabled={
+                        actionLoading ||
+                        crossFoursomeValidationErrors.length > 0
+                      }
+                    >
+                      Save Assignments
+                    </Button>
                   )}
                   {!isLocked && (
                     <Button
@@ -1309,6 +1451,15 @@ export default function RoundSetupPage({
                 </p>
               )}
 
+              {isCrossFoursomeRound && (
+                <CrossFoursome66618Setup
+                  players={crossFoursomePlayers}
+                  formatConfig={crossFoursomeConfigDraft}
+                  onChange={setCrossFoursomeConfigDraft}
+                  disabled={isLocked || actionLoading}
+                />
+              )}
+
               <div className="space-y-3">
                 {round.teams.map((team) => {
                   // Calculate total handicap from players if not stored
@@ -1323,7 +1474,13 @@ export default function RoundSetupPage({
                   return (
                   <Card key={team.id}>
                     <CardHeader className="flex justify-between items-center">
-                      <span>{getTeamLabel(team)}</span>
+                      <span>
+                        {isCrossFoursomeRound
+                          ? team.teamNumber === 1
+                            ? "Foursome A"
+                            : "Foursome B"
+                          : getTeamLabel(team)}
+                      </span>
                       <span className="text-sm font-normal text-green-700 bg-green-50 px-2 py-0.5 rounded">
                         Total: {displayTotal.toFixed(1)} HCP
                       </span>
@@ -1731,7 +1888,10 @@ export default function RoundSetupPage({
                 onClick={() => setShowStartModal(true)}
                 className="w-full"
                 size="lg"
-                disabled={isVegasRound && !hasValidVegasMatchups}
+                disabled={
+                  (isVegasRound && !hasValidVegasMatchups) ||
+                  (isCrossFoursomeRound && crossFoursomeValidationErrors.length > 0)
+                }
               >
                 Start Round
               </Button>
@@ -1963,6 +2123,18 @@ export default function RoundSetupPage({
           {isEditSimonSays && (
             <SundayChurchSimonSaysGrid
               holes={currentRound.course.holes}
+              formatConfig={editFormatConfig}
+              onChange={setEditFormatConfig}
+            />
+          )}
+
+          {isEditCrossFoursome && currentRound.roundPlayers.length > 0 && (
+            <CrossFoursome66618Setup
+              players={currentRound.roundPlayers.map((roundPlayer) => ({
+                playerId: roundPlayer.playerId,
+                name: roundPlayer.player.nickname || roundPlayer.player.fullName,
+                handicapIndex: roundPlayer.player.handicapIndex,
+              }))}
               formatConfig={editFormatConfig}
               onChange={setEditFormatConfig}
             />

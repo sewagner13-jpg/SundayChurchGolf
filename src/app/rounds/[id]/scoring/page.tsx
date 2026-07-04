@@ -77,6 +77,11 @@ import {
   getSundayChurchSimonSaysInstruction,
   validateSundayChurchSimonSaysConfig,
 } from "@/lib/sunday-church-simon-says";
+import {
+  CROSS_FOURSOME_66618_FORMAT_ID,
+  createDefaultCrossFoursome66618Config,
+  getCrossFoursome66618Pairings,
+} from "@/lib/cross-foursome-66618";
 import { HoleEntryType } from "@prisma/client";
 
 interface TeamScore {
@@ -251,7 +256,7 @@ interface LiveLeaderboardSegment {
 }
 
 interface LiveLeaderboardData {
-  mode: "skins" | "standard" | "irish_golf" | "nassau";
+  mode: "skins" | "standard" | "irish_golf" | "nassau" | "cross_foursome";
   title: string;
   scoringLabel: string;
   entries: LiveLeaderboardEntry[];
@@ -320,6 +325,11 @@ function buildLiveFormatConfig(
     nextConfig.simonSaysInstructions =
       nextConfig.simonSaysInstructions ??
       createDefaultSundayChurchSimonSaysConfig().simonSaysInstructions;
+  }
+  if (formatDefinition?.id === CROSS_FOURSOME_66618_FORMAT_ID) {
+    nextConfig.crossFoursome66618 =
+      nextConfig.crossFoursome66618 ??
+      createDefaultCrossFoursome66618Config().crossFoursome66618;
   }
 
   return nextConfig;
@@ -846,12 +856,18 @@ export default function LiveScoringPage({
     playerInputs.find((input) => input.driveSelected)?.playerId ?? null;
   const getTeamLabel = (teamId: string) => {
     const team = round?.teams.find((entry) => entry.id === teamId);
-    return team ? getTeamDisplayLabel(team.roundPlayers) : "Team";
+    if (!team) return "Team";
+    if ((formatDefinition?.id ?? round?.formatId) === CROSS_FOURSOME_66618_FORMAT_ID) {
+      return team.teamNumber === 1 ? "Foursome A" : "Foursome B";
+    }
+    return getTeamDisplayLabel(team.roundPlayers);
   };
   const isLiveIrishGolf = formatDefinition?.id === "irish_golf_6_6_6";
   const isLiveNassau = formatDefinition?.id === "nassau";
   const isLiveSundayHoleGames =
     formatDefinition?.id === SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID;
+  const isCrossFoursomeRound =
+    (formatDefinition?.id ?? round?.formatId) === CROSS_FOURSOME_66618_FORMAT_ID;
   const isSimonSaysRound =
     (formatDefinition?.id ?? round?.formatId) === SUNDAY_CHURCH_SIMON_SAYS_FORMAT_ID;
   const isLiveSimonSays =
@@ -892,6 +908,21 @@ export default function LiveScoringPage({
         }))
       )
     : [];
+  const livePlayerNameMap = new Map(
+    liveRoundPlayers.map((player) => [player.playerId, player.name] as const)
+  );
+  const crossFoursomePairingGames =
+    round && isCrossFoursomeRound
+      ? getCrossFoursome66618Pairings(round.formatConfig)
+      : [];
+  const currentCrossFoursomeGames = crossFoursomePairingGames.filter((game) =>
+    game.holeNumbers.includes(currentHole)
+  );
+  const crossFoursomeLeaderboardSegments = new Map(
+    liveLeaderboard?.mode === "cross_foursome"
+      ? (liveLeaderboard.segments ?? []).map((segment) => [segment.label, segment] as const)
+      : []
+  );
   const livePar3DraftConfig = getPar3ContestConfig(
     liveFormatConfigDraft as Record<string, unknown>
   );
@@ -1651,7 +1682,11 @@ export default function LiveScoringPage({
                   className="w-full p-4 border rounded hover:bg-gray-50 text-left"
                 >
                   <span className="font-bold">
-                    {getTeamDisplayLabel(team.roundPlayers)}
+                    {isCrossFoursomeRound
+                      ? team.teamNumber === 1
+                        ? "Foursome A"
+                        : "Foursome B"
+                      : getTeamDisplayLabel(team.roundPlayers)}
                   </span>
                   <p className="text-sm text-gray-600 mt-1">{playerNames}</p>
                 </button>
@@ -1753,7 +1788,9 @@ export default function LiveScoringPage({
     : "";
   const currentDisplayScore =
     (myTeamScore?.holeData?.displayScore as string | undefined) ?? null;
-  const currentScoreLabel = isAllBirdiesCountActive
+  const currentScoreLabel = isCrossFoursomeRound
+    ? "player scores"
+    : isAllBirdiesCountActive
     ? "birdies made"
     : usesIndividualScores
     ? effectiveFormat?.formatCategory === "points" ||
@@ -1939,6 +1976,72 @@ export default function LiveScoringPage({
               >
                 Open
               </Button>
+            </div>
+          </div>
+        )}
+
+        {isCrossFoursomeRound && currentCrossFoursomeGames.length > 0 && (
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">
+                  Cross-Foursome - Hole {currentHole}
+                </p>
+                <p className="mt-1 text-emerald-900">
+                  Enter scores for your physical foursome. Virtual two-man
+                  best-ball matches update once both foursomes are in.
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  loadLiveLeaderboard();
+                  setShowLiveLeaderboard(true);
+                }}
+              >
+                Standings
+              </Button>
+            </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              {currentCrossFoursomeGames.map((game) => {
+                const segment = crossFoursomeLeaderboardSegments.get(game.label);
+                return (
+                  <div
+                    key={game.id}
+                    className="rounded border border-emerald-100 bg-white/90 p-3"
+                  >
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                      <p className="font-semibold">{game.label}</p>
+                      <p className="text-xs text-gray-500">
+                        {segment?.formatName ?? "Waiting on scores"}
+                      </p>
+                    </div>
+                    <div className="space-y-1">
+                      {game.pairs.map((pair) => (
+                        <div
+                          key={pair.virtualTeamId}
+                          className="flex items-center justify-between gap-3 rounded bg-gray-50 px-2 py-1"
+                        >
+                          <span className="font-medium text-gray-600">
+                            {pair.label}
+                          </span>
+                          <span className="text-right">
+                            {pair.playerIds
+                              .map((playerId) => livePlayerNameMap.get(playerId) ?? playerId)
+                              .join(" / ")}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-xs text-emerald-800">
+                      {segment?.leaders && segment.leaders.length > 0
+                        ? `Leaders: ${segment.leaders.join(", ")}`
+                        : "No leader yet"}
+                    </p>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -3676,13 +3779,15 @@ export default function LiveScoringPage({
                       <p className="font-bold text-green-700">
                         {liveLeaderboard.mode === "skins" ||
                         liveLeaderboard.mode === "irish_golf" ||
-                        liveLeaderboard.mode === "nassau"
+                        liveLeaderboard.mode === "nassau" ||
+                        liveLeaderboard.mode === "cross_foursome"
                           ? `$${entry.totalPayout.toFixed(2)}`
                           : entry.metricLabel}
                       </p>
                       {(liveLeaderboard.mode === "skins" ||
                         liveLeaderboard.mode === "irish_golf" ||
-                        liveLeaderboard.mode === "nassau") && (
+                        liveLeaderboard.mode === "nassau" ||
+                        liveLeaderboard.mode === "cross_foursome") && (
                         <p className="text-xs text-gray-500">{entry.metricLabel}</p>
                       )}
                     </div>
@@ -3692,12 +3797,15 @@ export default function LiveScoringPage({
             </div>
 
             {(liveLeaderboard.mode === "irish_golf" ||
-              liveLeaderboard.mode === "nassau") &&
+              liveLeaderboard.mode === "nassau" ||
+              liveLeaderboard.mode === "cross_foursome") &&
               liveLeaderboard.segments &&
               liveLeaderboard.segments.length > 0 && (
                 <div className="mt-4 space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Segment Leaders
+                    {liveLeaderboard.mode === "cross_foursome"
+                      ? "Game Leaders"
+                      : "Segment Leaders"}
                   </p>
                   {liveLeaderboard.segments.map((segment) => (
                     <div

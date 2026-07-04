@@ -38,6 +38,11 @@ import {
 import { getAllBirdiesCountScore } from "@/lib/all-birdies-count";
 import { getScoringOrder } from "@/lib/scoring-order";
 import { getTeamDisplayLabel } from "@/lib/team-labels";
+import {
+  CROSS_FOURSOME_66618_FORMAT_ID,
+  calculateCrossFoursome66618PlayerPayouts,
+  computeCrossFoursome66618GameSummaries,
+} from "@/lib/cross-foursome-66618";
 
 export interface LiveLeaderboardEntry {
   teamId: string;
@@ -59,7 +64,7 @@ export interface LiveLeaderboardSegment {
 }
 
 export interface LiveLeaderboardData {
-  mode: "skins" | "standard" | "irish_golf" | "nassau";
+  mode: "skins" | "standard" | "irish_golf" | "nassau" | "cross_foursome";
   title: string;
   scoringLabel: string;
   entries: LiveLeaderboardEntry[];
@@ -400,6 +405,7 @@ export async function finishRound(roundId: string) {
       teams: { include: { roundPlayers: { include: { player: true } } } },
       holeScores: true,
       holeResults: true,
+      playerScores: true,
     },
   });
 
@@ -732,6 +738,125 @@ export async function finishRound(roundId: string) {
       revalidatePath("/");
       revalidatePath(`/rounds/${roundId}`);
       revalidatePath(`/rounds/${roundId}/summary`);
+      revalidatePath("/leaderboard");
+      return;
+    }
+
+    if (formatDefinition.id === CROSS_FOURSOME_66618_FORMAT_ID) {
+      const summaries = computeCrossFoursome66618GameSummaries({
+        formatConfig: (round.formatConfig as Record<string, unknown> | null) ?? null,
+        playerScores: round.playerScores.map((playerScore) => ({
+          playerId: playerScore.playerId,
+          holeNumber: playerScore.holeNumber,
+          grossScore: playerScore.grossScore,
+        })),
+        totalPot: Number(round.pot),
+      });
+
+      const incompleteGame = summaries.find(
+        (summary) => summary.completedHoles !== summary.holeNumbers.length
+      );
+      if (incompleteGame) {
+        throw new Error(
+          `${incompleteGame.label} is incomplete. Enter all player scores before finishing.`
+        );
+      }
+
+      const playerPayouts = calculateCrossFoursome66618PlayerPayouts(summaries);
+      const year = round.date.getFullYear();
+      const buyIn = round.buyInPerPlayer;
+
+      await prisma.$transaction(async (tx) => {
+        await tx.team.updateMany({
+          where: { roundId },
+          data: {
+            totalPayout: new Decimal(0),
+            isTopPayingTeam: false,
+          },
+        });
+
+        await tx.roundPlayer.updateMany({
+          where: { roundId },
+          data: {
+            payoutAmount: new Decimal(0),
+            wasOnTopPayingTeam: false,
+          },
+        });
+
+        await tx.holeResult.deleteMany({
+          where: { roundId },
+        });
+
+        for (const team of round.teams) {
+          let teamTotal = new Decimal(0);
+          for (const roundPlayer of team.roundPlayers) {
+            const payout = new Decimal(playerPayouts.get(roundPlayer.playerId) ?? 0);
+            teamTotal = teamTotal.add(payout);
+
+            await tx.roundPlayer.update({
+              where: { id: roundPlayer.id },
+              data: {
+                payoutAmount: payout,
+                wasOnTopPayingTeam: false,
+              },
+            });
+
+            await tx.seasonPlayerStat.upsert({
+              where: {
+                year_playerId: {
+                  year,
+                  playerId: roundPlayer.playerId,
+                },
+              },
+              update: {
+                totalWinnings: { increment: payout },
+                totalBuyInsPaid: { increment: buyIn },
+                roundsPlayed: { increment: 1 },
+              },
+              create: {
+                year,
+                playerId: roundPlayer.playerId,
+                totalWinnings: payout,
+                totalBuyInsPaid: buyIn,
+                roundsPlayed: 1,
+                topTeamAppearances: 0,
+              },
+            });
+          }
+
+          await tx.team.update({
+            where: { id: team.id },
+            data: {
+              totalPayout: teamTotal,
+              isTopPayingTeam: false,
+            },
+          });
+        }
+
+        await tx.round.update({
+          where: { id: roundId },
+          data: {
+            status: "FINISHED",
+            tiebreakerTeamId: null,
+            tiebreakerHoleNum: null,
+            tiebreakerSkinsWon: null,
+          },
+        });
+
+        await tx.roundMessage.updateMany({
+          where: { roundId },
+          data: {
+            imageDataUrl: null,
+            imageMimeType: null,
+            imageName: null,
+          },
+        });
+      });
+
+      revalidatePath("/");
+      revalidatePath(`/rounds/${roundId}`);
+      revalidatePath(`/rounds/${roundId}/summary`);
+      revalidatePath(`/rounds/${roundId}/final-payouts`);
       revalidatePath("/leaderboard");
       return;
     }
@@ -1593,6 +1718,7 @@ export async function getLiveLeaderboard(
         },
       },
       holeScores: true,
+      playerScores: true,
     },
   });
 
@@ -1604,6 +1730,8 @@ export async function getLiveLeaderboard(
     null;
   const isSundayChurchHoleGames =
     (formatDefinition?.id ?? round.formatId) === SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID;
+  const isCrossFoursome =
+    (formatDefinition?.id ?? round.formatId) === CROSS_FOURSOME_66618_FORMAT_ID;
   const isIrishGolf = formatDefinition?.id === "irish_golf_6_6_6";
   const isNassau = formatDefinition?.id === "nassau";
   const isSkins = !formatDefinition || formatDefinition.formatCategory === "skins";
@@ -1615,6 +1743,60 @@ export async function getLiveLeaderboard(
     round.holeScores.filter(
       (holeScore) => holeScore.teamId === teamId && holeScore.entryType !== "BLANK"
     );
+
+  if (isCrossFoursome) {
+    const playerNameMap = new Map(
+      round.teams.flatMap((team) =>
+        team.roundPlayers.map((roundPlayer) => [
+          roundPlayer.playerId,
+          roundPlayer.player.nickname || roundPlayer.player.fullName,
+        ] as const)
+      )
+    );
+    const summaries = computeCrossFoursome66618GameSummaries({
+      formatConfig: (round.formatConfig as Record<string, unknown> | null) ?? null,
+      playerScores: round.playerScores.map((playerScore) => ({
+        playerId: playerScore.playerId,
+        holeNumber: playerScore.holeNumber,
+        grossScore: playerScore.grossScore,
+      })),
+      totalPot: Number(round.pot ?? 0),
+    });
+    const entries = summaries.flatMap((summary, summaryIndex) =>
+      summary.pairs.map((pair, pairIndex) => ({
+        teamId: pair.virtualTeamId,
+        teamNumber: summaryIndex * 4 + pairIndex + 1,
+        label: `${summary.label}: ${pair.playerIds
+          .map((playerId) => playerNameMap.get(playerId) ?? playerId)
+          .join(" / ")}`,
+        holesScored: summary.completedHoles,
+        metricValue: pair.holesWon,
+        metricLabel: `${pair.holesWon} hole${pair.holesWon === 1 ? "" : "s"} won`,
+        totalPayout: pair.payout,
+      }))
+    );
+
+    return {
+      mode: "cross_foursome",
+      title: "Cross-Foursome Standings",
+      scoringLabel: "Best-ball match play. Two tie, all tie.",
+      entries,
+      segments: summaries.map((summary) => ({
+        label: summary.label,
+        formatName: `${summary.completedHoles}/${summary.holeNumbers.length} holes complete`,
+        completed: summary.completedHoles === summary.holeNumbers.length,
+        leaders: summary.winningVirtualTeamIds.map((virtualTeamId) => {
+          const pair = summary.pairs.find(
+            (candidate) => candidate.virtualTeamId === virtualTeamId
+          );
+          return pair
+            ? pair.playerIds.map((playerId) => playerNameMap.get(playerId) ?? playerId).join(" / ")
+            : virtualTeamId;
+        }),
+        payoutPerWinningTeam: summary.payoutPerWinningPair,
+      })),
+    };
+  }
 
   if (isSkins) {
     const allScores: TeamScore[] = round.holeScores.map((holeScore) => ({

@@ -19,6 +19,11 @@ import {
   SUNDAY_CHURCH_SIMON_SAYS_FORMAT_ID,
   validateSundayChurchSimonSaysConfig,
 } from "@/lib/sunday-church-simon-says";
+import {
+  CROSS_FOURSOME_66618_FORMAT_ID,
+  getCrossFoursome66618Config,
+  validateCrossFoursome66618Config,
+} from "@/lib/cross-foursome-66618";
 import { getPar3ContestTotalPotDecimal } from "@/lib/par3-contests.server";
 import { getTeamDisplayLabel } from "@/lib/team-labels";
 
@@ -81,6 +86,19 @@ function assertSundayChurchSimonSaysConfig(
   if (formatId !== SUNDAY_CHURCH_SIMON_SAYS_FORMAT_ID) return;
 
   const errors = validateSundayChurchSimonSaysConfig(formatConfig);
+  if (errors.length > 0) {
+    throw new Error(errors[0]);
+  }
+}
+
+function assertCrossFoursome66618Config(
+  formatId: string | undefined,
+  formatConfig: Record<string, unknown> | undefined,
+  selectedPlayerIds: string[]
+) {
+  if (formatId !== CROSS_FOURSOME_66618_FORMAT_ID) return;
+
+  const errors = validateCrossFoursome66618Config(formatConfig, selectedPlayerIds);
   if (errors.length > 0) {
     throw new Error(errors[0]);
   }
@@ -532,6 +550,12 @@ export async function setRoundPlayers(id: string, playerIds: string[]) {
   if (playerIds.length > MAX_PLAYERS_PER_ROUND) {
     throw new Error(`Maximum ${MAX_PLAYERS_PER_ROUND} players allowed`);
   }
+  if (
+    round.formatId === CROSS_FOURSOME_66618_FORMAT_ID &&
+    playerIds.length !== 8
+  ) {
+    throw new Error("Cross-Foursome 6-6-6-18 requires exactly 8 players");
+  }
 
   // Clear existing round players and teams
   await prisma.roundPlayer.deleteMany({ where: { roundId: id } });
@@ -579,6 +603,47 @@ export async function startRound(id: string, startingHole: 1 | 10) {
     round.formatId,
     (round.formatConfig as Record<string, unknown> | undefined) ?? undefined
   );
+  assertCrossFoursome66618Config(
+    round.formatId,
+    (round.formatConfig as Record<string, unknown> | undefined) ?? undefined,
+    round.roundPlayers.map((roundPlayer) => roundPlayer.playerId)
+  );
+
+  if (round.formatId === CROSS_FOURSOME_66618_FORMAT_ID) {
+    if (
+      round.teamSize !== 4 ||
+      round.teams.length !== 2 ||
+      round.teams.some((team) => team.roundPlayers.length !== 4)
+    ) {
+      throw new Error(
+        "Cross-Foursome 6-6-6-18 requires Foursome A and Foursome B with 4 players each"
+      );
+    }
+
+    const config = getCrossFoursome66618Config(
+      (round.formatConfig as Record<string, unknown> | null) ?? null
+    );
+    const [teamA, teamB] = [...round.teams].sort(
+      (a, b) => a.teamNumber - b.teamNumber
+    );
+    const teamAPlayerIds = new Set(
+      teamA.roundPlayers.map((roundPlayer) => roundPlayer.playerId)
+    );
+    const teamBPlayerIds = new Set(
+      teamB.roundPlayers.map((roundPlayer) => roundPlayer.playerId)
+    );
+    const configuredAPlayerIds = Object.values(config.foursomeA);
+    const configuredBPlayerIds = Object.values(config.foursomeB);
+
+    if (
+      configuredAPlayerIds.some((playerId) => !teamAPlayerIds.has(playerId)) ||
+      configuredBPlayerIds.some((playerId) => !teamBPlayerIds.has(playerId))
+    ) {
+      throw new Error(
+        "Save the Cross-Foursome A/B assignments before starting the round"
+      );
+    }
+  }
 
   if (round.formatId === "vegas") {
     if (round.teamSize !== 2) {
@@ -724,6 +789,7 @@ export async function revertToDraft(id: string, unlockCode: string) {
 
   // Clear all hole scores
   await prisma.holeScore.deleteMany({ where: { roundId: id } });
+  await prisma.playerScore.deleteMany({ where: { roundId: id } });
 
   // Reset team finishedScoring flags
   await prisma.team.updateMany({

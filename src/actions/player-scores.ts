@@ -14,6 +14,7 @@ import {
   SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID,
   getEffectiveHoleFormatId,
 } from "@/lib/sunday-church-hole-games";
+import { CROSS_FOURSOME_66618_FORMAT_ID } from "@/lib/cross-foursome-66618";
 
 export interface PlayerScoreEntry {
   roundId: string;
@@ -272,6 +273,53 @@ export async function upsertPlayerScoresForHole(
       },
     })
   );
+
+  if ((formatDefinition?.id ?? round.formatId) === CROSS_FOURSOME_66618_FORMAT_ID) {
+    await prisma.$transaction([
+      ...upserts,
+      prisma.holeScore.upsert({
+        where: {
+          roundId_teamId_holeNumber: {
+            roundId,
+            teamId,
+            holeNumber,
+          },
+        },
+        update: {
+          entryType: "VALUE",
+          value: null,
+          grossScore: null,
+          holeData: {
+            displayScore: "Entered",
+            effectiveFormatId: CROSS_FOURSOME_66618_FORMAT_ID,
+            scoringRole: "physical_foursome",
+          },
+        },
+        create: {
+          roundId,
+          teamId,
+          holeNumber,
+          entryType: "VALUE",
+          value: null,
+          grossScore: null,
+          holeData: {
+            displayScore: "Entered",
+            effectiveFormatId: CROSS_FOURSOME_66618_FORMAT_ID,
+            scoringRole: "physical_foursome",
+          },
+        },
+      }),
+    ]);
+
+    revalidatePath(`/rounds/${roundId}/scoring`);
+    revalidatePath(`/rounds/${roundId}/summary`);
+
+    return {
+      updated: scoreEntries.length,
+      teamGrossScore: null,
+      displayScore: "Entered",
+    };
+  }
 
   const usesManualDesignatedPlayer =
     (formatDefinition?.id ?? round.formatId) === SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID &&

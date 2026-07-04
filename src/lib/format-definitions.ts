@@ -89,6 +89,20 @@ export const FORMAT_DEFINITIONS: FormatDefinition[] = [
     requiresDriveTracking: false,
   },
   {
+    id: 'cross_foursome_6_6_6_18',
+    name: 'Cross-Foursome 6-6-6-18',
+    shortLabel: 'XF66618',
+    gameDescription:
+      'Eight players are split into two physical foursomes, then scored as rotating cross-foursome two-man best-ball teams across First 6, Second 6, Third 6, and Overall 18 match-play games. Two tie, all tie on every hole.',
+    formatCategory: 'match',
+    defaultTeamSize: 4,
+    supportedTeamSizes: [4],
+    configOptions: [],
+    requiresIndividualScores: true,
+    requiresDesignatedPlayer: false,
+    requiresDriveTracking: false,
+  },
+  {
     id: 'scramble_rotating_drives',
     name: 'Scramble with Rotating Drives',
     shortLabel: 'RotDrive',

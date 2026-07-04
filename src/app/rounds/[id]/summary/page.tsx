@@ -34,6 +34,10 @@ import {
 } from "@/lib/par3-contests";
 import { computePar3PlayerBonuses } from "@/lib/payout-breakdown";
 import { getTeamDisplayLabel } from "@/lib/team-labels";
+import {
+  CROSS_FOURSOME_66618_FORMAT_ID,
+  computeCrossFoursome66618GameSummaries,
+} from "@/lib/cross-foursome-66618";
 interface Team {
   id: string;
   teamNumber: number;
@@ -231,6 +235,7 @@ export default function RoundSummaryPage({
   const isVegasFormat = formatDef?.id === "vegas";
   const isIrishGolfFormat = formatDef?.id === "irish_golf_6_6_6";
   const isNassauFormat = formatDef?.id === "nassau";
+  const isCrossFoursomeFormat = formatDef?.id === CROSS_FOURSOME_66618_FORMAT_ID;
   const isBestBallFormat =
     !!formatDef && getMinimumScoresRequired(formatDef.id) !== null;
 
@@ -611,6 +616,27 @@ export default function RoundSummaryPage({
         round.pot ?? 0
       )
     : null;
+  const crossFoursomePlayerNameMap = new Map(
+    round.roundPlayers.map((roundPlayer) => [
+      roundPlayer.playerId,
+      roundPlayer.player.nickname || roundPlayer.player.fullName,
+    ] as const)
+  );
+  const crossFoursomeSummaries = isCrossFoursomeFormat
+    ? computeCrossFoursome66618GameSummaries({
+        formatConfig: round.formatConfig,
+        playerScores: playerScores.map((playerScore) => ({
+          playerId: playerScore.playerId,
+          holeNumber: playerScore.holeNumber,
+          grossScore: playerScore.grossScore,
+        })),
+        totalPot: round.pot ?? 0,
+      })
+    : [];
+  const getCrossFoursomePairName = (playerIds: [string, string]) =>
+    playerIds
+      .map((playerId) => crossFoursomePlayerNameMap.get(playerId) ?? playerId)
+      .join(" / ");
 
   return (
     <div className="space-y-6">
@@ -1062,7 +1088,151 @@ export default function RoundSummaryPage({
         </Card>
       )}
 
-      {!isSkins && !isIrishGolfFormat && !isNassauFormat && playerScores.length > 0 && (
+      {isCrossFoursomeFormat && crossFoursomeSummaries.length > 0 && (
+        <Card>
+          <CardHeader>Cross-Foursome 6-6-6-18 Results</CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-2 md:grid-cols-2">
+              {round.teams.map((team) => (
+                <div
+                  key={team.id}
+                  className="rounded-lg border border-gray-200 bg-gray-50 p-3"
+                >
+                  <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
+                    {team.teamNumber === 1 ? "Foursome A" : "Foursome B"}
+                  </p>
+                  <p className="mt-1 text-sm font-medium">
+                    {team.roundPlayers
+                      .map((roundPlayer) =>
+                        roundPlayer.player.nickname || roundPlayer.player.fullName
+                      )
+                      .join(", ")}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            {crossFoursomeSummaries.map((summary) => (
+              <div
+                key={summary.id}
+                className="rounded-lg border border-gray-200 p-3"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="font-semibold">{summary.label}</p>
+                    <p className="text-sm text-gray-500">
+                      Holes {summary.holeNumbers[0]}-
+                      {summary.holeNumbers[summary.holeNumbers.length - 1]} •{" "}
+                      {summary.completedHoles}/{summary.holeNumbers.length} complete
+                    </p>
+                    <p className="mt-1 text-sm text-green-700">
+                      Winner
+                      {summary.winningVirtualTeamIds.length === 1 ? "" : "s"}:{" "}
+                      {summary.winningVirtualTeamIds
+                        .map((virtualTeamId) => {
+                          const pair = summary.pairs.find(
+                            (candidate) => candidate.virtualTeamId === virtualTeamId
+                          );
+                          return pair
+                            ? getCrossFoursomePairName(pair.playerIds)
+                            : virtualTeamId;
+                        })
+                        .join(", ")}
+                    </p>
+                  </div>
+                  <p className="text-sm font-medium text-green-700">
+                    ${summary.gamePot.toFixed(2)} game pot
+                  </p>
+                </div>
+
+                <div className="mt-3 space-y-2">
+                  {summary.pairs.map((pair) => {
+                    const isWinner = summary.winningVirtualTeamIds.includes(
+                      pair.virtualTeamId
+                    );
+                    return (
+                      <div
+                        key={pair.virtualTeamId}
+                        className={`flex items-center justify-between rounded border px-3 py-2 ${
+                          isWinner
+                            ? "border-green-300 bg-green-50"
+                            : "border-gray-200 bg-white"
+                        }`}
+                      >
+                        <div>
+                          <p className="font-medium">
+                            {getCrossFoursomePairName(pair.playerIds)}
+                          </p>
+                          <p className="text-xs text-gray-500">{pair.label}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-semibold">
+                            {pair.holesWon} hole{pair.holesWon === 1 ? "" : "s"}
+                          </p>
+                          {pair.payout > 0 && (
+                            <p className="text-xs text-green-700">
+                              Wins ${pair.payout.toFixed(2)}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-3 overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b text-gray-500">
+                        <th className="py-2 text-left font-medium">Hole</th>
+                        <th className="py-2 text-left font-medium">Result</th>
+                        <th className="py-2 text-right font-medium">Best Ball</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {summary.holeOutcomes.map((outcome) => {
+                        const winner = outcome.winningVirtualTeamId
+                          ? summary.pairs.find(
+                              (pair) =>
+                                pair.virtualTeamId === outcome.winningVirtualTeamId
+                            )
+                          : null;
+                        return (
+                          <tr key={outcome.holeNumber} className="border-b">
+                            <td className="py-2 font-medium">
+                              {outcome.holeNumber}
+                            </td>
+                            <td className="py-2">
+                              {!outcome.isComplete
+                                ? "Pending"
+                                : outcome.isTie
+                                ? "Tie"
+                                : winner
+                                ? getCrossFoursomePairName(winner.playerIds)
+                                : "-"}
+                            </td>
+                            <td className="py-2 text-right">
+                              {outcome.pairScores
+                                .map((pairScore) =>
+                                  pairScore.bestBallScore === null
+                                    ? "-"
+                                    : `${pairScore.label}: ${pairScore.bestBallScore}`
+                                )
+                                .join(" • ")}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {!isSkins && !isIrishGolfFormat && !isNassauFormat && !isCrossFoursomeFormat && playerScores.length > 0 && (
         <Card>
           <CardHeader>Leaderboard — {round.format.name}</CardHeader>
           <CardContent className="space-y-2">
@@ -1130,7 +1300,7 @@ export default function RoundSummaryPage({
       )}
 
       {/* Non-skins hole-by-hole table */}
-      {!isSkins && round.holeScores.length > 0 && (
+      {!isSkins && !isCrossFoursomeFormat && round.holeScores.length > 0 && (
         <Card>
           <CardHeader>Hole-by-Hole Scores</CardHeader>
           <CardContent>

@@ -26,6 +26,10 @@ import {
   createDefaultSundayChurchSimonSaysConfig,
   validateSundayChurchSimonSaysConfig,
 } from "@/lib/sunday-church-simon-says";
+import {
+  CROSS_FOURSOME_66618_FORMAT_ID,
+  createDefaultCrossFoursome66618Config,
+} from "@/lib/cross-foursome-66618";
 
 interface Course {
   id: string;
@@ -74,6 +78,9 @@ function buildDefaultConfig(
   }
   if ((format.definitionId ?? format.id) === SUNDAY_CHURCH_SIMON_SAYS_FORMAT_ID) {
     Object.assign(config, createDefaultSundayChurchSimonSaysConfig());
+  }
+  if ((format.definitionId ?? format.id) === CROSS_FOURSOME_66618_FORMAT_ID) {
+    Object.assign(config, createDefaultCrossFoursome66618Config());
   }
   return config;
 }
