@@ -1,0 +1,17 @@
+{
+  "defaultCap": 500,
+  "entries": {
+    "src/__tests__/scoring-engine-formats.test.ts": 552,
+    "src/actions/rounds.ts": 980,
+    "src/actions/scoring.ts": 2378,
+    "src/actions/season-stats.ts": 508,
+    "src/actions/teams.ts": 970,
+    "src/app/rounds/[id]/scoring/page.tsx": 4143,
+    "src/app/rounds/[id]/setup/page.tsx": 2539,
+    "src/app/rounds/[id]/summary/page.tsx": 1773,
+    "src/app/rounds/new/page.tsx": 721,
+    "src/lib/format-definitions.ts": 594,
+    "src/lib/format-scoring.ts": 758,
+    "src/lib/scoring-engine.ts": 1102
+  }
+}

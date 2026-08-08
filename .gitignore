@@ -6,6 +6,9 @@
 
 # Testing
 /coverage
+/playwright-report/
+/test-results/
+/.control-feedback/
 
 # Next.js
 /.next/
