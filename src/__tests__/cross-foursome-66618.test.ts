@@ -216,7 +216,7 @@ test("cross-foursome net best ball applies individual strokes before two tie all
         eddie: 7,
       },
     ]),
-    playerHandicapIndexes: { jim: 18, albert: 0, david: 0, mike: 0, tony: 0, griff: 0, sean: 0, eddie: 0 },
+    playerHandicapIndexes: { jim: 24, albert: 6, david: 6, mike: 6, tony: 6, griff: 6, sean: 6, eddie: 6 },
     courseHandicapRanks: { 1: 1 },
   });
 

@@ -1,4 +1,8 @@
-import { getNetScore, getStrokesReceivedForHole } from "@/lib/handicap-scoring";
+import {
+  getNetScore,
+  getRelativePlayingHandicaps,
+  getStrokesReceivedForHole,
+} from "@/lib/handicap-scoring";
 
 export const CROSS_THREESOME_666_FORMAT_ID = "cross_threesome_6_6_6";
 export const CROSS_THREESOME_666_CONFIG_KEY = "crossThreesome666";
@@ -308,6 +312,7 @@ export function computeCrossThreesome666GameSummaries({
 }): CrossThreesomeGameSummary[] {
   const pairings = getCrossThreesome666Pairings(formatConfig);
   const scoresByPlayerAndHole = getScoreByPlayerAndHole(playerScores);
+  const relativePlayingHandicaps = getRelativePlayingHandicaps(playerHandicapIndexes);
   const gamePot = totalPot / GAME_DEFINITIONS.length;
 
   return pairings.map((game) => {
@@ -316,7 +321,7 @@ export function computeCrossThreesome666GameSummaries({
         holeNumber,
         game.pairs,
         scoresByPlayerAndHole,
-        playerHandicapIndexes,
+        relativePlayingHandicaps,
         courseHandicapRanks
       )
     );

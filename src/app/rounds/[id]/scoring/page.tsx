@@ -4,6 +4,7 @@ import { useState, useEffect, use, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/button";
 import { Card } from "@/components/card";
+import { HandicapPlayerScoreDetails, HandicapStrokeCard } from "@/components/handicap-stroke-card";
 import { ConfirmModal, Modal } from "@/components/modal";
 import { SundayChurchHoleGamesGrid } from "@/components/sunday-church-hole-games-grid";
 import { SundayChurchSimonSaysGrid } from "@/components/sunday-church-simon-says-grid";
@@ -80,6 +81,7 @@ import {
 import {
   CROSS_FOURSOME_66618_FORMAT_ID,
   createDefaultCrossFoursome66618Config,
+  getCrossFoursome66618Config,
   getCrossFoursome66618Pairings,
 } from "@/lib/cross-foursome-66618";
 import {
@@ -87,7 +89,6 @@ import {
   createDefaultCrossThreesome666Config,
   getCrossThreesome666Pairings,
 } from "@/lib/cross-threesome-666";
-import { getNetScore, getStrokesReceivedForHole } from "@/lib/handicap-scoring";
 import { HoleEntryType } from "@prisma/client";
 
 interface TeamScore {
@@ -208,6 +209,7 @@ interface Round {
   roundPlayers: {
     id: string;
     playerId: string;
+    eventHandicapIndex: number | null;
     player: { id: string; fullName: string; nickname: string | null };
   }[];
 }
@@ -938,26 +940,13 @@ export default function LiveScoringPage({
   const currentCrossFoursomeGames = crossFoursomePairingGames.filter((game) =>
     game.holeNumbers.includes(currentHole)
   );
-  const getCrossThreesomeScorePreview = (playerId: string, grossScore: string) => {
-    if (!isCrossThreesomeRound || !holeData) return null;
-    const handicapIndex = myTeam?.roundPlayers.find(
-      (roundPlayer) => roundPlayer.playerId === playerId
-    )?.eventHandicapIndex;
-    const strokesReceived = getStrokesReceivedForHole(
-      handicapIndex,
-      holeData.handicapRank
-    );
-    const parsedGrossScore = Number.parseInt(grossScore, 10);
-    const netScore = Number.isFinite(parsedGrossScore)
-      ? getNetScore({
-          grossScore: parsedGrossScore,
-          handicapIndex,
-          handicapRank: holeData.handicapRank,
-        })
-      : null;
-
-    return { handicapIndex: handicapIndex ?? null, strokesReceived, netScore };
-  };
+  const usesNetHandicapScoring =
+    isCrossThreesomeRound ||
+    (isCrossFoursomeRound &&
+      getCrossFoursome66618Config(round?.formatConfig).scoreMode === "best_net_ball");
+  const lockedHandicapIndexes = Object.fromEntries(
+    round?.roundPlayers.map((player) => [player.playerId, player.eventHandicapIndex]) ?? []
+  );
   const crossFoursomeLeaderboardSegments = new Map(
     liveLeaderboard?.mode === "cross_match"
       ? (liveLeaderboard.segments ?? []).map((segment) => [segment.label, segment] as const)
@@ -2220,6 +2209,18 @@ export default function LiveScoringPage({
                 {myTeamScore.players.map((p) => p.name).join(", ")}
               </p>
 
+              {usesNetHandicapScoring && myTeam && (
+                <HandicapStrokeCard
+                  players={myTeam.roundPlayers.map((player) => ({
+                    playerId: player.playerId,
+                    name: player.player.nickname || player.player.fullName,
+                  }))}
+                  playerHandicapIndexes={lockedHandicapIndexes}
+                  holes={round.course.holes}
+                  currentHole={currentHole}
+                />
+              )}
+
               {effectiveFormat && effectiveFormat.id !== formatDefinition?.id && (
                 <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
                   {formatDefinition?.id === "nassau" ? "Nassau segment" : "Irish Golf segment"}:{" "}
@@ -2409,11 +2410,6 @@ export default function LiveScoringPage({
                     const isDesignated =
                       effectiveFormat?.requiresDesignatedPlayer &&
                       designatedPlayer?.playerId === input.playerId;
-                    const netPreview = getCrossThreesomeScorePreview(
-                      input.playerId,
-                      input.grossScore
-                    );
-
                     return (
                       <div
                         key={input.playerId}
@@ -2422,15 +2418,13 @@ export default function LiveScoringPage({
                         <div className="flex items-start justify-between gap-4">
                           <div>
                             <p className="font-medium">{input.name}</p>
-                            {netPreview && (
-                              <p className="text-xs text-emerald-700">
-                                HCP {netPreview.handicapIndex ?? "-"} · {netPreview.strokesReceived === 0
-                                  ? "no stroke"
-                                  : netPreview.strokesReceived && netPreview.strokesReceived > 0
-                                  ? `${netPreview.strokesReceived} stroke${netPreview.strokesReceived === 1 ? "" : "s"}`
-                                  : `gives ${Math.abs(netPreview.strokesReceived ?? 0)} stroke${Math.abs(netPreview.strokesReceived ?? 0) === 1 ? "" : "s"}`}
-                                {netPreview.netScore !== null ? ` · Net ${netPreview.netScore}` : ""}
-                              </p>
+                            {usesNetHandicapScoring && (
+                              <HandicapPlayerScoreDetails
+                                playerId={input.playerId}
+                                grossScore={input.grossScore}
+                                playerHandicapIndexes={lockedHandicapIndexes}
+                                handicapRank={holeData.handicapRank}
+                              />
                             )}
                             {isDesignated && (
                               <p className="text-xs text-amber-700">
@@ -2443,6 +2437,7 @@ export default function LiveScoringPage({
                               playerInputRefs.current[input.playerId] = element;
                             }}
                             type="text"
+                            aria-label={`Enter gross score for ${input.name}`}
                             inputMode="numeric"
                             pattern="[0-9]*"
                             enterKeyHint="next"

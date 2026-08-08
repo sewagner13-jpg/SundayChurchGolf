@@ -10,6 +10,7 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
     command: "npm run dev -- --port 3100",
+    env: { E2E_FIXTURES: "1" },
     url: "http://127.0.0.1:3100/rounds/new",
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,

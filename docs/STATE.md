@@ -35,3 +35,7 @@ Finish build-discipline controls before the user-operated UI/UX defect walkthrou
 - `npm run verify:release` passed on 2026-08-08: state, line caps, release configuration, 89 unit tests, typecheck, lint with 43 existing warnings and no errors, production build, and Playwright E2E.
 - `npm run verify:negative-probes` passed on 2026-08-08: malformed state, a 501-line source file, an impossible browser expectation, a failed controlled command, and an unconfirmed deployment each blocked as required.
 - The browser test uses intercepted `/api/courses` and `/api/formats` fixtures and does not require `DATABASE_URL`.
+- `npm run verify:release` passed on 2026-08-08 after handicap visibility work: 90 unit tests, typecheck, lint with 43 existing warnings and no errors, production build, and 2 Playwright tests.
+- `npm run verify:negative-probes` passed after handicap visibility work; every expected state, line-cap, control-feedback, browser, and deploy-confirmation failure blocked correctly.
+- The handicap browser fixture passed at desktop and 390x844 phone widths. The phone page stayed within the viewport, all 4 group players rendered, and only the 18-hole table scrolled horizontally.
+- The production build returned HTTP 404 for `/e2e/handicap-strokes` without `E2E_FIXTURES=1`.

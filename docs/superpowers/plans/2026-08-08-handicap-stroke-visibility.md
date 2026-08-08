@@ -33,10 +33,10 @@
 - Produces: `getRelativePlayingHandicaps(playerHandicapIndexes)` returning adjusted whole handicaps by player ID.
 - Consumes: existing `getPlayingHandicap`, `getStrokesReceivedForHole`, and `getNetScore`.
 
-- [ ] Write failing unit tests showing handicaps 6, 9, and 12 become 0, 3, and 6 and allocate strokes only on eligible course ranks.
-- [ ] Run the focused tests and confirm the unimplemented relative resolver fails.
-- [ ] Implement the pure resolver and make both cross-group scorers use adjusted values.
-- [ ] Run handicap and cross-group tests and confirm they pass.
+- [x] Write failing unit tests showing handicaps 6, 9, and 12 become 0, 3, and 6 and allocate strokes only on eligible course ranks.
+- [x] Run the focused tests and confirm the unimplemented relative resolver fails.
+- [x] Implement the pure resolver and make both cross-group scorers use adjusted values.
+- [x] Run handicap and cross-group tests and confirm they pass.
 
 ### Task 2: Scoring-Screen Visibility
 
@@ -50,11 +50,11 @@
 - Consumes: selected physical-group players, all locked round handicaps, course hole ranks, current hole, and gross score strings.
 - Produces: a responsive 18-hole allocation table and current-hole gross/net score details.
 
-- [ ] Write a browser test that expects every selected-group player, the 18-hole allocation, the current-hole highlight, `Enter gross score`, and a calculated net score.
-- [ ] Run the focused browser test and confirm it fails because the visibility component is absent.
-- [ ] Implement the focused component and integrate it only for formats that use net scoring.
-- [ ] Remove the existing Cross-Threesome-only preview code so the scoring page does not grow.
-- [ ] Run the browser test, line-cap check, typecheck, and focused unit tests.
+- [x] Write a browser test that expects every selected-group player, the 18-hole allocation, the current-hole highlight, `Enter gross score`, and a calculated net score.
+- [x] Run the focused browser test and confirm it fails because the visibility component is absent.
+- [x] Implement the focused component and integrate it only for formats that use net scoring.
+- [x] Remove the existing Cross-Threesome-only preview code so the scoring page does not grow.
+- [x] Run the browser test, line-cap check, typecheck, and focused unit tests.
 
 ### Task 3: Release Proof
 
@@ -65,7 +65,7 @@
 - Consumes: repository quality gates.
 - Produces: durable verification evidence for the draft PR.
 
-- [ ] Run `npm run verify:release` and require all unit, type, lint, build, and browser checks to pass.
-- [ ] Run `npm run verify:negative-probes` and require every control probe to block as expected.
-- [ ] Record exact results in `docs/STATE.md`.
+- [x] Run `npm run verify:release` and require all unit, type, lint, build, and browser checks to pass.
+- [x] Run `npm run verify:negative-probes` and require every control probe to block as expected.
+- [x] Record exact results in `docs/STATE.md`.
 - [ ] Commit the implementation and push the active draft PR branch without deploying production.
