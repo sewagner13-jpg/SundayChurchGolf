@@ -80,7 +80,7 @@ test("cross-threesome uses best net ball and applies two tie all tie", () => {
       tony: 7,
       eddie: 7,
     }),
-    playerHandicapIndexes: { jim: 18, albert: 0, david: 0, griff: 0, tony: 0, eddie: 0 },
+    playerHandicapIndexes: { jim: 24, albert: 6, david: 6, griff: 6, tony: 6, eddie: 6 },
     courseHandicapRanks: { 1: 1 },
     totalPot: 60,
   });

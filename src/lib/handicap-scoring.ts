@@ -5,6 +5,30 @@ export function getPlayingHandicap(handicapIndex: number | null | undefined) {
   return sign * Math.round(Math.abs(handicapIndex));
 }
 
+export function getRelativePlayingHandicaps(
+  playerHandicapIndexes: Record<string, number | null | undefined>
+) {
+  const playingHandicaps = Object.fromEntries(
+    Object.entries(playerHandicapIndexes).map(([playerId, handicapIndex]) => [
+      playerId,
+      getPlayingHandicap(handicapIndex),
+    ])
+  ) as Record<string, number | null>;
+  const validHandicaps = Object.values(playingHandicaps).filter(
+    (handicap): handicap is number => handicap !== null
+  );
+
+  if (validHandicaps.length === 0) return playingHandicaps;
+
+  const lowestHandicap = Math.min(...validHandicaps);
+  return Object.fromEntries(
+    Object.entries(playingHandicaps).map(([playerId, playingHandicap]) => [
+      playerId,
+      playingHandicap === null ? null : playingHandicap - lowestHandicap,
+    ])
+  ) as Record<string, number | null>;
+}
+
 export function getStrokesReceivedForHole(
   handicapIndex: number | null | undefined,
   handicapRank: number | null | undefined

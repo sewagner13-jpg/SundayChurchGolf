@@ -2,7 +2,11 @@ export const CROSS_FOURSOME_66618_FORMAT_ID = "cross_foursome_6_6_6_18";
 
 export const CROSS_FOURSOME_66618_CONFIG_KEY = "crossFoursome66618";
 
-import { getNetScore, getStrokesReceivedForHole } from "@/lib/handicap-scoring";
+import {
+  getNetScore,
+  getRelativePlayingHandicaps,
+  getStrokesReceivedForHole,
+} from "@/lib/handicap-scoring";
 
 export type CrossFoursomeScoreMode = "best_ball" | "best_net_ball";
 export type CrossFoursomeASlot = "A1" | "A2" | "A3" | "A4";
@@ -378,6 +382,7 @@ export function computeCrossFoursome66618GameSummaries({
   const config = getCrossFoursome66618Config(formatConfig);
   const pairings = getCrossFoursome66618Pairings(formatConfig);
   const scoresByPlayerAndHole = getScoreByPlayerAndHole(playerScores);
+  const relativePlayingHandicaps = getRelativePlayingHandicaps(playerHandicapIndexes);
   const gamePot = totalPot / GAME_DEFINITIONS.length;
 
   return pairings.map((game) => {
@@ -387,7 +392,7 @@ export function computeCrossFoursome66618GameSummaries({
         game.pairs,
         scoresByPlayerAndHole,
         config.scoreMode,
-        playerHandicapIndexes,
+        relativePlayingHandicaps,
         courseHandicapRanks
       )
     );
