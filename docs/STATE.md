@@ -29,3 +29,9 @@ New JavaScript, TypeScript, and TSX source files are capped at 500 lines. The ch
 ## Operating Mode
 
 Finish build-discipline controls before the user-operated UI/UX defect walkthrough. The user operates the application; the agent diagnoses and fixes verified defects.
+
+## Verification Evidence
+
+- `npm run verify:release` passed on 2026-08-08: state, line caps, release configuration, 89 unit tests, typecheck, lint with 43 existing warnings and no errors, production build, and Playwright E2E.
+- `npm run verify:negative-probes` passed on 2026-08-08: malformed state, a 501-line source file, an impossible browser expectation, a failed controlled command, and an unconfirmed deployment each blocked as required.
+- The browser test uses intercepted `/api/courses` and `/api/formats` fixtures and does not require `DATABASE_URL`.
