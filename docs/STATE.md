@@ -44,3 +44,6 @@ Finish build-discipline controls before the user-operated UI/UX defect walkthrou
 - The Cross-Threesome sandbox browser test covers gross score entry, relative handicap strokes, best-net match play, two-tie-all-tie outcomes, and a $30-per-player payout breakdown.
 - `npm run verify:negative-probes` passed after the preview fix; all five guarded failure paths blocked correctly.
 - Primary-checkout release verification passed with 92 unit tests and 3 Playwright tests after excluding `.worktrees/**` from lint; the release-config test rejects removal of that exclusion.
+- Production Cross-Threesome verification found and fixed a final-payout display defect: recorded per-player payouts now remain authoritative for cross-group games instead of being re-split across physical playing groups.
+- The payout regression probe failed with `[30, 30, 30, 30]` before the fix and passed with the recorded `[60, 30, 15, 15]` distribution after the fix.
+- `npm run verify:release` passed for the payout correction with 93 unit tests, typecheck, lint with 43 existing warnings and no errors, production build, and 3 Playwright tests; all guarded negative probes also passed.

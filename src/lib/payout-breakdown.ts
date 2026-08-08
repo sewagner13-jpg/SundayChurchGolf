@@ -17,6 +17,7 @@ interface Par3ResultLike {
 interface RoundPlayerLike {
   id: string;
   playerId: string;
+  payoutAmount?: number | null;
   player: {
     fullName: string;
     nickname: string | null;
@@ -161,8 +162,16 @@ export function computeFinalPlayerPayoutRows(
   }
 
   return roundPlayers.map((roundPlayer) => {
-    const mainGamePayout = baseMainGameShareByPlayer.get(roundPlayer.playerId) ?? 0;
     const par3Payout = par3Bonuses.get(roundPlayer.playerId) ?? 0;
+    const recordedTotalPayout = roundPlayer.payoutAmount;
+    const mainGamePayout =
+      recordedTotalPayout === null || recordedTotalPayout === undefined
+        ? baseMainGameShareByPlayer.get(roundPlayer.playerId) ?? 0
+        : Math.max(0, recordedTotalPayout - par3Payout);
+    const totalPayout =
+      recordedTotalPayout === null || recordedTotalPayout === undefined
+        ? mainGamePayout + par3Payout
+        : Math.max(0, recordedTotalPayout);
 
     return {
       roundPlayerId: roundPlayer.id,
@@ -172,7 +181,7 @@ export function computeFinalPlayerPayoutRows(
       teamNumber: roundPlayer.team?.teamNumber ?? null,
       mainGamePayout,
       par3Payout,
-      totalPayout: mainGamePayout + par3Payout,
+      totalPayout,
     } satisfies FinalPlayerPayoutRow;
   });
 }

@@ -17,6 +17,7 @@ import { getTeamDisplayLabel } from "@/lib/team-labels";
 interface RoundPlayer {
   id: string;
   playerId: string;
+  payoutAmount: number;
   player: { fullName: string; nickname: string | null };
   team: { id: string; teamNumber: number } | null;
 }

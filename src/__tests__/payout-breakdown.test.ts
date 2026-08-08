@@ -94,3 +94,25 @@ test("computeFinalPlayerPayoutRows splits shared par 3 winnings across the team"
     assert.equal(row.totalPayout, 48.75);
   }
 });
+
+test("computeFinalPlayerPayoutRows preserves recorded cross-group player payouts", () => {
+  const recordedRoundPlayers = roundPlayers.map((roundPlayer, index) => ({
+    ...roundPlayer,
+    payoutAmount: [60, 30, 15, 15][index],
+  }));
+
+  const payoutRows = computeFinalPlayerPayoutRows(
+    teams,
+    recordedRoundPlayers,
+    []
+  );
+
+  assert.deepEqual(
+    payoutRows.map((row) => row.mainGamePayout),
+    [60, 30, 15, 15]
+  );
+  assert.deepEqual(
+    payoutRows.map((row) => row.totalPayout),
+    [60, 30, 15, 15]
+  );
+});
