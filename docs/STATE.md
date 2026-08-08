@@ -43,3 +43,4 @@ Finish build-discipline controls before the user-operated UI/UX defect walkthrou
 - Unit tests are discovered recursively by `scripts/run-unit-tests.mjs`; the release no longer depends on shell-specific glob expansion.
 - The Cross-Threesome sandbox browser test covers gross score entry, relative handicap strokes, best-net match play, two-tie-all-tie outcomes, and a $30-per-player payout breakdown.
 - `npm run verify:negative-probes` passed after the preview fix; all five guarded failure paths blocked correctly.
+- Primary-checkout release verification passed with 92 unit tests and 3 Playwright tests after excluding `.worktrees/**` from lint; the release-config test rejects removal of that exclusion.

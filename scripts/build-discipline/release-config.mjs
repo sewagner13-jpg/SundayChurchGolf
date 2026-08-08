@@ -7,6 +7,9 @@ export function validateReleaseConfiguration({ scripts, netlifyBuildCommand }) {
   if (!scripts["verify:netlify"]) errors.push("Missing required npm script: verify:netlify.");
   if (!scripts["verify:release"]) errors.push("Missing required npm script: verify:release.");
   if (!scripts["deploy:production"]) errors.push("Missing required npm script: deploy:production.");
+  if (!scripts.lint?.includes(".worktrees/**")) {
+    errors.push("Lint script must exclude linked worktrees.");
+  }
 
   const verificationIndex = netlifyBuildCommand.indexOf("npm run verify:netlify");
   const mutationIndex = netlifyBuildCommand.indexOf("prisma db push");

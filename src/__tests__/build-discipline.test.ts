@@ -88,10 +88,27 @@ test("release configuration rejects database mutation before the quality gate", 
         "verify:netlify": "node scripts/verify-release.mjs --netlify",
         "verify:release": "node scripts/verify-release.mjs",
         "deploy:production": "node scripts/deploy-production.mjs",
+        lint: "eslint . --ignore-pattern '.worktrees/**'",
       },
       netlifyBuildCommand:
         "npx prisma generate && npx prisma db push --skip-generate && npm run verify:netlify",
     }),
     ["Netlify must run verify:netlify before prisma db push."]
+  );
+});
+
+test("release configuration rejects linting linked worktrees", () => {
+  assert.deepEqual(
+    validateReleaseConfiguration({
+      scripts: {
+        "verify:netlify": "node scripts/verify-release.mjs --netlify",
+        "verify:release": "node scripts/verify-release.mjs",
+        "deploy:production": "node scripts/deploy-production.mjs",
+        lint: "eslint .",
+      },
+      netlifyBuildCommand:
+        "npx prisma generate && npm run verify:netlify && npx prisma db push --skip-generate",
+    }),
+    ["Lint script must exclude linked worktrees."]
   );
 });
