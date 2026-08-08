@@ -39,3 +39,7 @@ Finish build-discipline controls before the user-operated UI/UX defect walkthrou
 - `npm run verify:negative-probes` passed after handicap visibility work; every expected state, line-cap, control-feedback, browser, and deploy-confirmation failure blocked correctly.
 - The handicap browser fixture passed at desktop and 390x844 phone widths. The phone page stayed within the viewport, all 4 group players rendered, and only the 18-hole table scrolled horizontally.
 - The production build returned HTTP 404 for `/e2e/handicap-strokes` without `E2E_FIXTURES=1`.
+- `npm run verify:release` passed after the Netlify preview fix: 91 unit tests, typecheck, lint with 43 existing warnings and no errors, production build, and 3 Playwright tests.
+- Unit tests are discovered recursively by `scripts/run-unit-tests.mjs`; the release no longer depends on shell-specific glob expansion.
+- The Cross-Threesome sandbox browser test covers gross score entry, relative handicap strokes, best-net match play, two-tie-all-tie outcomes, and a $30-per-player payout breakdown.
+- `npm run verify:negative-probes` passed after the preview fix; all five guarded failure paths blocked correctly.

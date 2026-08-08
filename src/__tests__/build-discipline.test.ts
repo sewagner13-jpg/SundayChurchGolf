@@ -8,6 +8,7 @@ import { checkLineCaps } from "../../scripts/build-discipline/line-caps.mjs";
 import { runControlledSteps } from "../../scripts/build-discipline/control-feedback.mjs";
 import { validateReleaseConfiguration } from "../../scripts/build-discipline/release-config.mjs";
 import { validateStateDocument } from "../../scripts/build-discipline/state.mjs";
+import { findUnitTests } from "../../scripts/run-unit-tests.mjs";
 
 test("state validator rejects a document missing the release topology", () => {
   assert.deepEqual(validateStateDocument("# Sunday Church Golf State\n"), [
@@ -29,6 +30,25 @@ test("line-cap checker rejects a new 501-line TypeScript file", async () => {
 
     assert.deepEqual(await checkLineCaps({ rootDir, baseline: {}, defaultCap: 500 }), [
       { path: "src/too-large.ts", lines: 501, maxLines: 500 },
+    ]);
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("unit test discovery is recursive without relying on shell glob expansion", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "sunday-church-unit-tests-"));
+  const testDir = join(rootDir, "src/__tests__");
+
+  try {
+    await mkdir(join(testDir, "nested"), { recursive: true });
+    await writeFile(join(testDir, "z.test.ts"), "");
+    await writeFile(join(testDir, "nested/a.test.ts"), "");
+    await writeFile(join(testDir, "nested/ignore.ts"), "");
+
+    assert.deepEqual(await findUnitTests(testDir), [
+      join(testDir, "nested/a.test.ts"),
+      join(testDir, "z.test.ts"),
     ]);
   } finally {
     await rm(rootDir, { recursive: true, force: true });
