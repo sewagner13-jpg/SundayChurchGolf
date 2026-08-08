@@ -43,6 +43,11 @@ import {
   calculateCrossFoursome66618PlayerPayouts,
   computeCrossFoursome66618GameSummaries,
 } from "@/lib/cross-foursome-66618";
+import {
+  CROSS_THREESOME_666_FORMAT_ID,
+  calculateCrossThreesome666PlayerPayouts,
+  computeCrossThreesome666GameSummaries,
+} from "@/lib/cross-threesome-666";
 
 export interface LiveLeaderboardEntry {
   teamId: string;
@@ -64,7 +69,7 @@ export interface LiveLeaderboardSegment {
 }
 
 export interface LiveLeaderboardData {
-  mode: "skins" | "standard" | "irish_golf" | "nassau" | "cross_foursome";
+  mode: "skins" | "standard" | "irish_golf" | "nassau" | "cross_match";
   title: string;
   scoringLabel: string;
   entries: LiveLeaderboardEntry[];
@@ -742,16 +747,36 @@ export async function finishRound(roundId: string) {
       return;
     }
 
-    if (formatDefinition.id === CROSS_FOURSOME_66618_FORMAT_ID) {
-      const summaries = computeCrossFoursome66618GameSummaries({
+    if (
+      formatDefinition.id === CROSS_FOURSOME_66618_FORMAT_ID ||
+      formatDefinition.id === CROSS_THREESOME_666_FORMAT_ID
+    ) {
+      const playerHandicapIndexes = Object.fromEntries(
+        round.teams.flatMap((team) => team.roundPlayers).map((roundPlayer) => [
+          roundPlayer.playerId,
+          roundPlayer.eventHandicapIndex === null
+            ? null
+            : Number(roundPlayer.eventHandicapIndex),
+        ])
+      );
+      const courseHandicapRanks = Object.fromEntries(
+        round.course.holes.map((hole) => [hole.holeNumber, hole.handicapRank])
+      );
+      const crossScoringInput = {
         formatConfig: (round.formatConfig as Record<string, unknown> | null) ?? null,
         playerScores: round.playerScores.map((playerScore) => ({
           playerId: playerScore.playerId,
           holeNumber: playerScore.holeNumber,
           grossScore: playerScore.grossScore,
         })),
+        playerHandicapIndexes,
+        courseHandicapRanks,
         totalPot: Number(round.pot),
-      });
+      };
+      const summaries =
+        formatDefinition.id === CROSS_THREESOME_666_FORMAT_ID
+          ? computeCrossThreesome666GameSummaries(crossScoringInput)
+          : computeCrossFoursome66618GameSummaries(crossScoringInput);
 
       const incompleteGame = summaries.find(
         (summary) => summary.completedHoles !== summary.holeNumbers.length
@@ -762,7 +787,14 @@ export async function finishRound(roundId: string) {
         );
       }
 
-      const playerPayouts = calculateCrossFoursome66618PlayerPayouts(summaries);
+      const playerPayouts =
+        formatDefinition.id === CROSS_THREESOME_666_FORMAT_ID
+          ? calculateCrossThreesome666PlayerPayouts(
+              summaries as ReturnType<typeof computeCrossThreesome666GameSummaries>
+            )
+          : calculateCrossFoursome66618PlayerPayouts(
+              summaries as ReturnType<typeof computeCrossFoursome66618GameSummaries>
+            );
       const year = round.date.getFullYear();
       const buyIn = round.buyInPerPlayer;
 
@@ -1732,6 +1764,8 @@ export async function getLiveLeaderboard(
     (formatDefinition?.id ?? round.formatId) === SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID;
   const isCrossFoursome =
     (formatDefinition?.id ?? round.formatId) === CROSS_FOURSOME_66618_FORMAT_ID;
+  const isCrossThreesome =
+    (formatDefinition?.id ?? round.formatId) === CROSS_THREESOME_666_FORMAT_ID;
   const isIrishGolf = formatDefinition?.id === "irish_golf_6_6_6";
   const isNassau = formatDefinition?.id === "nassau";
   const isSkins = !formatDefinition || formatDefinition.formatCategory === "skins";
@@ -1744,7 +1778,7 @@ export async function getLiveLeaderboard(
       (holeScore) => holeScore.teamId === teamId && holeScore.entryType !== "BLANK"
     );
 
-  if (isCrossFoursome) {
+  if (isCrossFoursome || isCrossThreesome) {
     const playerNameMap = new Map(
       round.teams.flatMap((team) =>
         team.roundPlayers.map((roundPlayer) => [
@@ -1753,19 +1787,33 @@ export async function getLiveLeaderboard(
         ] as const)
       )
     );
-    const summaries = computeCrossFoursome66618GameSummaries({
+    const crossScoringInput = {
       formatConfig: (round.formatConfig as Record<string, unknown> | null) ?? null,
       playerScores: round.playerScores.map((playerScore) => ({
         playerId: playerScore.playerId,
         holeNumber: playerScore.holeNumber,
         grossScore: playerScore.grossScore,
       })),
+      playerHandicapIndexes: Object.fromEntries(
+        round.teams.flatMap((team) => team.roundPlayers).map((roundPlayer) => [
+          roundPlayer.playerId,
+          roundPlayer.eventHandicapIndex === null
+            ? null
+            : Number(roundPlayer.eventHandicapIndex),
+        ])
+      ),
+      courseHandicapRanks: Object.fromEntries(
+        round.course.holes.map((hole) => [hole.holeNumber, hole.handicapRank])
+      ),
       totalPot: Number(round.pot ?? 0),
-    });
+    };
+    const summaries = isCrossThreesome
+      ? computeCrossThreesome666GameSummaries(crossScoringInput)
+      : computeCrossFoursome66618GameSummaries(crossScoringInput);
     const entries = summaries.flatMap((summary, summaryIndex) =>
       summary.pairs.map((pair, pairIndex) => ({
         teamId: pair.virtualTeamId,
-        teamNumber: summaryIndex * 4 + pairIndex + 1,
+        teamNumber: summaryIndex * summary.pairs.length + pairIndex + 1,
         label: `${summary.label}: ${pair.playerIds
           .map((playerId) => playerNameMap.get(playerId) ?? playerId)
           .join(" / ")}`,
@@ -1777,9 +1825,11 @@ export async function getLiveLeaderboard(
     );
 
     return {
-      mode: "cross_foursome",
-      title: "Cross-Foursome Standings",
-      scoringLabel: "Best-ball match play. Two tie, all tie.",
+      mode: "cross_match",
+      title: isCrossThreesome ? "Cross-Threesome Standings" : "Cross-Foursome Standings",
+      scoringLabel: isCrossThreesome
+        ? "Net best-ball match play. Two tie, all tie."
+        : "Best-ball match play. Two tie, all tie.",
       entries,
       segments: summaries.map((summary) => ({
         label: summary.label,

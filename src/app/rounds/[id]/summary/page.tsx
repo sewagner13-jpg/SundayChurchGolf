@@ -38,6 +38,10 @@ import {
   CROSS_FOURSOME_66618_FORMAT_ID,
   computeCrossFoursome66618GameSummaries,
 } from "@/lib/cross-foursome-66618";
+import {
+  CROSS_THREESOME_666_FORMAT_ID,
+  computeCrossThreesome666GameSummaries,
+} from "@/lib/cross-threesome-666";
 interface Team {
   id: string;
   teamNumber: number;
@@ -83,13 +87,14 @@ interface Round {
   tiebreakerSkinsWon: number | null;
   course: {
     name: string;
-    holes: { holeNumber: number; par: number }[];
+    holes: { holeNumber: number; par: number; handicapRank: number }[];
   };
   format: { name: string };
   teams: Team[];
   roundPlayers: {
     id: string;
     playerId: string;
+    eventHandicapIndex?: number | null;
     payoutAmount: number;
     wasOnTopPayingTeam: boolean;
     player: { fullName: string; nickname: string | null };
@@ -236,6 +241,8 @@ export default function RoundSummaryPage({
   const isIrishGolfFormat = formatDef?.id === "irish_golf_6_6_6";
   const isNassauFormat = formatDef?.id === "nassau";
   const isCrossFoursomeFormat = formatDef?.id === CROSS_FOURSOME_66618_FORMAT_ID;
+  const isCrossThreesomeFormat = formatDef?.id === CROSS_THREESOME_666_FORMAT_ID;
+  const isCrossGroupFormat = isCrossFoursomeFormat || isCrossThreesomeFormat;
   const isBestBallFormat =
     !!formatDef && getMinimumScoresRequired(formatDef.id) !== null;
 
@@ -622,16 +629,28 @@ export default function RoundSummaryPage({
       roundPlayer.player.nickname || roundPlayer.player.fullName,
     ] as const)
   );
-  const crossFoursomeSummaries = isCrossFoursomeFormat
-    ? computeCrossFoursome66618GameSummaries({
-        formatConfig: round.formatConfig,
-        playerScores: playerScores.map((playerScore) => ({
-          playerId: playerScore.playerId,
-          holeNumber: playerScore.holeNumber,
-          grossScore: playerScore.grossScore,
-        })),
-        totalPot: round.pot ?? 0,
-      })
+  const crossScoringInput = {
+    formatConfig: round.formatConfig,
+    playerScores: playerScores.map((playerScore) => ({
+      playerId: playerScore.playerId,
+      holeNumber: playerScore.holeNumber,
+      grossScore: playerScore.grossScore,
+    })),
+    playerHandicapIndexes: Object.fromEntries(
+      round.roundPlayers.map((roundPlayer) => [
+        roundPlayer.playerId,
+        roundPlayer.eventHandicapIndex ?? null,
+      ])
+    ),
+    courseHandicapRanks: Object.fromEntries(
+      round.course.holes.map((hole) => [hole.holeNumber, hole.handicapRank])
+    ),
+    totalPot: round.pot ?? 0,
+  };
+  const crossFoursomeSummaries = isCrossThreesomeFormat
+    ? computeCrossThreesome666GameSummaries(crossScoringInput)
+    : isCrossFoursomeFormat
+    ? computeCrossFoursome66618GameSummaries(crossScoringInput)
     : [];
   const getCrossFoursomePairName = (playerIds: [string, string]) =>
     playerIds
@@ -1088,9 +1107,13 @@ export default function RoundSummaryPage({
         </Card>
       )}
 
-      {isCrossFoursomeFormat && crossFoursomeSummaries.length > 0 && (
+      {isCrossGroupFormat && crossFoursomeSummaries.length > 0 && (
         <Card>
-          <CardHeader>Cross-Foursome 6-6-6-18 Results</CardHeader>
+          <CardHeader>
+            {isCrossThreesomeFormat
+              ? "Cross-Threesome 6-6-6 Net Results"
+              : "Cross-Foursome 6-6-6-18 Results"}
+          </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-2 md:grid-cols-2">
               {round.teams.map((team) => (
@@ -1099,7 +1122,13 @@ export default function RoundSummaryPage({
                   className="rounded-lg border border-gray-200 bg-gray-50 p-3"
                 >
                   <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                    {team.teamNumber === 1 ? "Foursome A" : "Foursome B"}
+                    {team.teamNumber === 1
+                      ? isCrossThreesomeFormat
+                        ? "Threesome A"
+                        : "Foursome A"
+                      : isCrossThreesomeFormat
+                      ? "Threesome B"
+                      : "Foursome B"}
                   </p>
                   <p className="mt-1 text-sm font-medium">
                     {team.roundPlayers
@@ -1186,7 +1215,9 @@ export default function RoundSummaryPage({
                       <tr className="border-b text-gray-500">
                         <th className="py-2 text-left font-medium">Hole</th>
                         <th className="py-2 text-left font-medium">Result</th>
-                        <th className="py-2 text-right font-medium">Best Ball</th>
+                        <th className="py-2 text-right font-medium">
+                          {isCrossThreesomeFormat ? "Net Best Ball" : "Best Ball"}
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1232,7 +1263,7 @@ export default function RoundSummaryPage({
         </Card>
       )}
 
-      {!isSkins && !isIrishGolfFormat && !isNassauFormat && !isCrossFoursomeFormat && playerScores.length > 0 && (
+      {!isSkins && !isIrishGolfFormat && !isNassauFormat && !isCrossGroupFormat && playerScores.length > 0 && (
         <Card>
           <CardHeader>Leaderboard — {round.format.name}</CardHeader>
           <CardContent className="space-y-2">
@@ -1300,7 +1331,7 @@ export default function RoundSummaryPage({
       )}
 
       {/* Non-skins hole-by-hole table */}
-      {!isSkins && !isCrossFoursomeFormat && round.holeScores.length > 0 && (
+      {!isSkins && !isCrossGroupFormat && round.holeScores.length > 0 && (
         <Card>
           <CardHeader>Hole-by-Hole Scores</CardHeader>
           <CardContent>

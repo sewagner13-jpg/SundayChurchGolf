@@ -11,6 +11,12 @@ import {
   getCrossFoursome66618Config,
   validateCrossFoursome66618Config,
 } from "@/lib/cross-foursome-66618";
+import {
+  CROSS_THREESOME_666_CONFIG_KEY,
+  CROSS_THREESOME_666_FORMAT_ID,
+  getCrossThreesome666Config,
+  validateCrossThreesome666Config,
+} from "@/lib/cross-threesome-666";
 
 interface PlayerWithHandicap {
   id: string;
@@ -457,6 +463,84 @@ export async function setCrossFoursome66618Assignments(
         formatConfig: {
           ...((round.formatConfig as Record<string, unknown> | null) ?? {}),
           [CROSS_FOURSOME_66618_CONFIG_KEY]: config,
+        } as unknown as Prisma.InputJsonValue,
+      },
+    });
+  });
+
+  revalidatePath(`/rounds/${roundId}`);
+  revalidatePath(`/rounds/${roundId}/setup`);
+}
+
+export async function setCrossThreesome666Assignments(
+  roundId: string,
+  formatConfig: Record<string, unknown>
+) {
+  const round = await prisma.round.findUnique({
+    where: { id: roundId },
+    include: { roundPlayers: { include: { player: true } } },
+  });
+
+  if (!round) throw new Error("Round not found");
+  if (round.status !== "DRAFT") {
+    throw new Error("Can only assign Cross-Threesome groups while in DRAFT status");
+  }
+  if (round.lockCode) throw new Error("Teams are locked. Unlock them first to make changes.");
+  if (round.formatId !== CROSS_THREESOME_666_FORMAT_ID) {
+    throw new Error("This round is not Cross-Threesome 6-6-6");
+  }
+
+  const roundPlayerIds = round.roundPlayers.map((roundPlayer) => roundPlayer.playerId);
+  const errors = validateCrossThreesome666Config(formatConfig, roundPlayerIds);
+  if (errors.length > 0) throw new Error(errors[0]);
+
+  const config = getCrossThreesome666Config(formatConfig);
+  const threesomeAPlayerIds = Object.values(config.threesomeA);
+  const threesomeBPlayerIds = Object.values(config.threesomeB);
+  const roundPlayersByPlayerId = new Map(
+    round.roundPlayers.map((roundPlayer) => [roundPlayer.playerId, roundPlayer])
+  );
+  const averageHandicap = calculateAverageHandicap(
+    round.roundPlayers.map((roundPlayer) => roundPlayer.player.handicapIndex)
+  );
+  const calculateGroupHandicap = (playerIds: string[]) =>
+    playerIds.reduce((sum, playerId) => {
+      const handicap = roundPlayersByPlayerId.get(playerId)?.player.handicapIndex ?? averageHandicap;
+      return sum.add(handicap ?? new Decimal(0));
+    }, new Decimal(0));
+
+  await prisma.$transaction(async (tx) => {
+    await tx.team.deleteMany({ where: { roundId } });
+    const teamA = await tx.team.create({
+      data: {
+        roundId,
+        teamNumber: 1,
+        handicapTotal: calculateGroupHandicap(threesomeAPlayerIds),
+      },
+    });
+    const teamB = await tx.team.create({
+      data: {
+        roundId,
+        teamNumber: 2,
+        handicapTotal: calculateGroupHandicap(threesomeBPlayerIds),
+      },
+    });
+    await tx.roundPlayer.updateMany({
+      where: { roundId, playerId: { in: threesomeAPlayerIds } },
+      data: { teamId: teamA.id },
+    });
+    await tx.roundPlayer.updateMany({
+      where: { roundId, playerId: { in: threesomeBPlayerIds } },
+      data: { teamId: teamB.id },
+    });
+    await tx.round.update({
+      where: { id: roundId },
+      data: {
+        teamSize: 3,
+        teamMode: "CROSS_THREESOME_666",
+        formatConfig: {
+          ...((round.formatConfig as Record<string, unknown> | null) ?? {}),
+          [CROSS_THREESOME_666_CONFIG_KEY]: config,
         } as unknown as Prisma.InputJsonValue,
       },
     });

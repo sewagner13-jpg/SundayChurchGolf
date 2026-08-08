@@ -30,6 +30,10 @@ import {
   CROSS_FOURSOME_66618_FORMAT_ID,
   createDefaultCrossFoursome66618Config,
 } from "@/lib/cross-foursome-66618";
+import {
+  CROSS_THREESOME_666_FORMAT_ID,
+  createDefaultCrossThreesome666Config,
+} from "@/lib/cross-threesome-666";
 
 interface Course {
   id: string;
@@ -81,6 +85,9 @@ function buildDefaultConfig(
   }
   if ((format.definitionId ?? format.id) === CROSS_FOURSOME_66618_FORMAT_ID) {
     Object.assign(config, createDefaultCrossFoursome66618Config());
+  }
+  if ((format.definitionId ?? format.id) === CROSS_THREESOME_666_FORMAT_ID) {
+    Object.assign(config, createDefaultCrossThreesome666Config());
   }
   return config;
 }

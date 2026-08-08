@@ -24,6 +24,11 @@ import {
   getCrossFoursome66618Config,
   validateCrossFoursome66618Config,
 } from "@/lib/cross-foursome-66618";
+import {
+  CROSS_THREESOME_666_FORMAT_ID,
+  getCrossThreesome666Config,
+  validateCrossThreesome666Config,
+} from "@/lib/cross-threesome-666";
 import { getPar3ContestTotalPotDecimal } from "@/lib/par3-contests.server";
 import { getTeamDisplayLabel } from "@/lib/team-labels";
 
@@ -99,6 +104,19 @@ function assertCrossFoursome66618Config(
   if (formatId !== CROSS_FOURSOME_66618_FORMAT_ID) return;
 
   const errors = validateCrossFoursome66618Config(formatConfig, selectedPlayerIds);
+  if (errors.length > 0) {
+    throw new Error(errors[0]);
+  }
+}
+
+function assertCrossThreesome666Config(
+  formatId: string | undefined,
+  formatConfig: Record<string, unknown> | undefined,
+  selectedPlayerIds: string[]
+) {
+  if (formatId !== CROSS_THREESOME_666_FORMAT_ID) return;
+
+  const errors = validateCrossThreesome666Config(formatConfig, selectedPlayerIds);
   if (errors.length > 0) {
     throw new Error(errors[0]);
   }
@@ -556,6 +574,12 @@ export async function setRoundPlayers(id: string, playerIds: string[]) {
   ) {
     throw new Error("Cross-Foursome 6-6-6-18 requires exactly 8 players");
   }
+  if (
+    round.formatId === CROSS_THREESOME_666_FORMAT_ID &&
+    playerIds.length !== 6
+  ) {
+    throw new Error("Cross-Threesome 6-6-6 requires exactly 6 players");
+  }
 
   // Clear existing round players and teams
   await prisma.roundPlayer.deleteMany({ where: { roundId: id } });
@@ -608,6 +632,11 @@ export async function startRound(id: string, startingHole: 1 | 10) {
     (round.formatConfig as Record<string, unknown> | undefined) ?? undefined,
     round.roundPlayers.map((roundPlayer) => roundPlayer.playerId)
   );
+  assertCrossThreesome666Config(
+    round.formatId,
+    (round.formatConfig as Record<string, unknown> | undefined) ?? undefined,
+    round.roundPlayers.map((roundPlayer) => roundPlayer.playerId)
+  );
 
   if (round.formatId === CROSS_FOURSOME_66618_FORMAT_ID) {
     if (
@@ -642,6 +671,36 @@ export async function startRound(id: string, startingHole: 1 | 10) {
       throw new Error(
         "Save the Cross-Foursome A/B assignments before starting the round"
       );
+    }
+  }
+
+  if (round.formatId === CROSS_THREESOME_666_FORMAT_ID) {
+    if (
+      round.teamSize !== 3 ||
+      round.teams.length !== 2 ||
+      round.teams.some((team) => team.roundPlayers.length !== 3)
+    ) {
+      throw new Error(
+        "Cross-Threesome 6-6-6 requires Threesome A and Threesome B with 3 players each"
+      );
+    }
+    if (round.roundPlayers.some((roundPlayer) => roundPlayer.player.handicapIndex === null)) {
+      throw new Error("Every Cross-Threesome player needs a handicap before the round starts");
+    }
+
+    const config = getCrossThreesome666Config(
+      (round.formatConfig as Record<string, unknown> | null) ?? null
+    );
+    const [teamA, teamB] = [...round.teams].sort(
+      (a, b) => a.teamNumber - b.teamNumber
+    );
+    const teamAPlayerIds = new Set(teamA.roundPlayers.map((roundPlayer) => roundPlayer.playerId));
+    const teamBPlayerIds = new Set(teamB.roundPlayers.map((roundPlayer) => roundPlayer.playerId));
+    if (
+      Object.values(config.threesomeA).some((playerId) => !teamAPlayerIds.has(playerId)) ||
+      Object.values(config.threesomeB).some((playerId) => !teamBPlayerIds.has(playerId))
+    ) {
+      throw new Error("Save the Cross-Threesome A/B assignments before starting the round");
     }
   }
 

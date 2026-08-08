@@ -103,6 +103,8 @@ export default function FinalPayoutsPage({
     (a, b) => b.totalPayout - a.totalPayout
   );
   const isCrossFoursomeFormat = round.format.name === "Cross-Foursome 6-6-6-18";
+  const isCrossThreesomeFormat = round.format.name === "Cross-Threesome 6-6-6";
+  const isCrossGroupFormat = isCrossFoursomeFormat || isCrossThreesomeFormat;
   const totalPaidOut = sortedPlayers.reduce(
     (sum, roundPlayer) => sum + Math.max(0, roundPlayer.totalPayout),
     0
@@ -165,10 +167,14 @@ export default function FinalPayoutsPage({
                 </p>
                 <p className="text-xs text-gray-500">
                   {roundPlayer.teamId
-                    ? isCrossFoursomeFormat
+                    ? isCrossGroupFormat
                       ? round.teams.find((team) => team.id === roundPlayer.teamId)
                           ?.teamNumber === 1
-                        ? "Foursome A"
+                        ? isCrossThreesomeFormat
+                          ? "Threesome A"
+                          : "Foursome A"
+                        : isCrossThreesomeFormat
+                        ? "Threesome B"
                         : "Foursome B"
                       : getTeamDisplayLabel(
                           round.teams.find((team) => team.id === roundPlayer.teamId)

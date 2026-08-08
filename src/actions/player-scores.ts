@@ -15,6 +15,7 @@ import {
   getEffectiveHoleFormatId,
 } from "@/lib/sunday-church-hole-games";
 import { CROSS_FOURSOME_66618_FORMAT_ID } from "@/lib/cross-foursome-66618";
+import { CROSS_THREESOME_666_FORMAT_ID } from "@/lib/cross-threesome-666";
 
 export interface PlayerScoreEntry {
   roundId: string;
@@ -274,7 +275,11 @@ export async function upsertPlayerScoresForHole(
     })
   );
 
-  if ((formatDefinition?.id ?? round.formatId) === CROSS_FOURSOME_66618_FORMAT_ID) {
+  if (
+    (formatDefinition?.id ?? round.formatId) === CROSS_FOURSOME_66618_FORMAT_ID ||
+    (formatDefinition?.id ?? round.formatId) === CROSS_THREESOME_666_FORMAT_ID
+  ) {
+    const crossFormatId = formatDefinition?.id ?? round.formatId;
     await prisma.$transaction([
       ...upserts,
       prisma.holeScore.upsert({
@@ -291,8 +296,8 @@ export async function upsertPlayerScoresForHole(
           grossScore: null,
           holeData: {
             displayScore: "Entered",
-            effectiveFormatId: CROSS_FOURSOME_66618_FORMAT_ID,
-            scoringRole: "physical_foursome",
+            effectiveFormatId: crossFormatId,
+            scoringRole: "physical_group",
           },
         },
         create: {
@@ -304,8 +309,8 @@ export async function upsertPlayerScoresForHole(
           grossScore: null,
           holeData: {
             displayScore: "Entered",
-            effectiveFormatId: CROSS_FOURSOME_66618_FORMAT_ID,
-            scoringRole: "physical_foursome",
+            effectiveFormatId: crossFormatId,
+            scoringRole: "physical_group",
           },
         },
       }),

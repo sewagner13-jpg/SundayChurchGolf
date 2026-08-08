@@ -195,6 +195,39 @@ test("cross-foursome best-ball hole scoring uses the lower partner gross score a
   assert.equal(first6.holeOutcomes[1].isTie, true);
 });
 
+test("cross-foursome net best ball applies individual strokes before two tie all tie", () => {
+  const [first6] = computeCrossFoursome66618GameSummaries({
+    formatConfig: {
+      ...formatConfig,
+      crossFoursome66618: {
+        ...formatConfig.crossFoursome66618,
+        scoreMode: "best_net_ball",
+      },
+    },
+    playerScores: scoresFromPlayerValues([
+      {
+        jim: 6,
+        albert: 7,
+        david: 5,
+        mike: 7,
+        tony: 7,
+        griff: 7,
+        sean: 7,
+        eddie: 7,
+      },
+    ]),
+    playerHandicapIndexes: { jim: 18, albert: 0, david: 0, mike: 0, tony: 0, griff: 0, sean: 0, eddie: 0 },
+    courseHandicapRanks: { 1: 1 },
+  });
+
+  assert.equal(first6.holeOutcomes[0].isTie, true);
+  assert.equal(first6.holeOutcomes[0].winningVirtualTeamId, null);
+  assert.deepEqual(
+    first6.holeOutcomes[0].pairScores.map((score) => score.bestBallScore),
+    [5, 5, 7, 7]
+  );
+});
+
 test("cross-foursome summaries score each six-hole game and the overall game independently", () => {
   const summaries = computeCrossFoursome66618GameSummaries({
     formatConfig,

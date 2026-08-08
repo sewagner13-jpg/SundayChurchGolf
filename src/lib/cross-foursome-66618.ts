@@ -2,7 +2,9 @@ export const CROSS_FOURSOME_66618_FORMAT_ID = "cross_foursome_6_6_6_18";
 
 export const CROSS_FOURSOME_66618_CONFIG_KEY = "crossFoursome66618";
 
-export type CrossFoursomeScoreMode = "best_ball";
+import { getNetScore, getStrokesReceivedForHole } from "@/lib/handicap-scoring";
+
+export type CrossFoursomeScoreMode = "best_ball" | "best_net_ball";
 export type CrossFoursomeASlot = "A1" | "A2" | "A3" | "A4";
 export type CrossFoursomeBSlot = "B1" | "B2" | "B3" | "B4";
 export type CrossFoursomeGameId =
@@ -42,6 +44,8 @@ export interface CrossFoursomePairHoleScore {
   label: string;
   playerIds: [string, string];
   grossScores: [number | null, number | null];
+  netScores: [number | null, number | null];
+  strokesReceived: [number | null, number | null];
   bestBallScore: number | null;
 }
 
@@ -172,8 +176,11 @@ export function getCrossFoursome66618Config(
     ? (rawConfig.foursomeB as Record<string, unknown>)
     : {};
 
+  const scoreMode =
+    rawConfig.scoreMode === "best_net_ball" ? "best_net_ball" : "best_ball";
+
   return {
-    scoreMode: "best_ball",
+    scoreMode,
     foursomeA: {
       A1: slotValue(rawA, "A1"),
       A2: slotValue(rawA, "A2"),
@@ -202,8 +209,12 @@ export function validateCrossFoursome66618Config(
     return ["Cross-Foursome 6-6-6-18 setup is missing."];
   }
 
-  if (rawConfig.scoreMode !== undefined && rawConfig.scoreMode !== "best_ball") {
-    errors.push("Cross-Foursome 6-6-6-18 only supports best ball scoring.");
+  if (
+    rawConfig.scoreMode !== undefined &&
+    rawConfig.scoreMode !== "best_ball" &&
+    rawConfig.scoreMode !== "best_net_ball"
+  ) {
+    errors.push("Cross-Foursome 6-6-6-18 only supports gross or net best ball scoring.");
   }
 
   if (selectedPlayerIds && selectedPlayerIds.length !== 8) {
@@ -290,18 +301,37 @@ function computeBestBallScore(scores: [number | null, number | null]) {
 function computeHoleOutcome(
   holeNumber: number,
   pairs: CrossFoursomePair[],
-  scoresByPlayerAndHole: Map<string, number | null>
+  scoresByPlayerAndHole: Map<string, number | null>,
+  scoreMode: CrossFoursomeScoreMode,
+  playerHandicapIndexes: Record<string, number | null | undefined>,
+  courseHandicapRanks: Record<number, number>
 ): CrossFoursomeHoleOutcome {
   const pairScores = pairs.map((pair) => {
     const grossScores = pair.playerIds.map(
       (playerId) => scoresByPlayerAndHole.get(`${playerId}:${holeNumber}`) ?? null
     ) as [number | null, number | null];
+    const strokesReceived = pair.playerIds.map((playerId) =>
+      getStrokesReceivedForHole(
+        playerHandicapIndexes[playerId],
+        courseHandicapRanks[holeNumber]
+      )
+    ) as [number | null, number | null];
+    const netScores = pair.playerIds.map((playerId, index) =>
+      getNetScore({
+        grossScore: grossScores[index],
+        handicapIndex: playerHandicapIndexes[playerId],
+        handicapRank: courseHandicapRanks[holeNumber],
+      })
+    ) as [number | null, number | null];
+    const scores = scoreMode === "best_net_ball" ? netScores : grossScores;
     return {
       virtualTeamId: pair.virtualTeamId,
       label: pair.label,
       playerIds: pair.playerIds,
       grossScores,
-      bestBallScore: computeBestBallScore(grossScores),
+      netScores,
+      strokesReceived,
+      bestBallScore: computeBestBallScore(scores),
     };
   });
 
@@ -335,19 +365,31 @@ function computeHoleOutcome(
 export function computeCrossFoursome66618GameSummaries({
   formatConfig,
   playerScores,
+  playerHandicapIndexes = {},
+  courseHandicapRanks = {},
   totalPot = 0,
 }: {
   formatConfig: Record<string, unknown> | null | undefined;
   playerScores: CrossFoursomePlayerScoreLike[];
+  playerHandicapIndexes?: Record<string, number | null | undefined>;
+  courseHandicapRanks?: Record<number, number>;
   totalPot?: number;
 }): CrossFoursomeGameSummary[] {
+  const config = getCrossFoursome66618Config(formatConfig);
   const pairings = getCrossFoursome66618Pairings(formatConfig);
   const scoresByPlayerAndHole = getScoreByPlayerAndHole(playerScores);
   const gamePot = totalPot / GAME_DEFINITIONS.length;
 
   return pairings.map((game) => {
     const holeOutcomes = game.holeNumbers.map((holeNumber) =>
-      computeHoleOutcome(holeNumber, game.pairs, scoresByPlayerAndHole)
+      computeHoleOutcome(
+        holeNumber,
+        game.pairs,
+        scoresByPlayerAndHole,
+        config.scoreMode,
+        playerHandicapIndexes,
+        courseHandicapRanks
+      )
     );
     const completedHoles = holeOutcomes.filter((outcome) => outcome.isComplete).length;
     const holeWins = new Map<string, number>(

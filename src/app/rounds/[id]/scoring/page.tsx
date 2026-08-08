@@ -82,6 +82,12 @@ import {
   createDefaultCrossFoursome66618Config,
   getCrossFoursome66618Pairings,
 } from "@/lib/cross-foursome-66618";
+import {
+  CROSS_THREESOME_666_FORMAT_ID,
+  createDefaultCrossThreesome666Config,
+  getCrossThreesome666Pairings,
+} from "@/lib/cross-threesome-666";
+import { getNetScore, getStrokesReceivedForHole } from "@/lib/handicap-scoring";
 import { HoleEntryType } from "@prisma/client";
 
 interface TeamScore {
@@ -195,6 +201,7 @@ interface Round {
     roundPlayers: {
       id: string;
       playerId: string;
+      eventHandicapIndex?: number | null;
       player: { id: string; fullName: string; nickname: string | null };
     }[];
   }[];
@@ -256,7 +263,7 @@ interface LiveLeaderboardSegment {
 }
 
 interface LiveLeaderboardData {
-  mode: "skins" | "standard" | "irish_golf" | "nassau" | "cross_foursome";
+  mode: "skins" | "standard" | "irish_golf" | "nassau" | "cross_match";
   title: string;
   scoringLabel: string;
   entries: LiveLeaderboardEntry[];
@@ -330,6 +337,11 @@ function buildLiveFormatConfig(
     nextConfig.crossFoursome66618 =
       nextConfig.crossFoursome66618 ??
       createDefaultCrossFoursome66618Config().crossFoursome66618;
+  }
+  if (formatDefinition?.id === CROSS_THREESOME_666_FORMAT_ID) {
+    nextConfig.crossThreesome666 =
+      nextConfig.crossThreesome666 ??
+      createDefaultCrossThreesome666Config().crossThreesome666;
   }
 
   return nextConfig;
@@ -860,6 +872,9 @@ export default function LiveScoringPage({
     if ((formatDefinition?.id ?? round?.formatId) === CROSS_FOURSOME_66618_FORMAT_ID) {
       return team.teamNumber === 1 ? "Foursome A" : "Foursome B";
     }
+    if ((formatDefinition?.id ?? round?.formatId) === CROSS_THREESOME_666_FORMAT_ID) {
+      return team.teamNumber === 1 ? "Threesome A" : "Threesome B";
+    }
     return getTeamDisplayLabel(team.roundPlayers);
   };
   const isLiveIrishGolf = formatDefinition?.id === "irish_golf_6_6_6";
@@ -868,6 +883,9 @@ export default function LiveScoringPage({
     formatDefinition?.id === SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID;
   const isCrossFoursomeRound =
     (formatDefinition?.id ?? round?.formatId) === CROSS_FOURSOME_66618_FORMAT_ID;
+  const isCrossThreesomeRound =
+    (formatDefinition?.id ?? round?.formatId) === CROSS_THREESOME_666_FORMAT_ID;
+  const isCrossGroupRound = isCrossFoursomeRound || isCrossThreesomeRound;
   const isSimonSaysRound =
     (formatDefinition?.id ?? round?.formatId) === SUNDAY_CHURCH_SIMON_SAYS_FORMAT_ID;
   const isLiveSimonSays =
@@ -912,14 +930,36 @@ export default function LiveScoringPage({
     liveRoundPlayers.map((player) => [player.playerId, player.name] as const)
   );
   const crossFoursomePairingGames =
-    round && isCrossFoursomeRound
-      ? getCrossFoursome66618Pairings(round.formatConfig)
+    round && isCrossGroupRound
+      ? isCrossThreesomeRound
+        ? getCrossThreesome666Pairings(round.formatConfig)
+        : getCrossFoursome66618Pairings(round.formatConfig)
       : [];
   const currentCrossFoursomeGames = crossFoursomePairingGames.filter((game) =>
     game.holeNumbers.includes(currentHole)
   );
+  const getCrossThreesomeScorePreview = (playerId: string, grossScore: string) => {
+    if (!isCrossThreesomeRound || !holeData) return null;
+    const handicapIndex = myTeam?.roundPlayers.find(
+      (roundPlayer) => roundPlayer.playerId === playerId
+    )?.eventHandicapIndex;
+    const strokesReceived = getStrokesReceivedForHole(
+      handicapIndex,
+      holeData.handicapRank
+    );
+    const parsedGrossScore = Number.parseInt(grossScore, 10);
+    const netScore = Number.isFinite(parsedGrossScore)
+      ? getNetScore({
+          grossScore: parsedGrossScore,
+          handicapIndex,
+          handicapRank: holeData.handicapRank,
+        })
+      : null;
+
+    return { handicapIndex: handicapIndex ?? null, strokesReceived, netScore };
+  };
   const crossFoursomeLeaderboardSegments = new Map(
-    liveLeaderboard?.mode === "cross_foursome"
+    liveLeaderboard?.mode === "cross_match"
       ? (liveLeaderboard.segments ?? []).map((segment) => [segment.label, segment] as const)
       : []
   );
@@ -1682,9 +1722,13 @@ export default function LiveScoringPage({
                   className="w-full p-4 border rounded hover:bg-gray-50 text-left"
                 >
                   <span className="font-bold">
-                    {isCrossFoursomeRound
+                    {isCrossGroupRound
                       ? team.teamNumber === 1
-                        ? "Foursome A"
+                        ? isCrossThreesomeRound
+                          ? "Threesome A"
+                          : "Foursome A"
+                        : isCrossThreesomeRound
+                        ? "Threesome B"
                         : "Foursome B"
                       : getTeamDisplayLabel(team.roundPlayers)}
                   </span>
@@ -1788,7 +1832,7 @@ export default function LiveScoringPage({
     : "";
   const currentDisplayScore =
     (myTeamScore?.holeData?.displayScore as string | undefined) ?? null;
-  const currentScoreLabel = isCrossFoursomeRound
+  const currentScoreLabel = isCrossGroupRound
     ? "player scores"
     : isAllBirdiesCountActive
     ? "birdies made"
@@ -1980,16 +2024,16 @@ export default function LiveScoringPage({
           </div>
         )}
 
-        {isCrossFoursomeRound && currentCrossFoursomeGames.length > 0 && (
+        {isCrossGroupRound && currentCrossFoursomeGames.length > 0 && (
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">
-                  Cross-Foursome - Hole {currentHole}
+                  {isCrossThreesomeRound ? "Cross-Threesome" : "Cross-Foursome"} - Hole {currentHole}
                 </p>
                 <p className="mt-1 text-emerald-900">
-                  Enter scores for your physical foursome. Virtual two-man
-                  best-ball matches update once both foursomes are in.
+                  Enter scores for your physical {isCrossThreesomeRound ? "threesome" : "foursome"}.
+                  Virtual two-man {isCrossThreesomeRound ? "net " : ""}best-ball matches update once both groups are in.
                 </p>
               </div>
               <Button
@@ -2003,7 +2047,7 @@ export default function LiveScoringPage({
                 Standings
               </Button>
             </div>
-            <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
               {currentCrossFoursomeGames.map((game) => {
                 const segment = crossFoursomeLeaderboardSegments.get(game.label);
                 return (
@@ -2365,6 +2409,10 @@ export default function LiveScoringPage({
                     const isDesignated =
                       effectiveFormat?.requiresDesignatedPlayer &&
                       designatedPlayer?.playerId === input.playerId;
+                    const netPreview = getCrossThreesomeScorePreview(
+                      input.playerId,
+                      input.grossScore
+                    );
 
                     return (
                       <div
@@ -2374,6 +2422,16 @@ export default function LiveScoringPage({
                         <div className="flex items-start justify-between gap-4">
                           <div>
                             <p className="font-medium">{input.name}</p>
+                            {netPreview && (
+                              <p className="text-xs text-emerald-700">
+                                HCP {netPreview.handicapIndex ?? "-"} · {netPreview.strokesReceived === 0
+                                  ? "no stroke"
+                                  : netPreview.strokesReceived && netPreview.strokesReceived > 0
+                                  ? `${netPreview.strokesReceived} stroke${netPreview.strokesReceived === 1 ? "" : "s"}`
+                                  : `gives ${Math.abs(netPreview.strokesReceived ?? 0)} stroke${Math.abs(netPreview.strokesReceived ?? 0) === 1 ? "" : "s"}`}
+                                {netPreview.netScore !== null ? ` · Net ${netPreview.netScore}` : ""}
+                              </p>
+                            )}
                             {isDesignated && (
                               <p className="text-xs text-amber-700">
                                 Designated player this hole
@@ -3780,14 +3838,14 @@ export default function LiveScoringPage({
                         {liveLeaderboard.mode === "skins" ||
                         liveLeaderboard.mode === "irish_golf" ||
                         liveLeaderboard.mode === "nassau" ||
-                        liveLeaderboard.mode === "cross_foursome"
+                        liveLeaderboard.mode === "cross_match"
                           ? `$${entry.totalPayout.toFixed(2)}`
                           : entry.metricLabel}
                       </p>
                       {(liveLeaderboard.mode === "skins" ||
                         liveLeaderboard.mode === "irish_golf" ||
                         liveLeaderboard.mode === "nassau" ||
-                        liveLeaderboard.mode === "cross_foursome") && (
+                        liveLeaderboard.mode === "cross_match") && (
                         <p className="text-xs text-gray-500">{entry.metricLabel}</p>
                       )}
                     </div>
@@ -3798,12 +3856,12 @@ export default function LiveScoringPage({
 
             {(liveLeaderboard.mode === "irish_golf" ||
               liveLeaderboard.mode === "nassau" ||
-              liveLeaderboard.mode === "cross_foursome") &&
+              liveLeaderboard.mode === "cross_match") &&
               liveLeaderboard.segments &&
               liveLeaderboard.segments.length > 0 && (
                 <div className="mt-4 space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    {liveLeaderboard.mode === "cross_foursome"
+                    {liveLeaderboard.mode === "cross_match"
                       ? "Game Leaders"
                       : "Segment Leaders"}
                   </p>

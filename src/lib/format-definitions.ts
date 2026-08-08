@@ -103,6 +103,20 @@ export const FORMAT_DEFINITIONS: FormatDefinition[] = [
     requiresDriveTracking: false,
   },
   {
+    id: 'cross_threesome_6_6_6',
+    name: 'Cross-Threesome 6-6-6',
+    shortLabel: 'XT666',
+    gameDescription:
+      'Six players are split into two physical threesomes, then scored as rotating cross-threesome two-man net best-ball teams across First 6, Second 6, and Third 6 match-play games. Two tie, all tie on every hole.',
+    formatCategory: 'match',
+    defaultTeamSize: 3,
+    supportedTeamSizes: [3],
+    configOptions: [],
+    requiresIndividualScores: true,
+    requiresDesignatedPlayer: false,
+    requiresDriveTracking: false,
+  },
+  {
     id: 'scramble_rotating_drives',
     name: 'Scramble with Rotating Drives',
     shortLabel: 'RotDrive',
