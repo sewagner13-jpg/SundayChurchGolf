@@ -11,6 +11,7 @@
     "test": "tsx --test src/__tests__/**/*.test.ts",
     "check:state": "node scripts/build-discipline/state.mjs",
     "check:line-caps": "node scripts/build-discipline/line-caps.mjs",
+    "e2e": "playwright test",
     "postinstall": "prisma generate",
     "db:migrate:dev": "prisma migrate dev",
     "db:migrate:prod": "prisma migrate deploy",
@@ -24,6 +25,7 @@
     "react-dom": "^19.2.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
