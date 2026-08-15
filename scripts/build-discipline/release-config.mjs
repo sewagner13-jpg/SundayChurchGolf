@@ -2,21 +2,39 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export function validateReleaseConfiguration({ scripts, netlifyBuildCommand }) {
-  const errors = [];
+export const PRODUCTION_BRANCH = "main";
+
+export function validateProductionBranch(branch) {
+  return branch === PRODUCTION_BRANCH ? [] : ["Production releases must use the main branch."];
+}
+
+export function validateReleaseConfiguration({
+  scripts,
+  netlifyBuildCommand,
+  deployProductionSource = "",
+  productionBranch = PRODUCTION_BRANCH,
+}) {
+  const errors = validateProductionBranch(productionBranch);
   if (!scripts["verify:netlify"]) errors.push("Missing required npm script: verify:netlify.");
   if (!scripts["verify:release"]) errors.push("Missing required npm script: verify:release.");
   if (!scripts["deploy:production"]) errors.push("Missing required npm script: deploy:production.");
+  if (!deployProductionSource.includes("scripts/netlify-production-build.mjs")) {
+    errors.push("Production deploy gate must run the attended Netlify production build.");
+  }
   if (!scripts.lint?.includes(".worktrees/**")) {
     errors.push("Lint script must exclude linked worktrees.");
   }
 
   const verificationIndex = netlifyBuildCommand.indexOf("npm run verify:netlify");
   const mutationIndex = netlifyBuildCommand.indexOf("prisma db push");
+  const seedIndex = netlifyBuildCommand.indexOf("npm run db:seed");
   if (verificationIndex === -1) errors.push("Netlify build command must run verify:netlify.");
   if (mutationIndex === -1) errors.push("Netlify build command must run prisma db push.");
   if (verificationIndex !== -1 && mutationIndex !== -1 && verificationIndex > mutationIndex) {
     errors.push("Netlify must run verify:netlify before prisma db push.");
+  }
+  if (seedIndex === -1 || (mutationIndex !== -1 && seedIndex < mutationIndex)) {
+    errors.push("Netlify build command must run db:seed after prisma db push.");
   }
   return errors;
 }
@@ -31,9 +49,15 @@ async function main() {
   const rootDir = process.cwd();
   const packageJson = JSON.parse(await readFile(resolve(rootDir, "package.json"), "utf8"));
   const netlifyToml = await readFile(resolve(rootDir, "netlify.toml"), "utf8");
+  const deployProductionSource = await readFile(
+    resolve(rootDir, "scripts/deploy-production.mjs"),
+    "utf8"
+  );
   const errors = validateReleaseConfiguration({
     scripts: packageJson.scripts ?? {},
     netlifyBuildCommand: readBuildCommand(netlifyToml),
+    deployProductionSource,
+    productionBranch: process.env.PRODUCTION_BRANCH_PROBE ?? PRODUCTION_BRANCH,
   });
   if (errors.length === 0) {
     console.log("Release configuration check passed.");

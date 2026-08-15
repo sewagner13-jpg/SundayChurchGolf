@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runControlledSteps } from "./build-discipline/control-feedback.mjs";
 import { checkLineCaps } from "./build-discipline/line-caps.mjs";
+import { validateReleaseConfiguration } from "./build-discipline/release-config.mjs";
 import { validateStateDocument } from "./build-discipline/state.mjs";
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -29,6 +30,22 @@ async function probeState() {
     throw new Error("state negative probe unexpectedly passed.");
   }
   console.log("NEGATIVE PROBE PASSED state");
+}
+
+async function probeStateLineCap() {
+  const headings = [
+    "# Sunday Church Golf State",
+    "## Release Topology",
+    "## Quality Gates",
+    "## Browser Coverage",
+    "## Line-Cap Policy",
+    "## Operating Mode",
+  ];
+  const document = [...headings, ...Array.from({ length: 145 }, () => "state")].join("\n");
+  if (!validateStateDocument(document).some((error) => error.includes("150-line limit"))) {
+    throw new Error("state line-cap negative probe unexpectedly passed.");
+  }
+  console.log("NEGATIVE PROBE PASSED state-line-cap");
 }
 
 async function probeLineCap() {
@@ -69,10 +86,58 @@ async function probeControlFeedback() {
   }
 }
 
+async function probeDatabaseSeedGate() {
+  const errors = validateReleaseConfiguration({
+    scripts: {
+      "verify:netlify": "node scripts/verify-release.mjs --netlify",
+      "verify:release": "node scripts/verify-release.mjs",
+      "deploy:production": "node scripts/deploy-production.mjs",
+      lint: "eslint . --ignore-pattern '.worktrees/**'",
+    },
+    netlifyBuildCommand:
+      "npx prisma generate && npm run verify:netlify && npx prisma db push --skip-generate",
+    deployProductionSource: "node scripts/netlify-production-build.mjs",
+  });
+  if (!errors.some((error) => error.includes("db:seed after prisma db push"))) {
+    throw new Error("database seed gate negative probe unexpectedly passed.");
+  }
+  console.log("NEGATIVE PROBE PASSED database-seed-gate");
+}
+
+async function probeNetlifyProductionBuildGate() {
+  const errors = validateReleaseConfiguration({
+    scripts: {
+      "verify:netlify": "node scripts/verify-release.mjs --netlify",
+      "verify:release": "node scripts/verify-release.mjs",
+      "deploy:production": "node scripts/deploy-production.mjs",
+      lint: "eslint . --ignore-pattern '.worktrees/**'",
+    },
+    netlifyBuildCommand:
+      "npm run verify:netlify && npx prisma db push --skip-generate && npm run db:seed",
+    deployProductionSource: "git push origin main",
+  });
+  if (!errors.some((error) => error.includes("attended Netlify production build"))) {
+    throw new Error("Netlify production build gate negative probe unexpectedly passed.");
+  }
+  console.log("NEGATIVE PROBE PASSED netlify-production-build-gate");
+}
+
 async function main() {
   await probeState();
+  await probeStateLineCap();
   await probeLineCap();
   await probeControlFeedback();
+  await probeDatabaseSeedGate();
+  await probeNetlifyProductionBuildGate();
+  await expectFailure("production-branch", process.execPath, ["scripts/build-discipline/release-config.mjs"], {
+    PRODUCTION_BRANCH_PROBE: "claude/master-spec-consolidation-Y6XjM",
+  });
+  await expectFailure(
+    "netlify-expected-commit",
+    process.execPath,
+    ["scripts/netlify-production-build.mjs"],
+    { EXPECTED_COMMIT_SHA: "" }
+  );
   await expectFailure("browser-e2e", npmCommand, ["exec", "playwright", "test"], {
     E2E_EXPECTED_FORMAT_NAME: "__missing_format__",
   });

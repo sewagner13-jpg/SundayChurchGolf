@@ -16,10 +16,7 @@ import {
   computeNassauSegmentSummaries,
 } from "@/lib/nassau";
 import {
-  calculateRoundResults,
   areAllHolesComplete,
-  determineHoleWinner,
-  resolveCarryoverTiebreaker,
   calculatePlayerPayouts,
   findTopPayingTeams,
   TeamScore,
@@ -29,12 +26,10 @@ import {
   getEligibleDriveMinimumHoleNumbers,
 } from "@/lib/format-scoring";
 import {
-  SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID,
-  calculateSundayChurchHoleGameResults,
-  computeSundayChurchHoleGameOutcomes,
-  resolveSundayChurchHoleGameCarryoverTiebreaker,
-  toSundayChurchHoleGameScores,
-} from "@/lib/sunday-church-hole-games";
+  calculateSkinsFormatResults,
+  computeSkinsFormatOutcomes,
+  resolveSkinsFormatCarryover,
+} from "@/lib/skins-format-resolver";
 import { getAllBirdiesCountScore } from "@/lib/all-birdies-count";
 import { getScoringOrder } from "@/lib/scoring-order";
 import { getTeamDisplayLabel } from "@/lib/team-labels";
@@ -48,6 +43,8 @@ import {
   calculateCrossThreesome666PlayerPayouts,
   computeCrossThreesome666GameSummaries,
 } from "@/lib/cross-threesome-666";
+import { assertSundayChurchYellowBallDedicatedScoreAction } from "@/lib/sunday-church-yellow-ball-round";
+import { canRevealHoleOutcome, canRevealTeamScore } from "@/lib/score-visibility";
 
 export interface LiveLeaderboardEntry {
   teamId: string;
@@ -101,6 +98,16 @@ export interface AllTeamsScorecardHole {
     grossScore: number | null;
     displayScore: string | null;
     wasEdited: boolean;
+    yellowBall: {
+      designatedPlayerId: string;
+      designatedPlayerName: string;
+      yellowBallGrossScore: number;
+      strokesReceived: number;
+      yellowBallNetScore: number;
+      scrambleGrossScore: number;
+      combinedScore: number;
+      handicapApplied: boolean;
+    } | null;
   }>;
 }
 
@@ -148,7 +155,7 @@ export async function upsertHoleScore(
   const [round, existingScore, team] = await Promise.all([
     prisma.round.findUnique({
       where: { id: roundId },
-      select: { status: true },
+      select: { status: true, formatId: true },
     }),
     prisma.holeScore.findUnique({
       where: {
@@ -176,6 +183,7 @@ export async function upsertHoleScore(
   ]);
 
   if (!round) throw new Error("Round not found");
+  assertSundayChurchYellowBallDedicatedScoreAction(round.formatId);
   if (entry.selectedDrivePlayerId !== undefined) {
     if (!team) {
       throw new Error("Team not found in this round");
@@ -328,14 +336,6 @@ export async function recalculateRound(roundId: string) {
     return; // Not ready for calculation
   }
 
-  // Prepare data for scoring engine
-  const allScores: TeamScore[] = round.holeScores.map((hs) => ({
-    teamId: hs.teamId,
-    holeNumber: hs.holeNumber,
-    entryType: hs.entryType,
-    value: hs.value,
-  }));
-
   const teams = round.teams.map((t) => ({
     id: t.id,
     teamNumber: t.teamNumber,
@@ -348,23 +348,15 @@ export async function recalculateRound(roundId: string) {
   }));
 
   // Calculate results
-  const { holeResults, teamPayouts } =
-    round.formatId === SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID
-      ? calculateSundayChurchHoleGameResults(
-          toSundayChurchHoleGameScores(round.holeScores),
-          teams,
-          round.startingHole,
-          round.pot,
-          courseHoles,
-          (round.formatConfig as Record<string, unknown> | null) ?? null
-        )
-      : calculateRoundResults(
-          allScores,
-          teams,
-          round.startingHole,
-          round.pot,
-          courseHoles
-        );
+  const { holeResults, teamPayouts } = calculateSkinsFormatResults({
+    formatId: round.formatId,
+    scores: round.holeScores,
+    teams,
+    startingHole: round.startingHole,
+    pot: round.pot,
+    courseHoles,
+    formatConfig: (round.formatConfig as Record<string, unknown> | null) ?? null,
+  });
 
   // Update hole results in database
   for (const result of holeResults) {
@@ -964,27 +956,19 @@ export async function finishRound(roundId: string) {
     handicapRank: h.handicapRank,
   }));
 
-  const isSundayChurchHoleGames =
-    (formatDefinition?.id ?? round.formatId) === SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID;
+  const skinsFormatId = formatDefinition?.id ?? round.formatId;
 
   // Calculate final results
   const { holeResults, teamPayouts, unresolvedCarryover } =
-    isSundayChurchHoleGames
-      ? calculateSundayChurchHoleGameResults(
-          toSundayChurchHoleGameScores(round.holeScores),
-          teams,
-          round.startingHole,
-          round.pot,
-          courseHoles,
-          (round.formatConfig as Record<string, unknown> | null) ?? null
-        )
-      : calculateRoundResults(
-          allScores,
-          teams,
-          round.startingHole,
-          round.pot,
-          courseHoles
-        );
+    calculateSkinsFormatResults({
+      formatId: skinsFormatId,
+      scores: round.holeScores,
+      teams,
+      startingHole: round.startingHole,
+      pot: round.pot,
+      courseHoles,
+      formatConfig: (round.formatConfig as Record<string, unknown> | null) ?? null,
+    });
 
   // Handle end-of-round carryover tiebreaker if needed
   const finalTeamPayouts = teamPayouts;
@@ -995,22 +979,15 @@ export async function finishRound(roundId: string) {
   } | null = null;
 
   if (unresolvedCarryover > 0) {
-    const tiebreakerResult = isSundayChurchHoleGames
-      ? resolveSundayChurchHoleGameCarryoverTiebreaker(
-          toSundayChurchHoleGameScores(round.holeScores),
-          teams,
-          courseHoles,
-          unresolvedCarryover,
-          round.baseSkinValue,
-          (round.formatConfig as Record<string, unknown> | null) ?? null
-        )
-      : resolveCarryoverTiebreaker(
-          allScores,
-          teams,
-          courseHoles,
-          unresolvedCarryover,
-          round.baseSkinValue
-        );
+    const tiebreakerResult = resolveSkinsFormatCarryover({
+      formatId: skinsFormatId,
+      scores: round.holeScores,
+      teams,
+      courseHoles,
+      unresolvedCarryover,
+      baseSkinValue: round.baseSkinValue,
+      formatConfig: (round.formatConfig as Record<string, unknown> | null) ?? null,
+    });
 
     tiebreakerInfo = {
       winnerTeamId: tiebreakerResult.winnerTeamId,
@@ -1400,7 +1377,8 @@ export async function getTeamScorecard(roundId: string, teamId: string) {
 }
 
 export async function getAllTeamsScorecard(
-  roundId: string
+  roundId: string,
+  teamIdContext?: string | null
 ): Promise<AllTeamsScorecardData> {
   const round = await prisma.round.findUnique({
     where: { id: roundId },
@@ -1427,8 +1405,6 @@ export async function getAllTeamsScorecard(
     FORMAT_DEFINITIONS.find((definition) => definition.id === round.formatId) ??
     FORMAT_DEFINITIONS.find((definition) => definition.name === round.format.name) ??
     null;
-  const isSundayChurchHoleGames =
-    (formatDefinition?.id ?? round.formatId) === SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID;
   const isIrishGolf = formatDefinition?.id === "irish_golf_6_6_6";
   const isNassau = formatDefinition?.id === "nassau";
   const isSkins = !formatDefinition || formatDefinition.formatCategory === "skins";
@@ -1464,15 +1440,13 @@ export async function getAllTeamsScorecard(
         (round.formatConfig as Record<string, unknown> | null) ?? null
       )
     : [];
-  const sundayChurchHoleGameOutcomes = isSundayChurchHoleGames
-    ? computeSundayChurchHoleGameOutcomes(
-        round.teams.map((team) => ({
-          id: team.id,
-          teamNumber: team.teamNumber,
-        })),
-        toSundayChurchHoleGameScores(round.holeScores),
-        (round.formatConfig as Record<string, unknown> | null) ?? null
-      )
+  const skinsOutcomes = isSkins
+    ? computeSkinsFormatOutcomes({
+        formatId: formatDefinition?.id ?? round.formatId,
+        teams: round.teams,
+        scores: round.holeScores,
+        formatConfig: (round.formatConfig as Record<string, unknown> | null) ?? null,
+      })
     : [];
   const irishGolfOutcomeMap = new Map<number, (typeof irishGolfOutcomes)[number]>(
     irishGolfOutcomes.map((outcome) => [outcome.holeNumber, outcome])
@@ -1480,10 +1454,9 @@ export async function getAllTeamsScorecard(
   const nassauOutcomeMap = new Map<number, (typeof nassauOutcomes)[number]>(
     nassauOutcomes.map((outcome) => [outcome.holeNumber, outcome])
   );
-  const sundayChurchHoleGameOutcomeMap = new Map<
-    number,
-    (typeof sundayChurchHoleGameOutcomes)[number]
-  >(sundayChurchHoleGameOutcomes.map((outcome) => [outcome.holeNumber, outcome]));
+  const skinsOutcomeMap = new Map<number, (typeof skinsOutcomes)[number]>(
+    skinsOutcomes.map((outcome) => [outcome.holeNumber, outcome])
+  );
   const teamLabelMap = new Map(
     round.teams.map((team) => [team.id, getTeamDisplayLabel(team.roundPlayers)])
   );
@@ -1498,11 +1471,62 @@ export async function getAllTeamsScorecard(
   }));
 
   const holes = round.course.holes.map((hole) => {
+    const holeComplete = round.teams.every((team) =>
+      round.holeScores.some(
+        (score) =>
+          score.teamId === team.id &&
+          score.holeNumber === hole.holeNumber &&
+          score.entryType !== "BLANK"
+      )
+    );
     const teamScores = round.teams.map((team) => {
-      const score = round.holeScores.find(
+      const storedScore = round.holeScores.find(
         (holeScore) =>
           holeScore.teamId === team.id && holeScore.holeNumber === hole.holeNumber
       );
+      const score = canRevealTeamScore({
+        visibility: round.visibility,
+        roundStatus: round.status,
+        blindRevealMode: round.blindRevealMode,
+        teamId: team.id,
+        teamIdContext,
+        holeComplete,
+      })
+        ? storedScore
+        : undefined;
+      const yellowBallData = score?.holeData as {
+        designatedPlayerId?: string;
+        yellowBallGrossScore?: number;
+        strokesReceived?: number;
+        yellowBallNetScore?: number;
+        scrambleGrossScore?: number;
+        combinedScore?: number;
+        handicapApplied?: boolean;
+      } | null | undefined;
+      const designatedPlayer = team.roundPlayers.find(
+        (roundPlayer) => roundPlayer.playerId === yellowBallData?.designatedPlayerId
+      );
+      const yellowBall =
+        yellowBallData?.designatedPlayerId &&
+        typeof yellowBallData.yellowBallGrossScore === "number" &&
+        typeof yellowBallData.strokesReceived === "number" &&
+        typeof yellowBallData.yellowBallNetScore === "number" &&
+        typeof yellowBallData.scrambleGrossScore === "number" &&
+        typeof yellowBallData.combinedScore === "number"
+          ? {
+              designatedPlayerId: yellowBallData.designatedPlayerId,
+              designatedPlayerName:
+                designatedPlayer?.player.nickname ||
+                designatedPlayer?.player.fullName ||
+                "Yellow ball",
+              yellowBallGrossScore: yellowBallData.yellowBallGrossScore,
+              strokesReceived: yellowBallData.strokesReceived,
+              yellowBallNetScore: yellowBallData.yellowBallNetScore,
+              scrambleGrossScore: yellowBallData.scrambleGrossScore,
+              combinedScore: yellowBallData.combinedScore,
+              handicapApplied: yellowBallData.handicapApplied === true,
+            }
+          : null;
       return {
         teamId: team.id,
         teamNumber: team.teamNumber,
@@ -1515,6 +1539,7 @@ export async function getAllTeamsScorecard(
             | string
             | undefined) ?? null,
         wasEdited: score?.wasEdited ?? false,
+        yellowBall,
       };
     });
 
@@ -1526,8 +1551,8 @@ export async function getAllTeamsScorecard(
     let isTie = false;
     let winnerTeamIds: string[] = [];
 
-    if (isSundayChurchHoleGames) {
-      const outcome = sundayChurchHoleGameOutcomeMap.get(hole.holeNumber);
+    if (isSkins) {
+      const outcome = skinsOutcomeMap.get(hole.holeNumber);
       scoringMode = "skins";
       formatName = outcome?.formatName ?? formatName;
       isComplete = outcome?.isComplete ?? false;
@@ -1547,22 +1572,6 @@ export async function getAllTeamsScorecard(
       isComplete = outcome?.isComplete ?? false;
       isTie = outcome?.isTie ?? false;
       winnerTeamIds = outcome?.isComplete ? outcome.winningTeamIds : [];
-    } else if (isSkins) {
-      isComplete = teamScores.every(
-        (teamScore) => teamScore.entryType !== null && teamScore.entryType !== "BLANK"
-      );
-      if (isComplete) {
-        const result = determineHoleWinner(
-          teamScores.map((teamScore) => ({
-            teamId: teamScore.teamId,
-            holeNumber: hole.holeNumber,
-            entryType: (teamScore.entryType ?? "BLANK") as HoleEntryType,
-            value: teamScore.value,
-          }))
-        );
-        isTie = result.isTie;
-        winnerTeamIds = result.winnerTeamId ? [result.winnerTeamId] : [];
-      }
     } else {
       const higherIsBetter = formatDefinition?.formatCategory === "points";
       const comparableValues = teamScores.map((teamScore) => ({
@@ -1586,11 +1595,23 @@ export async function getAllTeamsScorecard(
       }
     }
 
+    if (!canRevealHoleOutcome({
+      visibility: round.visibility,
+      roundStatus: round.status,
+      blindRevealMode: round.blindRevealMode,
+      holeComplete,
+    })) {
+      isTie = false;
+      winnerTeamIds = [];
+    }
+
     const winnerLabel = !isComplete
       ? null
       : isTie
         ? "Tie"
-        : winnerTeamIds.map((teamId) => teamLabelMap.get(teamId) ?? "Team").join(" / ");
+        : winnerTeamIds.length === 0
+          ? null
+          : winnerTeamIds.map((teamId) => teamLabelMap.get(teamId) ?? "Team").join(" / ");
 
     return {
       holeNumber: hole.holeNumber,
@@ -1665,14 +1686,6 @@ export async function getLiveSkinsStatus(roundId: string, startingHole: number) 
   const scoringOrder = getScoringOrder(startingHole);
   const teamCount = round.teams.length;
 
-  // Map scores to TeamScore format for the engine
-  const allScores: TeamScore[] = round.holeScores.map((hs) => ({
-    teamId: hs.teamId,
-    holeNumber: hs.holeNumber,
-    entryType: hs.entryType as HoleEntryType,
-    value: hs.value,
-  }));
-
   // Calculate live results using the scoring engine (same logic as finishRound)
   const pot = round.pot ?? new Decimal(0);
   const courseHoles = round.course.holes.map((h) => ({
@@ -1681,23 +1694,15 @@ export async function getLiveSkinsStatus(roundId: string, startingHole: number) 
     handicapRank: h.handicapRank,
   }));
 
-  const { holeResults } =
-    round.formatId === SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID
-      ? calculateSundayChurchHoleGameResults(
-          toSundayChurchHoleGameScores(round.holeScores),
-          round.teams,
-          startingHole,
-          pot,
-          courseHoles,
-          (round.formatConfig as Record<string, unknown> | null) ?? null
-        )
-      : calculateRoundResults(
-          allScores,
-          round.teams,
-          startingHole,
-          pot,
-          courseHoles
-        );
+  const { holeResults } = calculateSkinsFormatResults({
+    formatId: round.formatId,
+    scores: round.holeScores,
+    teams: round.teams,
+    startingHole,
+    pot,
+    courseHoles,
+    formatConfig: (round.formatConfig as Record<string, unknown> | null) ?? null,
+  });
 
   const holeResultsMap = new Map(holeResults.map((hr) => [hr.holeNumber, hr]));
 
@@ -1760,8 +1765,6 @@ export async function getLiveLeaderboard(
     FORMAT_DEFINITIONS.find((definition) => definition.id === round.formatId) ??
     FORMAT_DEFINITIONS.find((definition) => definition.name === round.format.name) ??
     null;
-  const isSundayChurchHoleGames =
-    (formatDefinition?.id ?? round.formatId) === SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID;
   const isCrossFoursome =
     (formatDefinition?.id ?? round.formatId) === CROSS_FOURSOME_66618_FORMAT_ID;
   const isCrossThreesome =
@@ -1849,34 +1852,20 @@ export async function getLiveLeaderboard(
   }
 
   if (isSkins) {
-    const allScores: TeamScore[] = round.holeScores.map((holeScore) => ({
-      teamId: holeScore.teamId,
-      holeNumber: holeScore.holeNumber,
-      entryType: holeScore.entryType as HoleEntryType,
-      value: holeScore.value,
-    }));
-
     const courseHoles = round.course.holes.map((hole) => ({
       holeNumber: hole.holeNumber,
       par: hole.par,
       handicapRank: hole.handicapRank,
     }));
-    const { holeResults } = isSundayChurchHoleGames
-      ? calculateSundayChurchHoleGameResults(
-          toSundayChurchHoleGameScores(round.holeScores),
-          round.teams,
-          round.startingHole ?? 1,
-          round.pot ?? new Decimal(0),
-          courseHoles,
-          (round.formatConfig as Record<string, unknown> | null) ?? null
-        )
-      : calculateRoundResults(
-          allScores,
-          round.teams,
-          round.startingHole ?? 1,
-          round.pot ?? new Decimal(0),
-          courseHoles
-        );
+    const { holeResults } = calculateSkinsFormatResults({
+      formatId: formatDefinition?.id ?? round.formatId,
+      scores: round.holeScores,
+      teams: round.teams,
+      startingHole: round.startingHole ?? 1,
+      pot: round.pot ?? new Decimal(0),
+      courseHoles,
+      formatConfig: (round.formatConfig as Record<string, unknown> | null) ?? null,
+    });
 
     const teamStats = new Map<string, { payout: number; skinsWon: number }>();
     for (const team of round.teams) {

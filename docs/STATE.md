@@ -3,8 +3,8 @@
 ## Release Topology
 
 - Hosting: Netlify
-- Deploy branch: `claude/master-spec-consolidation-Y6XjM`
-- Production deployment: push the deploy branch through `npm run deploy:production -- --confirm` from the primary checkout.
+- Deploy branch: `main`
+- Production deployment: run `npm run deploy:production -- --confirm` from a clean primary checkout on `main`.
 - Runtime: Netlify builds with Node 20.
 
 ## Quality Gates
@@ -28,7 +28,11 @@ New JavaScript, TypeScript, and TSX source files are capped at 500 lines. The ch
 
 ## Operating Mode
 
-Finish build-discipline controls before the user-operated UI/UX defect walkthrough. The user operates the application; the agent diagnoses and fixes verified defects.
+- Active ticket: `SCG-001` - Sunday Church Yellow Ball Skins (verified; pending merge).
+- Outcome: teams can play lower-wins yellow-ball skins using relative handicaps only for the rotating yellow-ball player.
+- Branch: `codex/scg-001-yellow-ball-skins`; merge to `main` only after full release verification.
+- Deployment is not authorized by this ticket; it remains a separate attended approval gate.
+- Ticket record: `docs/tickets/SCG-001-sunday-church-yellow-ball-skins.md`.
 
 ## Verification Evidence
 
@@ -47,3 +51,6 @@ Finish build-discipline controls before the user-operated UI/UX defect walkthrou
 - Production Cross-Threesome verification found and fixed a final-payout display defect: recorded per-player payouts now remain authoritative for cross-group games instead of being re-split across physical playing groups.
 - The payout regression probe failed with `[30, 30, 30, 30]` before the fix and passed with the recorded `[60, 30, 15, 15]` distribution after the fix.
 - `npm run verify:release` passed for the payout correction with 93 unit tests, typecheck, lint with 43 existing warnings and no errors, production build, and 3 Playwright tests; all guarded negative probes also passed.
+- SCG-001 release verification passed with 117 unit tests, typecheck, lint with the same 43 warnings and no errors, production build, and 5 Playwright tests including Yellow Ball desktop and 390x844 coverage.
+- SCG-001 negative probes proved state, line-cap, control-feedback, seed-order, branch, expected-commit, browser, and deploy-confirmation gates fail closed. Netlify activation, trigger failure, and restoration paths were separately proven red then green.
+- Netlify automatic Git builds are stopped. Production remains commit `85ea086`; SCG-001 has not been deployed or seeded in production.

@@ -1,10 +1,8 @@
 "use server";
-
 import { prisma } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { Decimal } from "@prisma/client/runtime/library";
-import { Prisma } from "@prisma/client";
-import { RoundStatus, VisibilityMode, BlindRevealMode } from "@prisma/client";
+import { Prisma, RoundStatus, VisibilityMode, BlindRevealMode } from "@prisma/client";
 import { validateEvenTeams } from "@/lib/scoring-engine";
 import {
   getActivePar3Contests,
@@ -29,12 +27,11 @@ import {
   getCrossThreesome666Config,
   validateCrossThreesome666Config,
 } from "@/lib/cross-threesome-666";
+import { assertSundayChurchYellowBallLiveConfigChange, assertSundayChurchYellowBallRoundStart } from "@/lib/sunday-church-yellow-ball-round";
 import { getPar3ContestTotalPotDecimal } from "@/lib/par3-contests.server";
 import { getTeamDisplayLabel } from "@/lib/team-labels";
-
 const MAX_PLAYERS_PER_ROUND = 12;
 const MIN_PLAYERS_PER_ROUND = 2;
-
 export interface CreateRoundData {
   name?: string;
   date: Date;
@@ -60,7 +57,6 @@ export interface UpdateRoundDraftData {
 export interface UpdateLiveRoundFormatData {
   formatConfig?: Record<string, unknown>;
 }
-
 function mergeRoundFormatConfig(
   existingConfig: Prisma.JsonValue | null,
   updates: Record<string, unknown>
@@ -249,53 +245,52 @@ export async function updateLiveRoundFormat(
   unlockCode: string,
   data: UpdateLiveRoundFormatData
 ) {
-  const round = await prisma.round.findUnique({
-    where: { id },
-    include: {
-      teams: true,
-    },
-  });
+  const updated = await prisma.$transaction(async (tx) => {
+    const round = await tx.round.findUnique({
+      where: { id },
+      include: {
+        teams: true,
+        holeScores: { take: 1, select: { id: true } },
+      },
+    });
 
-  if (!round) throw new Error("Round not found");
-  if (round.status !== "LIVE") {
-    throw new Error("Can only update format settings while the round is LIVE");
-  }
-  if (!round.lockCode) {
-    throw new Error("Round has no lock code set");
-  }
-  if (round.lockCode !== unlockCode) {
-    throw new Error("Invalid lock code");
-  }
-  assertSundayChurchHoleGamesConfig(
-    round.formatId,
-    data.formatConfig ??
-      ((round.formatConfig as Record<string, unknown> | null) ?? undefined),
-    round.teamSize
-  );
-  assertSundayChurchSimonSaysConfig(
-    round.formatId,
-    data.formatConfig ??
-      ((round.formatConfig as Record<string, unknown> | null) ?? undefined)
-  );
+    if (!round) throw new Error("Round not found");
+    if (round.status !== "LIVE") {
+      throw new Error("Can only update format settings while the round is LIVE");
+    }
+    if (!round.lockCode) throw new Error("Round has no lock code set");
+    if (round.lockCode !== unlockCode) throw new Error("Invalid lock code");
 
-  const updated = await prisma.round.update({
-    where: { id },
-    data: {
-      formatConfig:
-        data.formatConfig === undefined
-          ? undefined
-          : ((data.formatConfig as Prisma.InputJsonValue | undefined) ??
-            Prisma.JsonNull),
-    },
-    include: {
-      course: { include: { holes: true } },
-      format: true,
-      teams: { include: { roundPlayers: { include: { player: true } } } },
-      roundPlayers: { include: { player: true, team: true } },
-      holeScores: true,
-      holeResults: true,
-    },
-  });
+    const nextFormatConfig =
+      data.formatConfig ??
+      ((round.formatConfig as Record<string, unknown> | null) ?? undefined);
+    assertSundayChurchHoleGamesConfig(
+      round.formatId,
+      nextFormatConfig,
+      round.teamSize
+    );
+    assertSundayChurchSimonSaysConfig(round.formatId, nextFormatConfig);
+    assertSundayChurchYellowBallLiveConfigChange(round, data.formatConfig);
+
+    return tx.round.update({
+      where: { id },
+      data: {
+        formatConfig:
+          data.formatConfig === undefined
+            ? undefined
+            : ((data.formatConfig as Prisma.InputJsonValue | undefined) ??
+              Prisma.JsonNull),
+      },
+      include: {
+        course: { include: { holes: true } },
+        format: true,
+        teams: { include: { roundPlayers: { include: { player: true } } } },
+        roundPlayers: { include: { player: true, team: true } },
+        holeScores: true,
+        holeResults: true,
+      },
+    });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
   revalidatePath("/");
   revalidatePath(`/rounds/${id}`);
@@ -638,6 +633,8 @@ export async function startRound(id: string, startingHole: 1 | 10) {
     round.roundPlayers.map((roundPlayer) => roundPlayer.playerId)
   );
 
+  assertSundayChurchYellowBallRoundStart(round);
+
   if (round.formatId === CROSS_FOURSOME_66618_FORMAT_ID) {
     if (
       round.teamSize !== 4 ||
@@ -787,37 +784,48 @@ export async function startRound(id: string, startingHole: 1 | 10) {
   const pot = round.buyInPerPlayer.mul(playerCount).sub(includedPar3Pot);
   const baseSkinValue = pot.div(18);
 
-  await prisma.$transaction(
-    round.roundPlayers
-      .filter((roundPlayer) => roundPlayer.eventHandicapLockedAt === null)
-      .map((roundPlayer) =>
-        prisma.roundPlayer.update({
-          where: { id: roundPlayer.id },
-          data: {
-            eventHandicapIndex:
-              roundPlayer.player.handicapIndex === null
-                ? null
-                : new Decimal(roundPlayer.player.handicapIndex),
-            eventHandicapLockedAt: new Date(),
-          },
-        })
-      )
-  );
+  const updated = await prisma.$transaction(async (tx) => {
+    const current = await tx.round.findUnique({
+      where: { id },
+      include: {
+        teams: { include: { roundPlayers: true } },
+        roundPlayers: { include: { player: true } },
+      },
+    });
+    if (current?.status !== "DRAFT") {
+      throw new Error("Can only start rounds in DRAFT status");
+    }
+    assertSundayChurchYellowBallRoundStart(current);
 
-  // Update round to LIVE
-  const updated = await prisma.round.update({
-    where: { id },
-    data: {
-      status: "LIVE",
-      startingHole,
-      pot,
-      baseSkinValue,
-    },
-    include: {
-      course: { include: { holes: true } },
-      format: true,
-      teams: { include: { roundPlayers: { include: { player: true } } } },
-    },
+    for (const roundPlayer of current.roundPlayers) {
+      await tx.roundPlayer.update({
+        where: { id: roundPlayer.id },
+        data: {
+          eventHandicapIndex:
+            roundPlayer.player.handicapIndex === null
+              ? null
+              : new Decimal(roundPlayer.player.handicapIndex),
+          eventHandicapLockedAt: new Date(),
+        },
+      });
+    }
+
+    return tx.round.update({
+      where: { id },
+      data: {
+        status: "LIVE",
+        startingHole,
+        pot,
+        baseSkinValue,
+      },
+      include: {
+        course: { include: { holes: true } },
+        format: true,
+        teams: { include: { roundPlayers: { include: { player: true } } } },
+      },
+    });
+  }, {
+    isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
   });
 
   revalidatePath("/");
@@ -828,44 +836,35 @@ export async function startRound(id: string, startingHole: 1 | 10) {
 
 // Revert a LIVE round back to DRAFT (requires unlock code)
 export async function revertToDraft(id: string, unlockCode: string) {
-  const round = await prisma.round.findUnique({
-    where: { id },
-    include: {
-      teams: true,
-    },
-  });
+  await prisma.$transaction(async (tx) => {
+    const round = await tx.round.findUnique({ where: { id } });
+    if (!round) throw new Error("Round not found");
+    if (round.status !== "LIVE") {
+      throw new Error("Can only revert rounds that are LIVE");
+    }
+    if (!round.lockCode) throw new Error("Round has no lock code set");
+    if (round.lockCode !== unlockCode) throw new Error("Invalid unlock code");
 
-  if (!round) throw new Error("Round not found");
-  if (round.status !== "LIVE") {
-    throw new Error("Can only revert rounds that are LIVE");
-  }
-  if (!round.lockCode) {
-    throw new Error("Round has no lock code set");
-  }
-  if (round.lockCode !== unlockCode) {
-    throw new Error("Invalid unlock code");
-  }
-
-  // Clear all hole scores
-  await prisma.holeScore.deleteMany({ where: { roundId: id } });
-  await prisma.playerScore.deleteMany({ where: { roundId: id } });
-
-  // Reset team finishedScoring flags
-  await prisma.team.updateMany({
-    where: { roundId: id },
-    data: { finishedScoring: false },
-  });
-
-  // Revert round to DRAFT and clear pot/baseSkinValue
-  await prisma.round.update({
-    where: { id },
-    data: {
-      status: "DRAFT",
-      pot: null,
-      baseSkinValue: null,
-      startingHole: 1,
-    },
-  });
+    await tx.holeScore.deleteMany({ where: { roundId: id } });
+    await tx.playerScore.deleteMany({ where: { roundId: id } });
+    await tx.team.updateMany({
+      where: { roundId: id },
+      data: { finishedScoring: false },
+    });
+    await tx.roundPlayer.updateMany({
+      where: { roundId: id },
+      data: { eventHandicapIndex: null, eventHandicapLockedAt: null },
+    });
+    await tx.round.update({
+      where: { id },
+      data: {
+        status: "DRAFT",
+        pot: null,
+        baseSkinValue: null,
+        startingHole: 1,
+      },
+    });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
   revalidatePath("/");
   revalidatePath(`/rounds/${id}`);

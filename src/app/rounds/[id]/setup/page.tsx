@@ -12,6 +12,7 @@ import { SundayChurchHoleGamesGrid } from "@/components/sunday-church-hole-games
 import { SundayChurchSimonSaysGrid } from "@/components/sunday-church-simon-says-grid";
 import { CrossFoursome66618Setup } from "@/components/cross-foursome-66618-setup";
 import { CrossThreesome666Setup } from "@/components/cross-threesome-666-setup";
+import { SundayChurchYellowBallSetup } from "@/components/sunday-church-yellow-ball-setup";
 import {
   getRound,
   setRoundPlayers,
@@ -62,6 +63,7 @@ import {
   createDefaultCrossThreesome666Config,
   validateCrossThreesome666Config,
 } from "@/lib/cross-threesome-666";
+import { SUNDAY_CHURCH_YELLOW_BALL_SKINS_FORMAT_ID } from "@/lib/sunday-church-yellow-ball-skins";
 interface Player {
   id: string;
   fullName: string;
@@ -70,7 +72,6 @@ interface Player {
   lastVerifiedDate?: Date | string | null;
   isActive: boolean;
 }
-
 interface RoundPlayer {
   id: string;
   playerId: string;
@@ -79,7 +80,6 @@ interface RoundPlayer {
   eventHandicapLockedAt?: Date | null;
   player: Player;
 }
-
 interface Team {
   id: string;
   teamNumber: number;
@@ -327,13 +327,6 @@ export default function RoundSetupPage({
       const activePlayers = playersRes.filter((p: Player) => p.isActive);
       setAllPlayers(activePlayers);
 
-      console.log("Loaded round data:", {
-        roundId: roundData.id,
-        roundPlayersCount: roundData.roundPlayers.length,
-        teamsCount: roundData.teams.length,
-        activePlayersCount: activePlayers.length,
-      });
-
       if (activePlayers.length === 0) {
         setError("No active players found. Please add players first.");
       }
@@ -343,15 +336,14 @@ export default function RoundSetupPage({
         roundData.roundPlayers.map((rp) => rp.playerId)
       );
       setSelectedPlayerIds(selected);
-      console.log("Selected players from DB:", selected.size);
-
       // Check if teams exist
       if (roundData.teams.length > 0) {
         setStep("teams");
         if (roundData.teamSize) setTeamSize(String(roundData.teamSize));
         if (roundData.teamMode)
           setTeamMode(roundData.teamMode as "RANDOM" | "BALANCED");
-      } else if (roundData.formatId === CROSS_FOURSOME_66618_FORMAT_ID) {
+      } else if (roundData.formatId === CROSS_FOURSOME_66618_FORMAT_ID ||
+        roundData.formatId === SUNDAY_CHURCH_YELLOW_BALL_SKINS_FORMAT_ID) {
         setTeamSize("4");
       } else if (roundData.format?.name === "Vegas") {
         setTeamSize("2");
@@ -509,11 +501,8 @@ export default function RoundSetupPage({
     setActionLoading(true);
     setError(null);
     try {
-      console.log("Saving players:", Array.from(selectedPlayerIds));
       await setRoundPlayers(id, Array.from(selectedPlayerIds));
-      console.log("Players saved successfully, reloading data...");
       await loadData();
-      console.log("Data reloaded, switching to teams step");
       setStep("teams");
     } catch (err) {
       console.error("Save players error:", err);
@@ -528,8 +517,6 @@ export default function RoundSetupPage({
     }
 
     const size = isVegasRound ? 2 : Number(teamSize);
-    console.log("Generate teams called:", { size, selectedCount: selectedPlayerIds.size, teamMode });
-
     if (selectedPlayerIds.size % size !== 0) {
       setError(
         `Cannot create even teams: ${selectedPlayerIds.size} players is not divisible by team size ${size}`
@@ -545,11 +532,8 @@ export default function RoundSetupPage({
     setActionLoading(true);
     setError(null);
     try {
-      console.log("Calling generateTeams action...");
       await generateTeams(id, size, teamMode);
-      console.log("Teams generated, reloading data...");
       await loadData();
-      console.log("Data reloaded after team generation");
     } catch (err) {
       console.error("Generate teams error:", err);
       setError(
@@ -680,6 +664,7 @@ export default function RoundSetupPage({
   const isCrossFoursomeRound = currentRound.formatId === CROSS_FOURSOME_66618_FORMAT_ID;
   const isCrossThreesomeRound = currentRound.formatId === CROSS_THREESOME_666_FORMAT_ID;
   const isCrossGroupRound = isCrossFoursomeRound || isCrossThreesomeRound;
+  const isYellowBallRound = currentRound.formatId === SUNDAY_CHURCH_YELLOW_BALL_SKINS_FORMAT_ID;
   const crossGroupPlayerCount = isCrossThreesomeRound ? 6 : 8;
   const crossGroupName = isCrossThreesomeRound
     ? "Cross-Threesome 6-6-6"
@@ -1065,7 +1050,8 @@ export default function RoundSetupPage({
       day: "numeric",
     });
 
-  const canGenerateTeams = selectedPlayerIds.size % Number(teamSize) === 0;
+  const canGenerateTeams = selectedPlayerIds.size % Number(teamSize) === 0 &&
+    (!isYellowBallRound || (Number(teamSize) === 4 && selectedPlayerIds.size >= 8));
   const hasTeams = round.teams.length > 0;
   const getTeamLabel = (team: Team) => getTeamDisplayLabel(team.roundPlayers);
   const crossFoursomePlayers = currentRound.roundPlayers.map((roundPlayer) => ({
@@ -1371,11 +1357,20 @@ export default function RoundSetupPage({
                     Save Drive Minimums
                   </Button>
                 </div>
+                {isYellowBallRound && (
+                  <SundayChurchYellowBallSetup
+                    roundId={id}
+                    formatConfig={currentRound.formatConfig}
+                    players={currentRound.roundPlayers}
+                    selectedPlayerCount={selectedPlayerIds.size}
+                    onConfigSaved={syncLocalRoundFormatConfig}
+                  />
+                )}
                 <Select
                   label="Team Size"
                   value={teamSize}
                   onChange={(e) => setTeamSize(e.target.value)}
-                  disabled={isVegasRound}
+                  disabled={isVegasRound || isYellowBallRound}
                   options={[
                     { value: "2", label: "2 players per team" },
                     { value: "3", label: "3 players per team" },
@@ -1386,6 +1381,11 @@ export default function RoundSetupPage({
                 {isVegasRound && (
                   <p className="text-sm text-amber-700">
                     Vegas requires 2-player teams.
+                  </p>
+                )}
+                {isYellowBallRound && (
+                  <p className="text-sm text-yellow-800">
+                    Yellow Ball Skins requires four-player teams and at least two teams.
                   </p>
                 )}
 

@@ -8,6 +8,9 @@ import { HandicapPlayerScoreDetails, HandicapStrokeCard } from "@/components/han
 import { ConfirmModal, Modal } from "@/components/modal";
 import { SundayChurchHoleGamesGrid } from "@/components/sunday-church-hole-games-grid";
 import { SundayChurchSimonSaysGrid } from "@/components/sunday-church-simon-says-grid";
+import { CombinedScoreboardModal, type CombinedScoreboardData } from "@/components/combined-scoreboard-modal";
+import { SundayChurchYellowBallScoring } from "@/components/sunday-church-yellow-ball-scoring";
+import { SundayChurchYellowBallGrid } from "@/components/sunday-church-yellow-ball-grid";
 import {
   getPlayerScores,
   upsertPlayerScoresForHole,
@@ -89,6 +92,11 @@ import {
   createDefaultCrossThreesome666Config,
   getCrossThreesome666Pairings,
 } from "@/lib/cross-threesome-666";
+import {
+  SUNDAY_CHURCH_YELLOW_BALL_SKINS_FORMAT_ID,
+  getSundayChurchYellowBallConfig,
+  type SundayChurchYellowBallHoleData,
+} from "@/lib/sunday-church-yellow-ball-skins";
 import { HoleEntryType } from "@prisma/client";
 
 interface TeamScore {
@@ -120,37 +128,6 @@ interface ScorecardHole {
   value: number | null;
   grossScore: number | null;
   displayScore: string | null;
-}
-
-interface CombinedScoreboardHole {
-  holeNumber: number;
-  par: number;
-  formatName: string | null;
-  scoringMode: "skins" | "aggregate" | "match_play";
-  isComplete: boolean;
-  isTie: boolean;
-  winnerTeamIds: string[];
-  winnerLabel: string | null;
-  teamScores: Array<{
-    teamId: string;
-    teamNumber: number;
-    label: string;
-    entryType: string | null;
-    value: number | null;
-    grossScore: number | null;
-    displayScore: string | null;
-    wasEdited: boolean;
-  }>;
-}
-
-interface CombinedScoreboardData {
-  teams: Array<{
-    teamId: string;
-    teamNumber: number;
-    label: string;
-    players: string[];
-  }>;
-  holes: CombinedScoreboardHole[];
 }
 
 interface TeamProgress {
@@ -199,6 +176,7 @@ interface Round {
   teams: {
     id: string;
     teamNumber: number;
+    formatConfig: unknown;
     roundPlayers: {
       id: string;
       playerId: string;
@@ -212,6 +190,11 @@ interface Round {
     eventHandicapIndex: number | null;
     player: { id: string; fullName: string; nickname: string | null };
   }[];
+  holeScores: Array<{
+    teamId: string;
+    holeNumber: number;
+    holeData: Record<string, unknown> | null;
+  }>;
 }
 
 interface PlayerHoleInputState {
@@ -600,6 +583,10 @@ export default function LiveScoringPage({
     try {
       const leaderboard = await getLiveLeaderboard(id);
       setLiveLeaderboard(leaderboard as LiveLeaderboardData);
+      if (isYellowBallRound) {
+        const scoreboard = await getAllTeamsScorecard(id, myTeamId);
+        setCombinedScoreboard(scoreboard as CombinedScoreboardData);
+      }
     } catch {
       setError("Failed to load live leaderboard");
     }
@@ -610,6 +597,10 @@ export default function LiveScoringPage({
     try {
       const data = await getTeamScorecard(id, myTeamId);
       setScorecard(data);
+      if (isYellowBallRound) {
+        const scoreboard = await getAllTeamsScorecard(id, myTeamId);
+        setCombinedScoreboard(scoreboard as CombinedScoreboardData);
+      }
       setShowScorecard(true);
     } catch (err) {
       setError("Failed to load scorecard");
@@ -619,7 +610,7 @@ export default function LiveScoringPage({
   async function loadCombinedScoreboard() {
     if (!round) return;
     try {
-      const data = await getAllTeamsScorecard(id);
+      const data = await getAllTeamsScorecard(id, myTeamId);
       setCombinedScoreboard(data as CombinedScoreboardData);
     } catch {
       setError("Failed to load combined scoreboard");
@@ -782,6 +773,9 @@ export default function LiveScoringPage({
     null;
   const isSundayHoleGames =
     (formatDefinition?.id ?? round?.formatId) === SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID;
+  const isYellowBallRound =
+    (formatDefinition?.id ?? round?.formatId) ===
+    SUNDAY_CHURCH_YELLOW_BALL_SKINS_FORMAT_ID;
   const myTeam = myTeamId ? round?.teams.find((t) => t.id === myTeamId) : null;
   const teamSize = myTeam?.roundPlayers.length ?? 1;
   const isAllBirdiesCountActive =
@@ -1821,6 +1815,14 @@ export default function LiveScoringPage({
     : "";
   const currentDisplayScore =
     (myTeamScore?.holeData?.displayScore as string | undefined) ?? null;
+  const yellowBallHoleData =
+    isYellowBallRound && myTeamScore?.holeData?.designatedPlayerId
+      ? (myTeamScore.holeData as unknown as SundayChurchYellowBallHoleData)
+      : null;
+  const hole17CarrierId =
+    (round.holeScores.find(
+      (score) => score.teamId === myTeamId && score.holeNumber === 17
+    )?.holeData?.designatedPlayerId as string | undefined) ?? null;
   const currentScoreLabel = isCrossGroupRound
     ? "player scores"
     : isAllBirdiesCountActive
@@ -1852,24 +1854,6 @@ export default function LiveScoringPage({
             : `+${hole.value}`}
         </span>
       );
-    }
-    return <span className="text-gray-300">-</span>;
-  };
-
-  const renderCombinedScoreValue = (teamScore: CombinedScoreboardHole["teamScores"][number]) => {
-    if (teamScore.entryType === "X") {
-      return <span className="text-gray-500">X</span>;
-    }
-    if (teamScore.displayScore) {
-      return <span className="font-bold text-green-700">{teamScore.displayScore}</span>;
-    }
-    if (teamScore.entryType === "VALUE") {
-      if (teamScore.grossScore !== null) {
-        return <span className="font-bold text-green-700">{teamScore.grossScore}</span>;
-      }
-      if (teamScore.value !== null) {
-        return <span className="font-bold text-green-700">+{teamScore.value}</span>;
-      }
     }
     return <span className="text-gray-300">-</span>;
   };
@@ -2191,7 +2175,38 @@ export default function LiveScoringPage({
           </Card>
         )}
 
-        {myTeamId && myTeamScore && (
+        {myTeamId && myTeamScore && myTeam && holeInfo && isYellowBallRound && (
+          <SundayChurchYellowBallScoring
+            roundId={id}
+            teamId={myTeamId}
+            teamLabel={getTeamLabel(myTeamId)}
+            currentHole={currentHole}
+            handicapRank={holeInfo.handicapRank}
+            players={myTeam.roundPlayers.map((roundPlayer) => ({
+              playerId: roundPlayer.playerId,
+              name: roundPlayer.player.nickname || roundPlayer.player.fullName,
+            }))}
+            teamFormatConfig={myTeam.formatConfig}
+            playerHandicapIndexes={lockedHandicapIndexes}
+            useYellowBallHandicaps={
+              getSundayChurchYellowBallConfig(round.formatConfig)
+                .useYellowBallHandicaps
+            }
+            existingHoleData={yellowBallHoleData}
+            hole17CarrierId={hole17CarrierId}
+            blocked={scoreEntryBlocked}
+            onSaved={async () => {
+              await Promise.all([
+                loadHoleData(),
+                loadTeamsProgress(),
+                loadLiveLeaderboard(),
+                loadCombinedScoreboard(),
+              ]);
+            }}
+          />
+        )}
+
+        {myTeamId && myTeamScore && !isYellowBallRound && (
           <Card className="overflow-hidden border-2 border-green-500">
             <div className="bg-green-700 text-white px-4 py-3 flex justify-between items-center">
               <span className="font-bold text-lg">
@@ -3676,11 +3691,17 @@ export default function LiveScoringPage({
             className="absolute inset-0 bg-black/50"
             onClick={() => setShowScorecard(false)}
           />
-          <div className="relative bg-white rounded-lg shadow-xl p-4 max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto">
+          <div className={`relative bg-white rounded-lg shadow-xl p-4 w-full mx-4 max-h-[80vh] overflow-y-auto ${isYellowBallRound ? "max-w-6xl" : "max-w-md"}`}>
             <h2 className="text-lg font-bold mb-4">
               {myTeamId ? getTeamLabel(myTeamId) : `Team ${myTeamNumber}`} Scorecard
             </h2>
-            <table className="w-full text-sm">
+            {isYellowBallRound && combinedScoreboard ? (
+              <SundayChurchYellowBallGrid
+                data={combinedScoreboard}
+                currentHole={currentHole}
+              />
+            ) : (
+              <table className="w-full text-sm">
               <thead>
                 <tr className="border-b">
                   <th className="py-2 text-left">Hole</th>
@@ -3712,7 +3733,8 @@ export default function LiveScoringPage({
                   );
                 })}
               </tbody>
-            </table>
+              </table>
+            )}
             <Button
               variant="secondary"
               className="w-full mt-4"
@@ -3730,7 +3752,7 @@ export default function LiveScoringPage({
             className="absolute inset-0 bg-black/50"
             onClick={() => setShowOtherTeamScorecards(false)}
           />
-          <div className="relative bg-white rounded-lg shadow-xl p-4 max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto">
+          <div className={`relative bg-white rounded-lg shadow-xl p-4 w-full mx-4 max-h-[80vh] overflow-y-auto ${isYellowBallRound ? "max-w-6xl" : "max-w-md"}`}>
             <h2 className="text-lg font-bold mb-4">
               {getTeamLabel(selectedScorecardTeamId)} Scorecard
             </h2>
@@ -3794,7 +3816,7 @@ export default function LiveScoringPage({
             className="absolute inset-0 bg-black/50"
             onClick={() => setShowLiveLeaderboard(false)}
           />
-          <div className="relative bg-white rounded-lg shadow-xl p-4 max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto">
+          <div className={`relative bg-white rounded-lg shadow-xl p-4 w-full mx-4 max-h-[80vh] overflow-y-auto ${isYellowBallRound ? "max-w-6xl" : "max-w-md"}`}>
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-lg font-bold">{liveLeaderboard.title}</h2>
@@ -3807,6 +3829,15 @@ export default function LiveScoringPage({
                 Refresh
               </button>
             </div>
+
+            {isYellowBallRound && combinedScoreboard && (
+              <div className="mt-4">
+                <SundayChurchYellowBallGrid
+                  data={combinedScoreboard}
+                  currentHole={currentHole}
+                />
+              </div>
+            )}
 
             <div className="mt-4 space-y-2">
               {liveLeaderboard.entries.map((entry, index) => (
@@ -3907,117 +3938,13 @@ export default function LiveScoringPage({
       )}
 
       {showCombinedScoreboard && combinedScoreboard && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/50"
-            onClick={() => setShowCombinedScoreboard(false)}
-          />
-          <div className="relative bg-white rounded-lg shadow-xl p-4 max-w-6xl w-full mx-4 max-h-[85vh] overflow-hidden">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-bold">Live Match Scoreboard</h2>
-                <p className="text-xs text-gray-500">
-                  All teams, all holes, and the winner of each completed hole
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => loadCombinedScoreboard()}
-                  className="rounded bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700"
-                >
-                  Refresh
-                </button>
-                <button
-                  onClick={() => setShowCombinedScoreboard(false)}
-                  className="rounded bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-3 overflow-x-auto overflow-y-auto max-h-[72vh]">
-              <table className="min-w-full text-sm">
-                <thead className="sticky top-0 bg-white">
-                  <tr className="border-b border-gray-200">
-                    <th className="px-2 py-2 text-left font-semibold text-gray-700">
-                      Hole
-                    </th>
-                    {combinedScoreboard.teams.map((team) => (
-                      <th
-                        key={team.teamId}
-                        className="px-2 py-2 text-left font-semibold text-gray-700 min-w-[180px]"
-                      >
-                        <div>{team.label}</div>
-                        <div className="text-xs font-normal text-gray-500">
-                          {team.players.join(", ")}
-                        </div>
-                      </th>
-                    ))}
-                    <th className="px-2 py-2 text-left font-semibold text-gray-700 min-w-[180px]">
-                      Winner
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {combinedScoreboard.holes.map((hole) => (
-                    <tr
-                      key={hole.holeNumber}
-                      className={`border-b border-gray-100 ${
-                        currentHole === hole.holeNumber ? "bg-blue-50" : ""
-                      }`}
-                    >
-                      <td className="px-2 py-3 align-top">
-                        <div className="font-semibold">#{hole.holeNumber}</div>
-                        <div className="text-xs text-gray-500">Par {hole.par}</div>
-                        {hole.formatName && (
-                          <div className="mt-1 text-xs text-gray-500">
-                            {hole.formatName}
-                            {hole.scoringMode === "match_play" ? " • Match Play" : ""}
-                          </div>
-                        )}
-                      </td>
-                      {combinedScoreboard.teams.map((team) => {
-                        const teamScore = hole.teamScores.find(
-                          (entry) => entry.teamId === team.teamId
-                        );
-                        const isWinner =
-                          !hole.isTie && hole.winnerTeamIds.includes(team.teamId);
-                        return (
-                          <td
-                            key={`${hole.holeNumber}-${team.teamId}`}
-                            className={`px-2 py-3 align-top ${
-                              isWinner ? "bg-green-50" : ""
-                            }`}
-                          >
-                            <div
-                              className={
-                                teamScore?.wasEdited ? "italic text-red-500" : undefined
-                              }
-                            >
-                              {teamScore ? renderCombinedScoreValue(teamScore) : "—"}
-                            </div>
-                          </td>
-                        );
-                      })}
-                      <td className="px-2 py-3 align-top">
-                        {!hole.isComplete ? (
-                          <span className="text-gray-400">In progress</span>
-                        ) : hole.isTie ? (
-                          <span className="font-medium text-yellow-700">Tie</span>
-                        ) : (
-                          <span className="font-semibold text-green-700">
-                            {hole.winnerLabel}
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+        <CombinedScoreboardModal
+          data={combinedScoreboard}
+          currentHole={currentHole}
+          isYellowBall={isYellowBallRound}
+          onRefresh={loadCombinedScoreboard}
+          onClose={() => setShowCombinedScoreboard(false)}
+        />
       )}
 
       {/* Live Skins Status Modal */}

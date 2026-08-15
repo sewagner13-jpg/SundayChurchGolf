@@ -6,9 +6,19 @@ import test from "node:test";
 
 import { checkLineCaps } from "../../scripts/build-discipline/line-caps.mjs";
 import { runControlledSteps } from "../../scripts/build-discipline/control-feedback.mjs";
-import { validateReleaseConfiguration } from "../../scripts/build-discipline/release-config.mjs";
+import {
+  validateProductionBranch,
+  validateReleaseConfiguration,
+} from "../../scripts/build-discipline/release-config.mjs";
 import { validateStateDocument } from "../../scripts/build-discipline/state.mjs";
+import {
+  assertAutomaticBuildsStopped,
+  runNetlifyProductionBuild,
+  validateProductionFormats,
+} from "../../scripts/netlify-production-build.mjs";
 import { findUnitTests } from "../../scripts/run-unit-tests.mjs";
+
+const GATED_DEPLOY_SOURCE = "node scripts/netlify-production-build.mjs";
 
 test("state validator rejects a document missing the release topology", () => {
   assert.deepEqual(validateStateDocument("# Sunday Church Golf State\n"), [
@@ -17,6 +27,22 @@ test("state validator rejects a document missing the release topology", () => {
     "Missing required section: ## Browser Coverage",
     "Missing required section: ## Line-Cap Policy",
     "Missing required section: ## Operating Mode",
+  ]);
+});
+
+test("state validator rejects documents over 150 lines", () => {
+  const headings = [
+    "# Sunday Church Golf State",
+    "## Release Topology",
+    "## Quality Gates",
+    "## Browser Coverage",
+    "## Line-Cap Policy",
+    "## Operating Mode",
+  ];
+  const document = [...headings, ...Array.from({ length: 145 }, () => "state")].join("\n");
+
+  assert.deepEqual(validateStateDocument(document), [
+    "docs/STATE.md exceeds the 150-line limit (151 lines).",
   ]);
 });
 
@@ -91,9 +117,27 @@ test("release configuration rejects database mutation before the quality gate", 
         lint: "eslint . --ignore-pattern '.worktrees/**'",
       },
       netlifyBuildCommand:
-        "npx prisma generate && npx prisma db push --skip-generate && npm run verify:netlify",
+        "npx prisma generate && npx prisma db push --skip-generate && npm run verify:netlify && npm run db:seed",
+      deployProductionSource: GATED_DEPLOY_SOURCE,
     }),
     ["Netlify must run verify:netlify before prisma db push."]
+  );
+});
+
+test("release configuration requires database seeding after schema sync", () => {
+  assert.deepEqual(
+    validateReleaseConfiguration({
+      scripts: {
+        "verify:netlify": "node scripts/verify-release.mjs --netlify",
+        "verify:release": "node scripts/verify-release.mjs",
+        "deploy:production": "node scripts/deploy-production.mjs",
+        lint: "eslint . --ignore-pattern '.worktrees/**'",
+      },
+      netlifyBuildCommand:
+        "npx prisma generate && npm run verify:netlify && npx prisma db push --skip-generate",
+      deployProductionSource: GATED_DEPLOY_SOURCE,
+    }),
+    ["Netlify build command must run db:seed after prisma db push."]
   );
 });
 
@@ -107,8 +151,164 @@ test("release configuration rejects linting linked worktrees", () => {
         lint: "eslint .",
       },
       netlifyBuildCommand:
-        "npx prisma generate && npm run verify:netlify && npx prisma db push --skip-generate",
+        "npx prisma generate && npm run verify:netlify && npx prisma db push --skip-generate && npm run db:seed",
+      deployProductionSource: GATED_DEPLOY_SOURCE,
     }),
     ["Lint script must exclude linked worktrees."]
+  );
+});
+
+test("release configuration rejects any production branch other than main", () => {
+  assert.deepEqual(validateProductionBranch("claude/master-spec-consolidation-Y6XjM"), [
+    "Production releases must use the main branch.",
+  ]);
+  assert.deepEqual(validateProductionBranch("main"), []);
+});
+
+test("release configuration requires an attended Netlify production build", () => {
+  assert.deepEqual(
+    validateReleaseConfiguration({
+      scripts: {
+        "verify:netlify": "node scripts/verify-release.mjs --netlify",
+        "verify:release": "node scripts/verify-release.mjs",
+        "deploy:production": "node scripts/deploy-production.mjs",
+        lint: "eslint . --ignore-pattern '.worktrees/**'",
+      },
+      netlifyBuildCommand:
+        "npx prisma generate && npm run verify:netlify && npx prisma db push --skip-generate && npm run db:seed",
+      deployProductionSource: "git push origin main",
+    }),
+    ["Production deploy gate must run the attended Netlify production build."]
+  );
+});
+
+test("attended Netlify build verifies the exact commit and seeded format", async () => {
+  const calls: string[] = [];
+  let buildsStopped = true;
+  const api = async (method: string, data?: Record<string, unknown>) => {
+    const stopped = (data?.body as { build_settings?: { stop_builds?: boolean } } | undefined)
+      ?.build_settings?.stop_builds;
+    calls.push(stopped === undefined ? method : `${method}:${stopped}`);
+    if (method === "getSite") return { build_settings: { stop_builds: buildsStopped } };
+    if (method === "updateSite") {
+      buildsStopped = stopped ?? buildsStopped;
+      return { build_settings: { stop_builds: buildsStopped } };
+    }
+    if (method === "createSiteBuild") return { id: "build-1", deploy_id: "deploy-1" };
+    if (method === "getSiteBuild") return { done: true, deploy_id: "deploy-1" };
+    return { state: "ready", commit_ref: "abc123" };
+  };
+  const fetchImpl = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    return {
+      ok: true,
+      status: 200,
+      json: async () =>
+        url.includes("/api/formats")
+          ? [{ definitionId: "sunday_church_yellow_ball_skins" }]
+          : {},
+    } as Response;
+  }) as typeof fetch;
+
+  assert.deepEqual(
+    await runNetlifyProductionBuild({
+      expectedCommitSha: "abc123",
+      api,
+      fetchImpl,
+      attempts: 1,
+      intervalMs: 0,
+    }),
+    { buildId: "build-1", deployId: "deploy-1", commitSha: "abc123" }
+  );
+  assert.deepEqual(calls, [
+    "getSite",
+    "updateSite:false",
+    "getSite",
+    "createSiteBuild",
+    "getSiteBuild",
+    "getSiteDeploy",
+    "updateSite:true",
+    "getSite",
+  ]);
+});
+
+test("attended Netlify build restores stopped builds after a failed trigger", async () => {
+  const calls: string[] = [];
+  let buildsStopped = true;
+  const api = async (method: string, data?: Record<string, unknown>) => {
+    const stopped = (data?.body as { build_settings?: { stop_builds?: boolean } } | undefined)
+      ?.build_settings?.stop_builds;
+    calls.push(stopped === undefined ? method : `${method}:${stopped}`);
+    if (method === "getSite") return { build_settings: { stop_builds: buildsStopped } };
+    if (method === "updateSite") {
+      buildsStopped = stopped ?? buildsStopped;
+      return { build_settings: { stop_builds: buildsStopped } };
+    }
+    throw new Error("forced build trigger failure");
+  };
+
+  await assert.rejects(
+    () => runNetlifyProductionBuild({ expectedCommitSha: "abc123", api }),
+    /forced build trigger failure/
+  );
+  assert.deepEqual(calls, [
+    "getSite",
+    "updateSite:false",
+    "getSite",
+    "createSiteBuild",
+    "updateSite:true",
+    "getSite",
+  ]);
+});
+
+test("attended Netlify build restores stopped builds after activation verification fails", async () => {
+  const calls: string[] = [];
+  let buildsStopped = true;
+  let getSiteCount = 0;
+  const api = async (method: string, data?: Record<string, unknown>) => {
+    const stopped = (data?.body as { build_settings?: { stop_builds?: boolean } } | undefined)
+      ?.build_settings?.stop_builds;
+    calls.push(stopped === undefined ? method : `${method}:${stopped}`);
+    if (method === "updateSite") {
+      buildsStopped = stopped ?? buildsStopped;
+      return { build_settings: { stop_builds: buildsStopped } };
+    }
+    if (method === "getSite") {
+      getSiteCount += 1;
+      if (getSiteCount === 2) throw new Error("forced activation verification failure");
+      return { build_settings: { stop_builds: buildsStopped } };
+    }
+    throw new Error(`Unexpected API call: ${method}`);
+  };
+
+  await assert.rejects(
+    () => runNetlifyProductionBuild({ expectedCommitSha: "abc123", api }),
+    /forced activation verification failure/
+  );
+  assert.deepEqual(calls, [
+    "getSite",
+    "updateSite:false",
+    "getSite",
+    "updateSite:true",
+    "getSite",
+  ]);
+});
+
+test("attended deploy refuses to race Netlify automatic Git builds", async () => {
+  await assert.rejects(
+    () =>
+      assertAutomaticBuildsStopped({
+        api: async () => ({ build_settings: { stop_builds: false } }),
+      }),
+    /automatic Git builds must be stopped/i
+  );
+});
+
+test("production format smoke validation fails closed", () => {
+  assert.equal(validateProductionFormats([]), false);
+  assert.equal(validateProductionFormats([{ definitionId: "default-sunday-church" }]), false);
+  assert.equal(
+    validateProductionFormats([{ definitionId: "sunday_church_yellow_ball_skins" }]),
+    true
   );
 });

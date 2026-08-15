@@ -10,10 +10,22 @@ const REQUIRED_HEADINGS = [
   "## Operating Mode",
 ];
 
+const MAX_STATE_LINES = 150;
+
+function countLines(contents) {
+  if (contents.length === 0) return 0;
+  return contents.replace(/\r?\n$/, "").split(/\r?\n/).length;
+}
+
 export function validateStateDocument(contents) {
-  return REQUIRED_HEADINGS.filter((heading) => !contents.includes(heading)).map(
+  const errors = REQUIRED_HEADINGS.filter((heading) => !contents.includes(heading)).map(
     (heading) => `Missing required section: ${heading}`
   );
+  const lineCount = countLines(contents);
+  if (lineCount > MAX_STATE_LINES) {
+    errors.push(`docs/STATE.md exceeds the 150-line limit (${lineCount} lines).`);
+  }
+  return errors;
 }
 
 async function main() {

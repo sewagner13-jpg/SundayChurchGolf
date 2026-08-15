@@ -2,9 +2,9 @@
  * Format Definitions — source of truth for all golf format metadata.
  * Format IDs must match the corresponding DB Format records.
  */
+import { SUNDAY_CHURCH_YELLOW_BALL_FORMAT_DEFINITION } from '@/lib/sunday-church-yellow-ball-format'
 
 export type FormatCategory = 'skins' | 'stroke' | 'points' | 'match'
-
 export interface FormatConfigOption {
   key: string
   label: string
@@ -13,7 +13,6 @@ export interface FormatConfigOption {
   defaultValue?: string | number | boolean
   description?: string
 }
-
 export interface FormatDefinition {
   id: string
   name: string
@@ -74,6 +73,7 @@ export const FORMAT_DEFINITIONS: FormatDefinition[] = [
     requiresDesignatedPlayer: false,
     requiresDriveTracking: false,
   },
+  SUNDAY_CHURCH_YELLOW_BALL_FORMAT_DEFINITION,
   {
     id: 'sunday_church_simon_says',
     name: 'Sunday Church Simon Says',

@@ -11,6 +11,7 @@ import { Card, CardHeader, CardContent } from "@/components/card";
 import { Button } from "@/components/button";
 import { ConfirmModal, Modal } from "@/components/modal";
 import { Select } from "@/components/select";
+import { SundayChurchYellowBallSummary } from "@/components/sunday-church-yellow-ball-summary";
 import { getScoringOrder } from "@/lib/scoring-order";
 import { FORMAT_DEFINITIONS, getFormatById } from "@/lib/format-definitions";
 import { computeIrishGolfSegmentSummaries, computeIrishGolfOverallSummary } from "@/lib/irish-golf";
@@ -42,6 +43,7 @@ import {
   CROSS_THREESOME_666_FORMAT_ID,
   computeCrossThreesome666GameSummaries,
 } from "@/lib/cross-threesome-666";
+import { SUNDAY_CHURCH_YELLOW_BALL_SKINS_FORMAT_ID } from "@/lib/sunday-church-yellow-ball-skins";
 interface Team {
   id: string;
   teamNumber: number;
@@ -53,7 +55,6 @@ interface Team {
     player: { fullName: string; nickname: string | null };
   }[];
 }
-
 interface HoleScore {
   teamId: string;
   holeNumber: number;
@@ -63,7 +64,6 @@ interface HoleScore {
   holeData?: Record<string, unknown> | null;
   wasEdited: boolean;
 }
-
 interface HoleResult {
   holeNumber: number;
   winnerTeamId: string | null;
@@ -71,7 +71,6 @@ interface HoleResult {
   holePayout: number;
   carrySkinsUsed: number;
 }
-
 interface Round {
   id: string;
   date: Date;
@@ -102,7 +101,6 @@ interface Round {
   holeScores: HoleScore[];
   holeResults: HoleResult[];
 }
-
 export default function RoundSummaryPage({
   params,
 }: {
@@ -240,6 +238,7 @@ export default function RoundSummaryPage({
   const isVegasFormat = formatDef?.id === "vegas";
   const isIrishGolfFormat = formatDef?.id === "irish_golf_6_6_6";
   const isNassauFormat = formatDef?.id === "nassau";
+  const isYellowBallFormat = formatDef?.id === SUNDAY_CHURCH_YELLOW_BALL_SKINS_FORMAT_ID;
   const isCrossFoursomeFormat = formatDef?.id === CROSS_FOURSOME_66618_FORMAT_ID;
   const isCrossThreesomeFormat = formatDef?.id === CROSS_THREESOME_666_FORMAT_ID;
   const isCrossGroupFormat = isCrossFoursomeFormat || isCrossThreesomeFormat;
@@ -1522,8 +1521,9 @@ export default function RoundSummaryPage({
       </Card>
       )}
 
+      {isYellowBallFormat && <SundayChurchYellowBallSummary round={round} />}
       {/* Hole-by-Hole Results */}
-      {isSkins && (
+      {isSkins && !isYellowBallFormat && (
       <Card>
         <CardHeader>Hole-by-Hole Results</CardHeader>
         <CardContent>

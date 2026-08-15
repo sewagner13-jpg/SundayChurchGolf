@@ -29,6 +29,24 @@ const formatFixtures = [
     requiresIndividualScores: true,
     requiresDriveTracking: false,
   },
+  {
+    id: "yellow-ball",
+    name: "Sunday Church Yellow Ball Skins",
+    definitionId: "sunday_church_yellow_ball_skins",
+    gameDescription: "Yellow-ball net plus three-player scramble gross.",
+    formatCategory: "skins",
+    supportedTeamSizes: [4],
+    configOptions: [
+      {
+        key: "useYellowBallHandicaps",
+        label: "Use Handicaps for Yellow Ball",
+        type: "boolean",
+        defaultValue: true,
+      },
+    ],
+    requiresIndividualScores: false,
+    requiresDriveTracking: false,
+  },
 ];
 
 test("new-round setup selects a configured format from fixture data", async ({ page }) => {
@@ -44,4 +62,7 @@ test("new-round setup selects a configured format from fixture data", async ({ p
   await formatSelect.selectOption("cross-threesome");
   await expect(formatSelect).toHaveValue("cross-threesome");
   await expect(page.getByText(`${expectedFormat} uses net best ball.`, { exact: true })).toBeVisible();
+  await formatSelect.selectOption("yellow-ball");
+  await expect(page.getByText("Yellow-ball net plus three-player scramble gross.", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Use Handicaps for Yellow Ball")).toBeChecked();
 });

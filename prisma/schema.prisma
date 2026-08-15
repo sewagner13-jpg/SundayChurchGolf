@@ -165,6 +165,7 @@ model Team {
   totalPayout     Decimal  @default(0) @db.Decimal(10, 2)
   isTopPayingTeam Boolean  @default(false)
   finishedScoring Boolean  @default(false)
+  formatConfig    Json?    // Team-owned format configuration, such as yellow-ball order
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

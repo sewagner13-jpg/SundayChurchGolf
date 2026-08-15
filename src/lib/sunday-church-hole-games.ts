@@ -1,6 +1,10 @@
 import type { HoleEntryType } from "@prisma/client";
 import { getFormatById } from "@/lib/format-definitions";
-import { getScoringOrder } from "@/lib/scoring-order";
+import {
+  calculateDirectionalSkinResults,
+  determineDirectionalSkinWinner,
+  resolveDirectionalSkinCarryoverTiebreaker,
+} from "@/lib/directional-skins";
 import type { CourseHoleInfo, HoleResultData, TeamScore } from "@/lib/scoring-engine";
 
 export const SUNDAY_CHURCH_HOLE_GAMES_FORMAT_ID = "sunday_church_hole_games";
@@ -171,31 +175,15 @@ export function determineSundayChurchHoleGameWinner(
   scores: SundayChurchHoleGameScore[],
   comparison: SundayChurchHoleGameComparison
 ): { winnerTeamId: string | null; isTie: boolean } {
-  const validScores = scores
-    .map((score) => ({
+  return determineDirectionalSkinWinner(
+    scores.map((score) => ({
       teamId: score.teamId,
-      value: getComparableValue(score),
-    }))
-    .filter(
-      (score): score is { teamId: string; value: number } =>
-        score.value !== null
-    );
-
-  if (validScores.length === 0) {
-    return { winnerTeamId: null, isTie: true };
-  }
-
-  const winningValue =
-    comparison === "higher"
-      ? Math.max(...validScores.map((score) => score.value))
-      : Math.min(...validScores.map((score) => score.value));
-  const winners = validScores.filter((score) => score.value === winningValue);
-
-  if (winners.length === 1) {
-    return { winnerTeamId: winners[0].teamId, isTie: false };
-  }
-
-  return { winnerTeamId: null, isTie: true };
+      holeNumber: score.holeNumber,
+      entryType: score.entryType,
+      comparisonValue: getComparableValue(score),
+    })),
+    comparison
+  );
 }
 
 export function computeSundayChurchHoleGameOutcomes(
@@ -247,74 +235,22 @@ export function calculateSundayChurchHoleGameResults(
   teamPayouts: Map<string, HoleResultData["holePayout"]>;
   unresolvedCarryover: number;
 } {
-  const baseSkinValue = pot.div(18);
-  const zeroPayout = pot.mul(0);
-  const scoringOrder = getScoringOrder(startingHole);
-  const teamPayouts = new Map<string, HoleResultData["holePayout"]>();
-  const holeResults: HoleResultData[] = [];
-  teams.forEach((team) => teamPayouts.set(team.id, zeroPayout));
-
-  let carrySkins = 0;
-
-  for (const holeNumber of scoringOrder) {
-    carrySkins += 1;
-    const holeScores = allScores.filter((score) => score.holeNumber === holeNumber);
-    const allTeamsScored = teams.every((team) =>
-      holeScores.some(
-        (score) => score.teamId === team.id && score.entryType !== "BLANK"
-      )
-    );
-
-    if (!allTeamsScored) {
-      carrySkins -= 1;
-      holeResults.push({
-        holeNumber,
-        winnerTeamId: null,
-        isTie: false,
-        carrySkinsUsed: 0,
-        holePayout: zeroPayout,
-      });
-      continue;
-    }
-
-    const assignment = getSundayChurchHoleGameAssignment(formatConfig, holeNumber);
-    const comparison = getSundayChurchHoleGameComparison(assignment);
-    const { winnerTeamId, isTie } = determineSundayChurchHoleGameWinner(
-      holeScores,
-      comparison
-    );
-
-    if (winnerTeamId) {
-      const holePayout = baseSkinValue.mul(carrySkins);
-      holeResults.push({
-        holeNumber,
-        winnerTeamId,
-        isTie: false,
-        carrySkinsUsed: carrySkins,
-        holePayout,
-      });
-
-      const currentPayout = teamPayouts.get(winnerTeamId) ?? zeroPayout;
-      teamPayouts.set(winnerTeamId, currentPayout.add(holePayout));
-      carrySkins = 0;
-    } else {
-      holeResults.push({
-        holeNumber,
-        winnerTeamId: null,
-        isTie,
-        carrySkinsUsed: 0,
-        holePayout: zeroPayout,
-      });
-    }
-  }
-
   void courseHoles;
-
-  return {
-    holeResults,
-    teamPayouts,
-    unresolvedCarryover: carrySkins,
-  };
+  return calculateDirectionalSkinResults({
+    allScores: allScores.map((score) => ({
+      teamId: score.teamId,
+      holeNumber: score.holeNumber,
+      entryType: score.entryType,
+      comparisonValue: getComparableValue(score),
+    })),
+    teams,
+    startingHole,
+    pot,
+    getComparison: (holeNumber) =>
+      getSundayChurchHoleGameComparison(
+        getSundayChurchHoleGameAssignment(formatConfig, holeNumber)
+      ),
+  });
 }
 
 export function resolveSundayChurchHoleGameCarryoverTiebreaker(
@@ -325,55 +261,22 @@ export function resolveSundayChurchHoleGameCarryoverTiebreaker(
   baseSkinValue: HoleResultData["holePayout"],
   formatConfig: Record<string, unknown> | null | undefined
 ) {
-  const zeroPayout = baseSkinValue.mul(0);
-  const additionalPayouts = new Map<string, HoleResultData["holePayout"]>();
-  teams.forEach((team) => additionalPayouts.set(team.id, zeroPayout));
-
-  if (unresolvedCarryover <= 0) {
-    return {
-      additionalPayouts,
-      winnerTeamId: null,
-      decidingHoleNumber: null,
-      skinsWon: 0,
-    };
-  }
-
-  const carryoverPayout = baseSkinValue.mul(unresolvedCarryover);
-  const sortedHoles = [...courseHoles].sort(
-    (a, b) => a.handicapRank - b.handicapRank
-  );
-
-  for (const hole of sortedHoles) {
-    const assignment = getSundayChurchHoleGameAssignment(
-      formatConfig,
-      hole.holeNumber
-    );
-    const comparison = getSundayChurchHoleGameComparison(assignment);
-    const holeScores = allScores.filter(
-      (score) => score.holeNumber === hole.holeNumber
-    );
-    const result = determineSundayChurchHoleGameWinner(holeScores, comparison);
-
-    if (result.winnerTeamId) {
-      additionalPayouts.set(result.winnerTeamId, carryoverPayout);
-      return {
-        additionalPayouts,
-        winnerTeamId: result.winnerTeamId,
-        decidingHoleNumber: hole.holeNumber,
-        skinsWon: unresolvedCarryover,
-      };
-    }
-  }
-
-  const splitPayout = carryoverPayout.div(teams.length);
-  teams.forEach((team) => additionalPayouts.set(team.id, splitPayout));
-
-  return {
-    additionalPayouts,
-    winnerTeamId: null,
-    decidingHoleNumber: null,
-    skinsWon: unresolvedCarryover,
-  };
+  return resolveDirectionalSkinCarryoverTiebreaker({
+    allScores: allScores.map((score) => ({
+      teamId: score.teamId,
+      holeNumber: score.holeNumber,
+      entryType: score.entryType,
+      comparisonValue: getComparableValue(score),
+    })),
+    teams,
+    courseHoles,
+    unresolvedCarryover,
+    baseSkinValue,
+    getComparison: (holeNumber) =>
+      getSundayChurchHoleGameComparison(
+        getSundayChurchHoleGameAssignment(formatConfig, holeNumber)
+      ),
+  });
 }
 
 export function toSundayChurchHoleGameScores(
