@@ -2,7 +2,7 @@
 
 ## Status
 
-Verified; pending merge. Claimed 2026-08-15 by Codex on `codex/scg-001-yellow-ball-skins`.
+Complete. Claimed 2026-08-15 by Codex and merged into `main` after verification.
 
 ## User Outcome
 
@@ -40,3 +40,4 @@ Deployment, production database changes, seeding, and disposable live-round veri
 - 2026-08-15: Final release verification passed 117 unit tests, typecheck, lint with 43 existing warnings and no errors, production build, and 5 browser tests. Negative probes passed, including forced Netlify trigger and activation-verification failures that restored stopped builds.
 - 2026-08-15: Playwright retained Yellow Ball desktop/mobile screenshots and traces under `test-results/`. The production bundle returned 404 for the fixture route when `E2E_FIXTURES` was absent.
 - 2026-08-15: Netlify automatic Git builds remain stopped. No production deployment, schema sync, seed, or live smoke round was run under this ticket.
+- 2026-08-15: Fast-forwarded the verified feature commit into local `main`; production release remains separately gated.

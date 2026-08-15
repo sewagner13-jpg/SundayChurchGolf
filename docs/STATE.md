@@ -28,9 +28,10 @@ New JavaScript, TypeScript, and TSX source files are capped at 500 lines. The ch
 
 ## Operating Mode
 
-- Active ticket: `SCG-001` - Sunday Church Yellow Ball Skins (verified; pending merge).
+- Active ticket: none.
+- Last completed ticket: `SCG-001` - Sunday Church Yellow Ball Skins.
 - Outcome: teams can play lower-wins yellow-ball skins using relative handicaps only for the rotating yellow-ball player.
-- Branch: `codex/scg-001-yellow-ball-skins`; merge to `main` only after full release verification.
+- Branch of truth: `main`.
 - Deployment is not authorized by this ticket; it remains a separate attended approval gate.
 - Ticket record: `docs/tickets/SCG-001-sunday-church-yellow-ball-skins.md`.
 
@@ -54,3 +55,4 @@ New JavaScript, TypeScript, and TSX source files are capped at 500 lines. The ch
 - SCG-001 release verification passed with 117 unit tests, typecheck, lint with the same 43 warnings and no errors, production build, and 5 Playwright tests including Yellow Ball desktop and 390x844 coverage.
 - SCG-001 negative probes proved state, line-cap, control-feedback, seed-order, branch, expected-commit, browser, and deploy-confirmation gates fail closed. Netlify activation, trigger failure, and restoration paths were separately proven red then green.
 - Netlify automatic Git builds are stopped. Production remains commit `85ea086`; SCG-001 has not been deployed or seeded in production.
+- SCG-001 was fast-forwarded into local `main` after release verification and independent review. Push and production deployment remain separately gated.
