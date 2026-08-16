@@ -92,6 +92,25 @@ test("generic hole scoring cannot bypass the dedicated yellow-ball action", asyn
   );
 });
 
+test("yellow-ball scoring shows the shared dot handicap map for every course hole", async () => {
+  const [componentSource, pageSource] = await Promise.all([
+    readFile(
+      new URL("../components/sunday-church-yellow-ball-scoring.tsx", import.meta.url),
+      "utf8"
+    ),
+    readFile(
+      new URL("../app/rounds/[id]/scoring/page.tsx", import.meta.url),
+      "utf8"
+    ),
+  ]);
+
+  assert.match(componentSource, /<HandicapStrokeCard/);
+  assert.match(componentSource, /strokeDisplay="dots"/);
+  assert.match(componentSource, /title="Yellow Ball Handicap Shots"/);
+  assert.match(componentSource, /useYellowBallHandicaps\s*&&/);
+  assert.match(pageSource, /holes=\{round\.course\.holes\}/);
+});
+
 test("yellow-ball setup requires two four-player teams and all enabled handicaps", () => {
   const validTeams = [
     { id: "team-a", playerIds: ["a1", "a2", "a3", "a4"] },

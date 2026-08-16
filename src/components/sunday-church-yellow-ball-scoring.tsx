@@ -12,6 +12,7 @@ import {
   ControlledActionFeedback,
   useControlledAction,
 } from "@/components/controlled-action";
+import { HandicapStrokeCard } from "@/components/handicap-stroke-card";
 import { getRelativePlayingHandicaps } from "@/lib/handicap-scoring";
 import {
   computeSundayChurchYellowBallHoleScore,
@@ -32,6 +33,7 @@ export function SundayChurchYellowBallScoring({
   teamLabel,
   currentHole,
   handicapRank,
+  holes,
   players,
   teamFormatConfig,
   playerHandicapIndexes,
@@ -46,6 +48,7 @@ export function SundayChurchYellowBallScoring({
   teamLabel: string;
   currentHole: number;
   handicapRank: number;
+  holes: Array<{ holeNumber: number; handicapRank: number }>;
   players: YellowBallPlayer[];
   teamFormatConfig: unknown;
   playerHandicapIndexes: Record<string, number | null | undefined>;
@@ -154,63 +157,79 @@ export function SundayChurchYellowBallScoring({
     }
   };
 
+  const handicapMap = useYellowBallHandicaps && (
+    <HandicapStrokeCard
+      players={players}
+      playerHandicapIndexes={playerHandicapIndexes}
+      holes={holes}
+      currentHole={currentHole}
+      strokeDisplay="dots"
+      title="Yellow Ball Handicap Shots"
+    />
+  );
+
   if (!orderLocked) {
     return (
-      <Card className="border-2 border-yellow-400 p-4">
-        <h2 className="text-lg font-bold text-gray-900">Set Yellow Ball Order</h2>
-        <p className="mt-1 text-sm text-gray-600">
-          This four-player order repeats on holes 1-16 and locks after your first score.
-        </p>
-        <div className="mt-4 space-y-2">
-          {order.map((playerId, index) => {
-            const player = players.find((candidate) => candidate.playerId === playerId);
-            return (
-              <div key={playerId} className="flex items-center gap-3 border-b border-gray-200 py-2">
-                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-yellow-400 text-sm font-bold text-gray-900">
-                  {index + 1}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium">{player?.name ?? playerId}</p>
-                  <p className="text-xs text-gray-500">
-                    Holes {index + 1}, {index + 5}, {index + 9}, {index + 13}
-                  </p>
+      <>
+        {handicapMap}
+        <Card className="border-2 border-yellow-400 p-4">
+          <h2 className="text-lg font-bold text-gray-900">Set Yellow Ball Order</h2>
+          <p className="mt-1 text-sm text-gray-600">
+            This four-player order repeats on holes 1-16 and locks after your first score.
+          </p>
+          <div className="mt-4 space-y-2">
+            {order.map((playerId, index) => {
+              const player = players.find((candidate) => candidate.playerId === playerId);
+              return (
+                <div key={playerId} className="flex items-center gap-3 border-b border-gray-200 py-2">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-yellow-400 text-sm font-bold text-gray-900">
+                    {index + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium">{player?.name ?? playerId}</p>
+                    <p className="text-xs text-gray-500">
+                      Holes {index + 1}, {index + 5}, {index + 9}, {index + 13}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label={`Move ${player?.name ?? "player"} up`}
+                    title="Move up"
+                    disabled={index === 0 || orderAction.pending}
+                    onClick={() => movePlayer(index, -1)}
+                    className="h-9 w-9 border border-gray-300 bg-white text-lg disabled:opacity-30"
+                  >
+                    &#9650;
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Move ${player?.name ?? "player"} down`}
+                    title="Move down"
+                    disabled={index === order.length - 1 || orderAction.pending}
+                    onClick={() => movePlayer(index, 1)}
+                    className="h-9 w-9 border border-gray-300 bg-white text-lg disabled:opacity-30"
+                  >
+                    &#9660;
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  aria-label={`Move ${player?.name ?? "player"} up`}
-                  title="Move up"
-                  disabled={index === 0 || orderAction.pending}
-                  onClick={() => movePlayer(index, -1)}
-                  className="h-9 w-9 border border-gray-300 bg-white text-lg disabled:opacity-30"
-                >
-                  &#9650;
-                </button>
-                <button
-                  type="button"
-                  aria-label={`Move ${player?.name ?? "player"} down`}
-                  title="Move down"
-                  disabled={index === order.length - 1 || orderAction.pending}
-                  onClick={() => movePlayer(index, 1)}
-                  className="h-9 w-9 border border-gray-300 bg-white text-lg disabled:opacity-30"
-                >
-                  &#9660;
-                </button>
-              </div>
-            );
-          })}
-        </div>
-        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
-          <Button onClick={lockOrder} disabled={orderAction.pending || blocked}>
-            {orderAction.pending ? "Locking..." : "Lock Yellow Ball Order"}
-          </Button>
-          <ControlledActionFeedback state={orderAction.state} />
-        </div>
-      </Card>
+              );
+            })}
+          </div>
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Button onClick={lockOrder} disabled={orderAction.pending || blocked}>
+              {orderAction.pending ? "Locking..." : "Lock Yellow Ball Order"}
+            </Button>
+            <ControlledActionFeedback state={orderAction.state} />
+          </div>
+        </Card>
+      </>
     );
   }
 
   return (
-    <Card className="overflow-hidden border-2 border-yellow-400">
+    <>
+      {handicapMap}
+      <Card className="overflow-hidden border-2 border-yellow-400">
       <div className="bg-gray-900 px-4 py-3 text-white">
         <p className="text-xs font-semibold uppercase text-yellow-300">{teamLabel}</p>
         <h2 className="text-lg font-bold">Enter gross scores</h2>
@@ -291,6 +310,7 @@ export function SundayChurchYellowBallScoring({
           <ControlledActionFeedback state={scoreAction.state} />
         </div>
       </div>
-    </Card>
+      </Card>
+    </>
   );
 }

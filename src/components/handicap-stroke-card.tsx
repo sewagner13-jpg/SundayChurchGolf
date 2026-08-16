@@ -19,10 +19,19 @@ interface HandicapStrokeCardProps {
   playerHandicapIndexes: Record<string, number | null | undefined>;
   holes: HandicapHole[];
   currentHole: number;
+  strokeDisplay?: "number" | "dots";
+  title?: string;
 }
 
-function formatStrokeCount(strokes: number | null) {
+export function formatHandicapStrokeMark(
+  strokes: number | null,
+  displayMode: "number" | "dots" = "number"
+) {
   if (strokes === null || strokes === 0) return "-";
+  if (displayMode === "dots") {
+    const dots = "•".repeat(Math.abs(strokes));
+    return strokes > 0 ? dots : `+${dots}`;
+  }
   return strokes > 0 ? String(strokes) : `+${Math.abs(strokes)}`;
 }
 
@@ -41,6 +50,8 @@ export function HandicapStrokeCard({
   playerHandicapIndexes,
   holes,
   currentHole,
+  strokeDisplay = "number",
+  title = "Handicap Shots",
 }: HandicapStrokeCardProps) {
   const relativeHandicaps = getRelativePlayingHandicaps(playerHandicapIndexes);
 
@@ -48,7 +59,7 @@ export function HandicapStrokeCard({
     <section className="mb-4 border-y border-emerald-200 bg-emerald-50 px-3 py-3">
       <div className="mb-3 space-y-2">
         <div>
-          <h2 className="font-semibold text-emerald-950">Handicap Shots</h2>
+          <h2 className="font-semibold text-emerald-950">{title}</h2>
           <p className="text-xs text-emerald-800">
             Lowest handicap plays from zero. No slope or tee adjustment.
           </p>
@@ -104,7 +115,7 @@ export function HandicapStrokeCard({
                         hole.holeNumber === currentHole ? "bg-emerald-200" : "bg-white"
                       }`}
                     >
-                      {formatStrokeCount(strokes)}
+                      {formatHandicapStrokeMark(strokes, strokeDisplay)}
                     </td>
                   );
                 })}

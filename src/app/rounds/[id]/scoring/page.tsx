@@ -2182,6 +2182,7 @@ export default function LiveScoringPage({
             teamLabel={getTeamLabel(myTeamId)}
             currentHole={currentHole}
             handicapRank={holeInfo.handicapRank}
+            holes={round.course.holes}
             players={myTeam.roundPlayers.map((roundPlayer) => ({
               playerId: roundPlayer.playerId,
               name: roundPlayer.player.nickname || roundPlayer.player.fullName,
