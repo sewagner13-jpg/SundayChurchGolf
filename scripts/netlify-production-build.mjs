@@ -6,6 +6,10 @@ const SITE_URL = "https://sundaychurchgolf.netlify.app";
 const PRODUCTION_BRANCH = "main";
 const REQUIRED_FORMAT_ID = "sunday_church_yellow_ball_skins";
 
+function getDeployTitle(expectedCommitSha) {
+  return `Gated production deploy ${expectedCommitSha}`;
+}
+
 function sleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -52,7 +56,7 @@ function runManualNetlifyDeploy({ expectedCommitSha }) {
         "--timeout",
         "900",
         "--message",
-        `Gated production deploy ${expectedCommitSha.slice(0, 12)}`,
+        getDeployTitle(expectedCommitSha),
       ],
       {
         cwd: process.cwd(),
@@ -183,7 +187,12 @@ export async function runNetlifyProductionBuild({
       intervalMs,
       timeoutMessage: `Timed out waiting for Netlify to deploy ${expectedCommitSha}.`,
     });
-    if (deployedSite.commit_ref !== expectedCommitSha) {
+    const hasExactGitCommit = deployedSite.commit_ref === expectedCommitSha;
+    const hasExactManualDeployIdentity =
+      !deployedSite.commit_ref &&
+      deployedSite.branch === PRODUCTION_BRANCH &&
+      deployedSite.title === getDeployTitle(expectedCommitSha);
+    if (!hasExactGitCommit && !hasExactManualDeployIdentity) {
       throw new Error(
         `Netlify deployed ${deployedSite.commit_ref || "an unknown commit"}; expected ${expectedCommitSha}.`
       );
@@ -205,7 +214,7 @@ export async function runNetlifyProductionBuild({
       throw new Error("Production format smoke check did not find Sunday Church Yellow Ball Skins.");
     }
 
-    return { deployId: deployedSite.id, commitSha: deployedSite.commit_ref };
+    return { deployId: deployedSite.id, commitSha: expectedCommitSha };
   } finally {
     await assertAutomaticBuildsStopped({ api });
   }

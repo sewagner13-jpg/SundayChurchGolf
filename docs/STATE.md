@@ -57,3 +57,4 @@ New JavaScript, TypeScript, and TSX source files are capped at 500 lines. The ch
 - Netlify automatic Git builds are stopped. Production remains commit `85ea086`; SCG-001 has not been deployed or seeded in production.
 - SCG-001 was fast-forwarded into local `main` after release verification and independent review. Push and production deployment remain separately gated.
 - SCG-002 API checkout failed with `Host key verification failed`, and the Git webhook produced no build. Production and the database remained unchanged. The release gate now uses a manual Netlify CLI production deploy while automatic builds stay stopped.
+- The first manual CLI deploy published and seeded production, but failed closed because Netlify leaves `commit_ref` empty for CLI deploys. The gate now requires the exact full commit SHA in the manual deploy title and rejects abbreviated or mismatched titles.

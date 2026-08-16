@@ -242,6 +242,63 @@ test("attended manual Netlify deploy verifies the exact commit and seeded format
   ]);
 });
 
+test("attended manual Netlify deploy accepts only a full-SHA deploy title when commit metadata is absent", async () => {
+  const expectedCommitSha = "abc123def456abc123def456abc123def456abcd";
+  const api = async (method: string) => {
+    if (method === "getSite") return { build_settings: { stop_builds: true } };
+    return {
+      id: "deploy-1",
+      state: "ready",
+      commit_ref: null,
+      branch: "main",
+      title: `Gated production deploy ${expectedCommitSha}`,
+    };
+  };
+  const fetchImpl = (async (input: RequestInfo | URL) => ({
+    ok: true,
+    status: 200,
+    json: async () =>
+      String(input).includes("/api/formats")
+        ? [{ definitionId: "sunday_church_yellow_ball_skins" }]
+        : {},
+  })) as typeof fetch;
+
+  assert.deepEqual(
+    await runNetlifyProductionBuild({
+      expectedCommitSha,
+      api,
+      push: async () => {},
+      deploy: async () => ({ deploy_id: "deploy-1" }),
+      fetchImpl,
+      attempts: 1,
+      intervalMs: 0,
+    }),
+    { deployId: "deploy-1", commitSha: expectedCommitSha }
+  );
+
+  await assert.rejects(
+    () => runNetlifyProductionBuild({
+      expectedCommitSha,
+      api: async (method: string) => {
+        if (method === "getSite") return { build_settings: { stop_builds: true } };
+        return {
+          id: "deploy-2",
+          state: "ready",
+          commit_ref: null,
+          branch: "main",
+          title: `Gated production deploy ${expectedCommitSha.slice(0, 12)}`,
+        };
+      },
+      push: async () => {},
+      deploy: async () => ({ deploy_id: "deploy-2" }),
+      fetchImpl,
+      attempts: 1,
+      intervalMs: 0,
+    }),
+    /unknown commit/
+  );
+});
+
 test("attended Netlify build restores stopped builds after a failed Git push", async () => {
   const calls: string[] = [];
   const api = async (method: string) => {
