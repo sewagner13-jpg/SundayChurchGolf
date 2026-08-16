@@ -31,6 +31,59 @@ function runGitPush() {
   });
 }
 
+function runManualNetlifyDeploy({ expectedCommitSha }) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      "npx",
+      [
+        "--yes",
+        "-p",
+        "node@20.19.4",
+        "-p",
+        "netlify-cli@27.1.1",
+        "netlify",
+        "deploy",
+        "--prod",
+        "--context",
+        "production",
+        "--site",
+        SITE_ID,
+        "--json",
+        "--timeout",
+        "900",
+        "--message",
+        `Gated production deploy ${expectedCommitSha.slice(0, 12)}`,
+      ],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          BRANCH: PRODUCTION_BRANCH,
+          COMMIT_REF: expectedCommitSha,
+          CONTEXT: "production",
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      }
+    );
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.once("error", reject);
+    child.once("close", (exitCode) => {
+      if (exitCode !== 0) {
+        reject(new Error(stderr.trim() || stdout.trim() || `Netlify deploy failed with ${exitCode}.`));
+        return;
+      }
+      try {
+        resolve(JSON.parse(stdout));
+      } catch {
+        reject(new Error(`Netlify deploy returned invalid JSON. ${stderr.trim()}`));
+      }
+    });
+  });
+}
+
 function runNetlifyApi(method, data) {
   return new Promise((resolve, reject) => {
     const child = spawn(
@@ -76,19 +129,6 @@ export async function assertAutomaticBuildsStopped({ api = runNetlifyApi } = {})
   }
 }
 
-async function setAutomaticBuildsStopped(stopped, { api = runNetlifyApi } = {}) {
-  await api("updateSite", {
-    site_id: SITE_ID,
-    body: { build_settings: { stop_builds: stopped } },
-  });
-  const site = await api("getSite", { site_id: SITE_ID });
-  if (site?.build_settings?.stop_builds !== stopped) {
-    throw new Error(
-      `Netlify build status did not change to ${stopped ? "stopped" : "active"}.`
-    );
-  }
-}
-
 async function pollUntil(check, { attempts, intervalMs, timeoutMessage }) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const result = await check();
@@ -103,6 +143,7 @@ async function pollUntil(check, { attempts, intervalMs, timeoutMessage }) {
  *   expectedCommitSha: string;
  *   api?: (method: string, data: Record<string, unknown>) => Promise<any>;
  *   push?: () => Promise<void>;
+ *   deploy?: (options: { expectedCommitSha: string }) => Promise<any>;
  *   fetchImpl?: typeof fetch;
  *   attempts?: number;
  *   intervalMs?: number;
@@ -112,6 +153,7 @@ export async function runNetlifyProductionBuild({
   expectedCommitSha,
   api = runNetlifyApi,
   push = runGitPush,
+  deploy = runManualNetlifyDeploy,
   fetchImpl = fetch,
   attempts = 180,
   intervalMs = 5000,
@@ -119,34 +161,31 @@ export async function runNetlifyProductionBuild({
   if (!expectedCommitSha) throw new Error("EXPECTED_COMMIT_SHA is required.");
   await assertAutomaticBuildsStopped({ api });
   try {
-    await setAutomaticBuildsStopped(false, { api });
     await push();
+    const created = await deploy({ expectedCommitSha });
+    const deployId = created?.deploy_id ?? created?.deployId ?? created?.id;
+    if (!deployId) throw new Error("Netlify did not return a production deploy ID.");
 
-    const deploy = await pollUntil(async () => {
-      const deploys = await api("listSiteDeploys", { site_id: SITE_ID, per_page: 20 });
-      const matchingDeploy = Array.isArray(deploys)
-        ? deploys.find((candidate) => candidate?.commit_ref === expectedCommitSha)
-        : null;
-      if (!matchingDeploy?.id) return { done: false };
+    const deployedSite = await pollUntil(async () => {
       const current = await api("getSiteDeploy", {
         site_id: SITE_ID,
-        deploy_id: matchingDeploy.id,
+        deploy_id: deployId,
       });
       if (["error", "failed"].includes(current?.state)) {
         throw new Error(`Netlify deploy failed: ${current.error_message || current.state}`);
       }
       return {
         done: current?.state === "ready",
-        value: { ...current, id: current?.id ?? matchingDeploy.id },
+        value: { ...current, id: current?.id ?? deployId },
       };
     }, {
       attempts,
       intervalMs,
       timeoutMessage: `Timed out waiting for Netlify to deploy ${expectedCommitSha}.`,
     });
-    if (deploy.commit_ref !== expectedCommitSha) {
+    if (deployedSite.commit_ref !== expectedCommitSha) {
       throw new Error(
-        `Netlify deployed ${deploy.commit_ref || "an unknown commit"}; expected ${expectedCommitSha}.`
+        `Netlify deployed ${deployedSite.commit_ref || "an unknown commit"}; expected ${expectedCommitSha}.`
       );
     }
 
@@ -166,9 +205,9 @@ export async function runNetlifyProductionBuild({
       throw new Error("Production format smoke check did not find Sunday Church Yellow Ball Skins.");
     }
 
-    return { deployId: deploy.id, commitSha: deploy.commit_ref };
+    return { deployId: deployedSite.id, commitSha: deployedSite.commit_ref };
   } finally {
-    await setAutomaticBuildsStopped(true, { api });
+    await assertAutomaticBuildsStopped({ api });
   }
 }
 

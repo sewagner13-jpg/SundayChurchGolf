@@ -182,7 +182,7 @@ test("release configuration requires an attended Netlify production build", () =
   );
 });
 
-test("production deployment uses one Git-triggered Netlify build", async () => {
+test("production deployment uses one gated manual Netlify deploy", async () => {
   const deploySource = await readFile(
     new URL("../../scripts/deploy-production.mjs", import.meta.url),
     "utf8"
@@ -193,27 +193,22 @@ test("production deployment uses one Git-triggered Netlify build", async () => {
   );
   assert.doesNotMatch(deploySource, /push-deploy-branch/);
   assert.doesNotMatch(netlifySource, /createSiteBuild/);
-  assert.match(netlifySource, /listSiteDeploys/);
+  assert.match(netlifySource, /netlify-cli@27\.1\.1/);
+  assert.match(netlifySource, /"deploy",\s*"--prod"/);
 });
 
-test("attended Netlify Git build verifies the exact commit and seeded format", async () => {
+test("attended manual Netlify deploy verifies the exact commit and seeded format", async () => {
   const calls: string[] = [];
-  let buildsStopped = true;
-  const api = async (method: string, data?: Record<string, unknown>) => {
-    const stopped = (data?.body as { build_settings?: { stop_builds?: boolean } } | undefined)
-      ?.build_settings?.stop_builds;
-    calls.push(stopped === undefined ? method : `${method}:${stopped}`);
-    if (method === "getSite") return { build_settings: { stop_builds: buildsStopped } };
-    if (method === "updateSite") {
-      buildsStopped = stopped ?? buildsStopped;
-      return { build_settings: { stop_builds: buildsStopped } };
-    }
-    if (method === "listSiteDeploys") {
-      return [{ id: "deploy-1", state: "building", commit_ref: "abc123" }];
-    }
-    return { state: "ready", commit_ref: "abc123" };
+  const api = async (method: string) => {
+    calls.push(method);
+    if (method === "getSite") return { build_settings: { stop_builds: true } };
+    return { id: "deploy-1", state: "ready", commit_ref: "abc123" };
   };
   const push = async () => { calls.push("gitPush"); };
+  const deploy = async () => {
+    calls.push("manualDeploy");
+    return { deploy_id: "deploy-1" };
+  };
   const fetchImpl = (async (input: RequestInfo | URL) => {
     const url = String(input);
     return {
@@ -231,6 +226,7 @@ test("attended Netlify Git build verifies the exact commit and seeded format", a
       expectedCommitSha: "abc123",
       api,
       push,
+      deploy,
       fetchImpl,
       attempts: 1,
       intervalMs: 0,
@@ -239,62 +235,42 @@ test("attended Netlify Git build verifies the exact commit and seeded format", a
   );
   assert.deepEqual(calls, [
     "getSite",
-    "updateSite:false",
-    "getSite",
     "gitPush",
-    "listSiteDeploys",
+    "manualDeploy",
     "getSiteDeploy",
-    "updateSite:true",
     "getSite",
   ]);
 });
 
 test("attended Netlify build restores stopped builds after a failed Git push", async () => {
   const calls: string[] = [];
-  let buildsStopped = true;
-  const api = async (method: string, data?: Record<string, unknown>) => {
-    const stopped = (data?.body as { build_settings?: { stop_builds?: boolean } } | undefined)
-      ?.build_settings?.stop_builds;
-    calls.push(stopped === undefined ? method : `${method}:${stopped}`);
-    if (method === "getSite") return { build_settings: { stop_builds: buildsStopped } };
-    if (method === "updateSite") {
-      buildsStopped = stopped ?? buildsStopped;
-      return { build_settings: { stop_builds: buildsStopped } };
-    }
+  const api = async (method: string) => {
+    calls.push(method);
+    if (method === "getSite") return { build_settings: { stop_builds: true } };
     throw new Error(`Unexpected API call: ${method}`);
   };
   const push = async () => { throw new Error("forced Git push failure"); };
 
   await assert.rejects(
-    () => runNetlifyProductionBuild({ expectedCommitSha: "abc123", api, push }),
+    () => runNetlifyProductionBuild({
+      expectedCommitSha: "abc123",
+      api,
+      push,
+      deploy: async () => { throw new Error("Manual deploy must not run"); },
+    }),
     /forced Git push failure/
   );
   assert.deepEqual(calls, [
     "getSite",
-    "updateSite:false",
-    "getSite",
-    "updateSite:true",
     "getSite",
   ]);
 });
 
-test("attended Netlify build restores stopped builds after activation verification fails", async () => {
+test("attended Netlify build remains stopped after a failed manual deploy", async () => {
   const calls: string[] = [];
-  let buildsStopped = true;
-  let getSiteCount = 0;
-  const api = async (method: string, data?: Record<string, unknown>) => {
-    const stopped = (data?.body as { build_settings?: { stop_builds?: boolean } } | undefined)
-      ?.build_settings?.stop_builds;
-    calls.push(stopped === undefined ? method : `${method}:${stopped}`);
-    if (method === "updateSite") {
-      buildsStopped = stopped ?? buildsStopped;
-      return { build_settings: { stop_builds: buildsStopped } };
-    }
-    if (method === "getSite") {
-      getSiteCount += 1;
-      if (getSiteCount === 2) throw new Error("forced activation verification failure");
-      return { build_settings: { stop_builds: buildsStopped } };
-    }
+  const api = async (method: string) => {
+    calls.push(method);
+    if (method === "getSite") return { build_settings: { stop_builds: true } };
     throw new Error(`Unexpected API call: ${method}`);
   };
 
@@ -302,15 +278,14 @@ test("attended Netlify build restores stopped builds after activation verificati
     () => runNetlifyProductionBuild({
       expectedCommitSha: "abc123",
       api,
-      push: async () => { throw new Error("Git push must not run"); },
+      push: async () => { calls.push("gitPush"); },
+      deploy: async () => { throw new Error("forced manual deploy failure"); },
     }),
-    /forced activation verification failure/
+    /forced manual deploy failure/
   );
   assert.deepEqual(calls, [
     "getSite",
-    "updateSite:false",
-    "getSite",
-    "updateSite:true",
+    "gitPush",
     "getSite",
   ]);
 });

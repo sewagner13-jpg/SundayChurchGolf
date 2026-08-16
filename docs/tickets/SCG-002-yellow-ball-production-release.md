@@ -25,4 +25,5 @@ Production deployment, schema synchronization, seeding, and one disposable Yello
 
 - 2026-08-15: The first gate run stopped before push because duplicate generated `node_modules/@types/* 2` folders broke typecheck. `npm ci` repaired the dependency tree and typecheck passed.
 - 2026-08-15: The second gate passed all local checks and pushed `1ad00bc`, but Netlify's API-triggered build failed before checkout with `Host key verification failed`; no database or production mutation occurred and builds were restored to stopped.
-- 2026-08-15: Replaced the failing API trigger with one Git-triggered build inside the attended gate. Red-green tests enforce exact-commit polling and stopped-build restoration after activation or push failures.
+- 2026-08-15: A Git-triggered retry pushed `f696177`, but the disconnected Netlify Git webhook created no build. The wait was stopped and automatic builds were explicitly restored to stopped.
+- 2026-08-15: Replaced remote repository builds with a gated manual Netlify CLI production deploy, which runs the production build, schema sync, and seed while automatic builds remain stopped. Red-green tests enforce exact-commit verification and stopped-build checks after failures.
