@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { Decimal } from "@prisma/client/runtime/library";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 
+import { SundayChurchYellowBallScoring } from "@/components/sunday-church-yellow-ball-scoring";
 import { getRelativePlayingHandicaps } from "@/lib/handicap-scoring";
 import { getFormatById } from "@/lib/format-definitions";
 import {
@@ -109,6 +112,54 @@ test("yellow-ball scoring shows the shared dot handicap map for every course hol
   assert.match(componentSource, /title="Yellow Ball Handicap Shots"/);
   assert.match(componentSource, /useYellowBallHandicaps\s*&&/);
   assert.match(pageSource, /holes=\{round\.course\.holes\}/);
+});
+
+test("yellow-ball production component uses full-round offsets and hides the map when disabled", () => {
+  const props = {
+    roundId: "round-1",
+    teamId: "team-b",
+    teamLabel: "Team Bravo",
+    currentHole: 1,
+    handicapRank: 1,
+    holes: courseHoles,
+    players: [
+      { playerId: "b1", name: "Jim" },
+      { playerId: "b2", name: "David" },
+      { playerId: "b3", name: "Tony" },
+      { playerId: "b4", name: "Sean" },
+    ],
+    teamFormatConfig: null,
+    playerHandicapIndexes: {
+      a1: 6,
+      a2: 9,
+      a3: 12,
+      a4: 15,
+      b1: 7,
+      b2: 10,
+      b3: 13,
+      b4: 16,
+    },
+    existingHoleData: null,
+    hole17CarrierId: null,
+    blocked: false,
+    onSaved: () => undefined,
+  };
+  const enabled = renderToStaticMarkup(
+    createElement(SundayChurchYellowBallScoring, {
+      ...props,
+      useYellowBallHandicaps: true,
+    })
+  );
+  const disabled = renderToStaticMarkup(
+    createElement(SundayChurchYellowBallScoring, {
+      ...props,
+      useYellowBallHandicaps: false,
+    })
+  );
+
+  assert.match(enabled, /Yellow Ball Handicap Shots/);
+  assert.match(enabled, /HCP 7 \/ plays 1/);
+  assert.doesNotMatch(disabled, /Yellow Ball Handicap Shots/);
 });
 
 test("yellow-ball setup requires two four-player teams and all enabled handicaps", () => {

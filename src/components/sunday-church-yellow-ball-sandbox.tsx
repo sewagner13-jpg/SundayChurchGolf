@@ -223,7 +223,7 @@ export function SundayChurchYellowBallSandbox() {
       </header>
 
       <HandicapStrokeCard
-        players={teamPlayers("team-a").map(({ playerId, name }) => ({
+        players={teamPlayers("team-b").map(({ playerId, name }) => ({
           playerId,
           name,
         }))}

@@ -8,8 +8,9 @@ test("yellow-ball sandbox applies handicap dots and skin carryovers", async ({ p
   });
   await expect(handicapMap).toBeVisible();
   await expect(handicapMap.getByRole("columnheader")).toHaveCount(19);
-  await expect(handicapMap.getByLabel("Albert, hole 1: No shot")).toHaveText("-");
-  await expect(handicapMap.getByLabel("Eddie, hole 1: Gets 1 shot")).toHaveText("•");
+  await expect(handicapMap.getByText("HCP 7 / plays 1")).toBeVisible();
+  await expect(handicapMap.getByLabel("Jim, hole 1: Gets 1 shot")).toHaveText("•");
+  await expect(handicapMap.getByLabel("Jim, hole 2: No shot")).toHaveText("-");
   await expect(
     handicapMap.getByRole("columnheader", { name: "Hole 1, current hole" })
   ).toBeVisible();
@@ -69,11 +70,30 @@ test("yellow-ball grid stays readable at 390 by 844", async ({ page }, testInfo)
     name: "Yellow Ball Handicap Shots by hole",
   });
   await expect(handicapMap).toBeVisible();
-  await expect(handicapMap.getByText("HCP 6 / plays 0")).toBeVisible();
+  await expect(handicapMap.getByText("HCP 7 / plays 1")).toBeVisible();
   const dotFontSize = await handicapMap
-    .getByLabel("Eddie, hole 1: Gets 1 shot")
+    .getByLabel("Jim, hole 1: Gets 1 shot")
     .evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize));
   expect(dotFontSize).toBeGreaterThanOrEqual(16);
+  const handicapScroller = handicapMap.locator("..");
+  const stickyPlayerHeader = handicapMap.getByRole("columnheader", { name: "Player" });
+  const stickyPlayerRow = handicapMap.getByRole("rowheader", { name: /Jim/ });
+  const [playerHeaderBefore, playerRowBefore] = await Promise.all([
+    stickyPlayerHeader.boundingBox(),
+    stickyPlayerRow.boundingBox(),
+  ]);
+  await handicapScroller.evaluate((element) => {
+    element.scrollLeft = 500;
+  });
+  const [playerHeaderAfter, playerRowAfter] = await Promise.all([
+    stickyPlayerHeader.boundingBox(),
+    stickyPlayerRow.boundingBox(),
+  ]);
+  expect(Math.abs((playerHeaderBefore?.x ?? 0) - (playerHeaderAfter?.x ?? 0))).toBeLessThan(2);
+  expect(Math.abs((playerRowBefore?.x ?? 0) - (playerRowAfter?.x ?? 0))).toBeLessThan(2);
+  await handicapScroller.evaluate((element) => {
+    element.scrollLeft = 0;
+  });
   const handicapLayout = await handicapMap.evaluate((element) => ({
     bodyWidth: document.body.scrollWidth,
     viewportWidth: window.innerWidth,
