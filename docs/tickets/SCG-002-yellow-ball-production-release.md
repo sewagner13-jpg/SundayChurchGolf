@@ -2,7 +2,7 @@
 
 ## Status
 
-Blocked after successful deployment. Production is live; the disposable smoke round cannot be created while the user's existing draft remains active.
+Complete. Production deployed successfully; the user explicitly removed the disposable smoke requirement on 2026-08-16.
 
 ## User Outcome
 
@@ -30,3 +30,4 @@ Production deployment, schema synchronization, seeding, and one disposable Yello
 - 2026-08-15: The first manual CLI deploy published deploy `6a810f748af4ecf29c61564c` and seeded Yellow Ball, but the gate failed closed because CLI deploys expose a null `commit_ref`. A regression test failed before the fix and passed after the gate began requiring the full expected SHA in the deploy title; abbreviated titles remain rejected.
 - 2026-08-15: `npm run deploy:production -- --confirm` passed for commit `28ea251419e8d50b8a8aa19c56ec591ab14350d7`. The gate passed 119 unit tests, typecheck, lint with 43 warnings and no errors, production build, 5 Playwright tests, production schema sync, seed, exact full-SHA deployment identity, live home and format checks, and stopped-build restoration. Netlify deploy: `6a81102bea98cba787dc3ea2`.
 - 2026-08-15: Live UI verification confirmed Sunday Church Yellow Ball Skins is selectable and defaults to using Yellow Ball handicaps. Production already contains user-owned draft `cmsuqvycj0001la09ri2bq1fr` with 12 players, 3 four-player teams, $30 buy-in, and the older Lone Ranger format. The app correctly rejects a second active round, so the authorized disposable smoke was not created and the existing draft was not modified.
+- 2026-08-16: The user explicitly directed that no disposable smoke run be performed. SCG-002 is complete with the production deploy and seed evidence above.

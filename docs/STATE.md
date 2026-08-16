@@ -28,14 +28,12 @@ New JavaScript, TypeScript, and TSX source files are capped at 500 lines. The ch
 
 ## Operating Mode
 
-- Active ticket: `SCG-003` - Show Yellow Ball handicap dots before teams lock their rotation.
-- Last completed ticket: `SCG-001` - Sunday Church Yellow Ball Skins.
+- Active ticket: none.
+- Last completed ticket: `SCG-003` - Yellow Ball handicap map.
 - Outcome: teams can compare every player's relative handicap shots by hole while choosing and using the Yellow Ball order.
 - Branch of truth: `main`.
-- Deployment is explicitly authorized for SCG-003 and must use the attended production gate.
+- Deployment requires a new attended approval and must use the production gate.
 - Ticket record: `docs/tickets/SCG-003-yellow-ball-handicap-map.md`.
-- Parked blocker: SCG-002 deployed successfully, but its disposable production smoke remains blocked by the user-owned active draft.
-- Authorized production mutation: change draft `cmsuqvycj0001la09ri2bq1fr` to Sunday Church Yellow Ball Skins with handicaps enabled; preserve its roster, teams, course, date, and buy-in.
 
 ## Verification Evidence
 
@@ -62,3 +60,6 @@ New JavaScript, TypeScript, and TSX source files are capped at 500 lines. The ch
 - The first manual CLI deploy published and seeded production, but failed closed because Netlify leaves `commit_ref` empty for CLI deploys. The gate now requires the exact full commit SHA in the manual deploy title and rejects abbreviated or mismatched titles.
 - SCG-002 gated deployment passed on 2026-08-15 with 119 unit tests, typecheck, lint with 43 existing warnings and no errors, production build, and 5 Playwright tests. Netlify deploy `6a81102bea98cba787dc3ea2` is ready for commit `28ea251419e8d50b8a8aa19c56ec591ab14350d7`; schema sync and seed ran in the production build, `/api/formats` includes Yellow Ball, and automatic builds remain stopped.
 - Production UI verification showed Sunday Church Yellow Ball Skins selectable with handicaps enabled by default. The disposable production round is blocked by the existing user-owned draft `cmsuqvycj0001la09ri2bq1fr` (12 players, 3 teams, $30 buy-in); the one-active-round guard was preserved and the draft was not changed.
+- SCG-003 release verification passed with 122 unit tests, typecheck, lint with 43 existing warnings and no errors, production build, and 5 browser tests. Dot sizing and the sticky handicap player column were each proven red before restoration and green afterward.
+- Production deploy `6a81a14ea3bffef87ae12014` is ready for exact commit `b4b32c35e956d77bd8d444682aace1b13f76f2f1`; live HTTP returned 200 and automatic builds remain stopped.
+- Live round `cmsvpapkh0001jt09ia7sx74t` was already Sunday Church Yellow Ball Skins with handicaps enabled. The live screen showed all four team players' dot map above the unlocked order, with 0/18 scores; no score, order, roster, team, or round mutation was made.
