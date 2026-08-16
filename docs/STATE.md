@@ -56,3 +56,4 @@ New JavaScript, TypeScript, and TSX source files are capped at 500 lines. The ch
 - SCG-001 negative probes proved state, line-cap, control-feedback, seed-order, branch, expected-commit, browser, and deploy-confirmation gates fail closed. Netlify activation, trigger failure, and restoration paths were separately proven red then green.
 - Netlify automatic Git builds are stopped. Production remains commit `85ea086`; SCG-001 has not been deployed or seeded in production.
 - SCG-001 was fast-forwarded into local `main` after release verification and independent review. Push and production deployment remain separately gated.
+- SCG-002 first deployment attempt stopped before Netlify checkout with `Host key verification failed`; production and the database remained unchanged. The release gate now uses one Git-triggered build and forbids the failing API-trigger path.

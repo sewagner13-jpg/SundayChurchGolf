@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -182,7 +182,21 @@ test("release configuration requires an attended Netlify production build", () =
   );
 });
 
-test("attended Netlify build verifies the exact commit and seeded format", async () => {
+test("production deployment uses one Git-triggered Netlify build", async () => {
+  const deploySource = await readFile(
+    new URL("../../scripts/deploy-production.mjs", import.meta.url),
+    "utf8"
+  );
+  const netlifySource = await readFile(
+    new URL("../../scripts/netlify-production-build.mjs", import.meta.url),
+    "utf8"
+  );
+  assert.doesNotMatch(deploySource, /push-deploy-branch/);
+  assert.doesNotMatch(netlifySource, /createSiteBuild/);
+  assert.match(netlifySource, /listSiteDeploys/);
+});
+
+test("attended Netlify Git build verifies the exact commit and seeded format", async () => {
   const calls: string[] = [];
   let buildsStopped = true;
   const api = async (method: string, data?: Record<string, unknown>) => {
@@ -194,10 +208,12 @@ test("attended Netlify build verifies the exact commit and seeded format", async
       buildsStopped = stopped ?? buildsStopped;
       return { build_settings: { stop_builds: buildsStopped } };
     }
-    if (method === "createSiteBuild") return { id: "build-1", deploy_id: "deploy-1" };
-    if (method === "getSiteBuild") return { done: true, deploy_id: "deploy-1" };
+    if (method === "listSiteDeploys") {
+      return [{ id: "deploy-1", state: "building", commit_ref: "abc123" }];
+    }
     return { state: "ready", commit_ref: "abc123" };
   };
+  const push = async () => { calls.push("gitPush"); };
   const fetchImpl = (async (input: RequestInfo | URL) => {
     const url = String(input);
     return {
@@ -214,25 +230,26 @@ test("attended Netlify build verifies the exact commit and seeded format", async
     await runNetlifyProductionBuild({
       expectedCommitSha: "abc123",
       api,
+      push,
       fetchImpl,
       attempts: 1,
       intervalMs: 0,
     }),
-    { buildId: "build-1", deployId: "deploy-1", commitSha: "abc123" }
+    { deployId: "deploy-1", commitSha: "abc123" }
   );
   assert.deepEqual(calls, [
     "getSite",
     "updateSite:false",
     "getSite",
-    "createSiteBuild",
-    "getSiteBuild",
+    "gitPush",
+    "listSiteDeploys",
     "getSiteDeploy",
     "updateSite:true",
     "getSite",
   ]);
 });
 
-test("attended Netlify build restores stopped builds after a failed trigger", async () => {
+test("attended Netlify build restores stopped builds after a failed Git push", async () => {
   const calls: string[] = [];
   let buildsStopped = true;
   const api = async (method: string, data?: Record<string, unknown>) => {
@@ -244,18 +261,18 @@ test("attended Netlify build restores stopped builds after a failed trigger", as
       buildsStopped = stopped ?? buildsStopped;
       return { build_settings: { stop_builds: buildsStopped } };
     }
-    throw new Error("forced build trigger failure");
+    throw new Error(`Unexpected API call: ${method}`);
   };
+  const push = async () => { throw new Error("forced Git push failure"); };
 
   await assert.rejects(
-    () => runNetlifyProductionBuild({ expectedCommitSha: "abc123", api }),
-    /forced build trigger failure/
+    () => runNetlifyProductionBuild({ expectedCommitSha: "abc123", api, push }),
+    /forced Git push failure/
   );
   assert.deepEqual(calls, [
     "getSite",
     "updateSite:false",
     "getSite",
-    "createSiteBuild",
     "updateSite:true",
     "getSite",
   ]);
@@ -282,7 +299,11 @@ test("attended Netlify build restores stopped builds after activation verificati
   };
 
   await assert.rejects(
-    () => runNetlifyProductionBuild({ expectedCommitSha: "abc123", api }),
+    () => runNetlifyProductionBuild({
+      expectedCommitSha: "abc123",
+      api,
+      push: async () => { throw new Error("Git push must not run"); },
+    }),
     /forced activation verification failure/
   );
   assert.deepEqual(calls, [

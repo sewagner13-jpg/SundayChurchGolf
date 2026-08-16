@@ -10,6 +10,27 @@ function sleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+function runGitPush() {
+  return new Promise((resolve, reject) => {
+    const child = spawn("git", ["push", "origin", PRODUCTION_BRANCH], {
+      cwd: process.cwd(),
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.once("error", reject);
+    child.once("close", (exitCode) => {
+      if (exitCode === 0) {
+        resolve();
+        return;
+      }
+      reject(new Error(stderr.trim() || stdout.trim() || `git push failed with ${exitCode}.`));
+    });
+  });
+}
+
 function runNetlifyApi(method, data) {
   return new Promise((resolve, reject) => {
     const child = spawn(
@@ -81,6 +102,7 @@ async function pollUntil(check, { attempts, intervalMs, timeoutMessage }) {
  * @param {{
  *   expectedCommitSha: string;
  *   api?: (method: string, data: Record<string, unknown>) => Promise<any>;
+ *   push?: () => Promise<void>;
  *   fetchImpl?: typeof fetch;
  *   attempts?: number;
  *   intervalMs?: number;
@@ -89,6 +111,7 @@ async function pollUntil(check, { attempts, intervalMs, timeoutMessage }) {
 export async function runNetlifyProductionBuild({
   expectedCommitSha,
   api = runNetlifyApi,
+  push = runGitPush,
   fetchImpl = fetch,
   attempts = 180,
   intervalMs = 5000,
@@ -97,35 +120,29 @@ export async function runNetlifyProductionBuild({
   await assertAutomaticBuildsStopped({ api });
   try {
     await setAutomaticBuildsStopped(false, { api });
-    const created = await api("createSiteBuild", {
-      site_id: SITE_ID,
-      branch: PRODUCTION_BRANCH,
-      title: `Gated production deploy ${expectedCommitSha.slice(0, 12)}`,
-    });
-    if (!created?.id) throw new Error("Netlify did not return a production build ID.");
-
-    const build = await pollUntil(async () => {
-      const current = await api("getSiteBuild", { build_id: created.id });
-      if (current?.error) throw new Error(`Netlify build failed: ${current.error}`);
-      return { done: current?.done === true, value: current };
-    }, {
-      attempts,
-      intervalMs,
-      timeoutMessage: "Timed out waiting for the Netlify production build.",
-    });
-    const deployId = build.deploy_id ?? created.deploy_id;
-    if (!deployId) throw new Error("Netlify did not return a production deploy ID.");
+    await push();
 
     const deploy = await pollUntil(async () => {
-      const current = await api("getSiteDeploy", { site_id: SITE_ID, deploy_id: deployId });
+      const deploys = await api("listSiteDeploys", { site_id: SITE_ID, per_page: 20 });
+      const matchingDeploy = Array.isArray(deploys)
+        ? deploys.find((candidate) => candidate?.commit_ref === expectedCommitSha)
+        : null;
+      if (!matchingDeploy?.id) return { done: false };
+      const current = await api("getSiteDeploy", {
+        site_id: SITE_ID,
+        deploy_id: matchingDeploy.id,
+      });
       if (["error", "failed"].includes(current?.state)) {
         throw new Error(`Netlify deploy failed: ${current.error_message || current.state}`);
       }
-      return { done: current?.state === "ready", value: current };
+      return {
+        done: current?.state === "ready",
+        value: { ...current, id: current?.id ?? matchingDeploy.id },
+      };
     }, {
       attempts,
       intervalMs,
-      timeoutMessage: "Timed out waiting for the Netlify production deploy.",
+      timeoutMessage: `Timed out waiting for Netlify to deploy ${expectedCommitSha}.`,
     });
     if (deploy.commit_ref !== expectedCommitSha) {
       throw new Error(
@@ -149,7 +166,7 @@ export async function runNetlifyProductionBuild({
       throw new Error("Production format smoke check did not find Sunday Church Yellow Ball Skins.");
     }
 
-    return { buildId: created.id, deployId, commitSha: deploy.commit_ref };
+    return { deployId: deploy.id, commitSha: deploy.commit_ref };
   } finally {
     await setAutomaticBuildsStopped(true, { api });
   }

@@ -59,7 +59,6 @@ async function main() {
         command: process.execPath,
         args: ["scripts/netlify-production-build.mjs", "--check-config"],
       },
-      { id: "push-deploy-branch", command: "git", args: ["push", "origin", PRODUCTION_BRANCH] },
       {
         id: "netlify-production-build",
         command: process.execPath,
