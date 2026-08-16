@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 
+import { HandicapStrokeCard } from "@/components/handicap-stroke-card";
 import { SundayChurchYellowBallGrid } from "@/components/sunday-church-yellow-ball-grid";
 import {
   computeSundayChurchYellowBallHoleData,
@@ -220,6 +221,18 @@ export function SundayChurchYellowBallSandbox() {
         <h1 className="text-2xl font-bold text-gray-950">Sunday Church Yellow Ball Skins Sandbox</h1>
         <p className="mt-1 text-sm text-gray-600">$30 buy-in x 8 players = $240 pot. Sandbox data only.</p>
       </header>
+
+      <HandicapStrokeCard
+        players={teamPlayers("team-a").map(({ playerId, name }) => ({
+          playerId,
+          name,
+        }))}
+        playerHandicapIndexes={HANDICAPS}
+        holes={HOLES}
+        currentHole={currentHole}
+        strokeDisplay="dots"
+        title="Yellow Ball Handicap Shots"
+      />
 
       {!ordersLocked ? (
         <section className="py-5">

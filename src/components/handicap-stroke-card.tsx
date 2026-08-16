@@ -70,7 +70,10 @@ export function HandicapStrokeCard({
       </div>
 
       <div className="overflow-x-auto">
-        <table className="min-w-max border-collapse text-center text-xs">
+        <table
+          aria-label={`${title} by hole`}
+          className="min-w-max border-collapse text-center text-xs"
+        >
           <thead>
             <tr>
               <th className="sticky left-0 z-10 min-w-36 border border-emerald-200 bg-emerald-100 px-2 py-2 text-left">
@@ -113,7 +116,7 @@ export function HandicapStrokeCard({
                       aria-label={`${player.name}, hole ${hole.holeNumber}: ${formatCurrentHoleStrokes(strokes)}`}
                       className={`border border-emerald-200 px-1 py-2 font-semibold ${
                         hole.holeNumber === currentHole ? "bg-emerald-200" : "bg-white"
-                      }`}
+                      } ${strokeDisplay === "dots" ? "text-base leading-none" : ""}`}
                     >
                       {formatHandicapStrokeMark(strokes, strokeDisplay)}
                     </td>

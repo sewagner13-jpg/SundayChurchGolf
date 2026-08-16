@@ -3,7 +3,18 @@ import { expect, test } from "@playwright/test";
 test("yellow-ball sandbox applies handicap dots and skin carryovers", async ({ page }, testInfo) => {
   await page.goto("/e2e/yellow-ball-walkthrough");
   await expect(page.getByRole("heading", { name: "Sunday Church Yellow Ball Skins Sandbox" })).toBeVisible();
+  const handicapMap = page.getByRole("table", {
+    name: "Yellow Ball Handicap Shots by hole",
+  });
+  await expect(handicapMap).toBeVisible();
+  await expect(handicapMap.getByRole("columnheader")).toHaveCount(19);
+  await expect(handicapMap.getByLabel("Albert, hole 1: No shot")).toHaveText("-");
+  await expect(handicapMap.getByLabel("Eddie, hole 1: Gets 1 shot")).toHaveText("•");
+  await expect(
+    handicapMap.getByRole("columnheader", { name: "Hole 1, current hole" })
+  ).toBeVisible();
   await page.getByRole("button", { name: "Lock Both Orders" }).click();
+  await expect(handicapMap).toBeVisible();
 
   await expect(page.getByText("Enter gross scores. Handicap applies only to yellow ball.")).toBeVisible();
   await expect(page.getByLabel("Team Bravo yellow-ball gross")).toHaveValue("5");
@@ -54,7 +65,26 @@ test("yellow-ball sandbox applies handicap dots and skin carryovers", async ({ p
 test("yellow-ball grid stays readable at 390 by 844", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/e2e/yellow-ball-walkthrough");
+  const handicapMap = page.getByRole("table", {
+    name: "Yellow Ball Handicap Shots by hole",
+  });
+  await expect(handicapMap).toBeVisible();
+  await expect(handicapMap.getByText("HCP 6 / plays 0")).toBeVisible();
+  const dotFontSize = await handicapMap
+    .getByLabel("Eddie, hole 1: Gets 1 shot")
+    .evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize));
+  expect(dotFontSize).toBeGreaterThanOrEqual(16);
+  const handicapLayout = await handicapMap.evaluate((element) => ({
+    bodyWidth: document.body.scrollWidth,
+    viewportWidth: window.innerWidth,
+    tableWidth: element.scrollWidth,
+    scrollContainerWidth: element.parentElement?.clientWidth ?? 0,
+  }));
+  expect(handicapLayout.bodyWidth).toBeLessThanOrEqual(handicapLayout.viewportWidth);
+  expect(handicapLayout.tableWidth).toBeGreaterThan(handicapLayout.scrollContainerWidth);
   await page.getByRole("button", { name: "Lock Both Orders" }).click();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(handicapMap).toBeVisible();
   await page.waitForTimeout(500);
   expect(await page.evaluate(() => window.scrollY)).toBe(0);
   await page.getByRole("button", { name: "Save Gross Scores" }).click();
