@@ -2,7 +2,7 @@
 
 ## Status
 
-Design approved in conversation on 2026-08-16. Written specification awaits user review.
+Design and production release approved in conversation on 2026-08-16. Implementation pending.
 
 ## User Outcome
 
@@ -28,4 +28,4 @@ Each Yellow Ball team can see which players receive handicap shots on every hole
 
 ## Release Boundary
 
-Deployment and production data changes are not authorized. Release requires a separate explicit approval through the attended production gate.
+Deployment is authorized only through `npm run deploy:production -- --confirm`. After server-confirmed release, update only production draft `cmsuqvycj0001la09ri2bq1fr` to Sunday Church Yellow Ball Skins with handicaps enabled. Preserve its selected players, generated teams, course, date, visibility, and $30 buy-in. Do not create a disposable smoke round.

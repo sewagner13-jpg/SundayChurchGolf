@@ -32,9 +32,10 @@ New JavaScript, TypeScript, and TSX source files are capped at 500 lines. The ch
 - Last completed ticket: `SCG-001` - Sunday Church Yellow Ball Skins.
 - Outcome: teams can compare every player's relative handicap shots by hole while choosing and using the Yellow Ball order.
 - Branch of truth: `main`.
-- Deployment is not authorized for SCG-003; release remains a separate attended gate.
+- Deployment is explicitly authorized for SCG-003 and must use the attended production gate.
 - Ticket record: `docs/tickets/SCG-003-yellow-ball-handicap-map.md`.
 - Parked blocker: SCG-002 deployed successfully, but its disposable production smoke remains blocked by the user-owned active draft.
+- Authorized production mutation: change draft `cmsuqvycj0001la09ri2bq1fr` to Sunday Church Yellow Ball Skins with handicaps enabled; preserve its roster, teams, course, date, and buy-in.
 
 ## Verification Evidence
 
