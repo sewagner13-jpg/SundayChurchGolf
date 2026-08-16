@@ -28,12 +28,12 @@ New JavaScript, TypeScript, and TSX source files are capped at 500 lines. The ch
 
 ## Operating Mode
 
-- Active ticket: none.
+- Active ticket: `SCG-002` - Deploy and certify Sunday Church Yellow Ball Skins.
 - Last completed ticket: `SCG-001` - Sunday Church Yellow Ball Skins.
 - Outcome: teams can play lower-wins yellow-ball skins using relative handicaps only for the rotating yellow-ball player.
 - Branch of truth: `main`.
-- Deployment is not authorized by this ticket; it remains a separate attended approval gate.
-- Ticket record: `docs/tickets/SCG-001-sunday-church-yellow-ball-skins.md`.
+- Deployment is explicitly authorized for SCG-002 and must use the attended production gate.
+- Ticket record: `docs/tickets/SCG-002-yellow-ball-production-release.md`.
 
 ## Verification Evidence
 
