@@ -28,12 +28,13 @@ New JavaScript, TypeScript, and TSX source files are capped at 500 lines. The ch
 
 ## Operating Mode
 
-- Active ticket: `SCG-002` - Deploy and certify Sunday Church Yellow Ball Skins.
+- Active ticket: `SCG-003` - Show Yellow Ball handicap dots before teams lock their rotation.
 - Last completed ticket: `SCG-001` - Sunday Church Yellow Ball Skins.
-- Outcome: teams can play lower-wins yellow-ball skins using relative handicaps only for the rotating yellow-ball player.
+- Outcome: teams can compare every player's relative handicap shots by hole while choosing and using the Yellow Ball order.
 - Branch of truth: `main`.
-- Deployment is explicitly authorized for SCG-002 and must use the attended production gate.
-- Ticket record: `docs/tickets/SCG-002-yellow-ball-production-release.md`.
+- Deployment is not authorized for SCG-003; release remains a separate attended gate.
+- Ticket record: `docs/tickets/SCG-003-yellow-ball-handicap-map.md`.
+- Parked blocker: SCG-002 deployed successfully, but its disposable production smoke remains blocked by the user-owned active draft.
 
 ## Verification Evidence
 
