@@ -1,5 +1,5 @@
 [build]
-  command = "npx prisma generate && npm run verify:netlify && npx prisma db push --skip-generate && npm run db:seed"
+  command = "npx prisma generate && npm run verify:netlify"
   publish = ".next"
 
 [build.environment]

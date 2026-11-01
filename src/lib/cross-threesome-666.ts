@@ -1,3 +1,4 @@
+import { conservePayoutCents } from "@/lib/payout-cents";
 import {
   getNetScore,
   getRelativePlayingHandicaps,
@@ -381,5 +382,5 @@ export function calculateCrossThreesome666PlayerPayouts(
     }
   }
 
-  return payouts;
+  return conservePayoutCents(payouts);
 }

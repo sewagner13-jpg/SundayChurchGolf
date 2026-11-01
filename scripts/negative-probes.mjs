@@ -86,22 +86,23 @@ async function probeControlFeedback() {
   }
 }
 
-async function probeDatabaseSeedGate() {
-  const errors = validateReleaseConfiguration({
-    scripts: {
-      "verify:netlify": "node scripts/verify-release.mjs --netlify",
-      "verify:release": "node scripts/verify-release.mjs",
-      "deploy:production": "node scripts/deploy-production.mjs",
-      lint: "eslint . --ignore-pattern '.worktrees/**'",
-    },
-    netlifyBuildCommand:
-      "npx prisma generate && npm run verify:netlify && npx prisma db push --skip-generate",
-    deployProductionSource: "node scripts/netlify-production-build.mjs",
-  });
-  if (!errors.some((error) => error.includes("db:seed after prisma db push"))) {
-    throw new Error("database seed gate negative probe unexpectedly passed.");
+async function probeCodeOnlyDatabaseGate() {
+  for (const mutation of ["npx prisma db push --skip-generate", "npm run db:seed", "npx prisma migrate deploy", "npm run db:reset"]) {
+    const errors = validateReleaseConfiguration({
+      scripts: {
+        "verify:netlify": "node scripts/verify-release.mjs --netlify",
+        "verify:release": "node scripts/verify-release.mjs",
+        "deploy:production": "node scripts/deploy-production.mjs",
+        lint: "eslint . --ignore-pattern '.worktrees/**'",
+      },
+      netlifyBuildCommand: `npx prisma generate && npm run verify:netlify && ${mutation}`,
+      deployProductionSource: "node scripts/netlify-production-build.mjs",
+    });
+    if (!errors.some((error) => error.includes("exactly the code-only command"))) {
+      throw new Error(`code-only database gate accepted ${mutation}.`);
+    }
   }
-  console.log("NEGATIVE PROBE PASSED database-seed-gate");
+  console.log("NEGATIVE PROBE PASSED code-only-database-gate");
 }
 
 async function probeNetlifyProductionBuildGate() {
@@ -113,7 +114,7 @@ async function probeNetlifyProductionBuildGate() {
       lint: "eslint . --ignore-pattern '.worktrees/**'",
     },
     netlifyBuildCommand:
-      "npm run verify:netlify && npx prisma db push --skip-generate && npm run db:seed",
+      "npx prisma generate && npm run verify:netlify",
     deployProductionSource: "git push origin main",
   });
   if (!errors.some((error) => error.includes("attended Netlify production build"))) {
@@ -127,7 +128,7 @@ async function main() {
   await probeStateLineCap();
   await probeLineCap();
   await probeControlFeedback();
-  await probeDatabaseSeedGate();
+  await probeCodeOnlyDatabaseGate();
   await probeNetlifyProductionBuildGate();
   await expectFailure("production-branch", process.execPath, ["scripts/build-discipline/release-config.mjs"], {
     PRODUCTION_BRANCH_PROBE: "claude/master-spec-consolidation-Y6XjM",

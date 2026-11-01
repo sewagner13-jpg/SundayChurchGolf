@@ -1,3 +1,4 @@
+import { conservePayoutCents } from "@/lib/payout-cents";
 import { readCrossFoursomePartnerOrder } from "@/lib/cross-foursome-partner-draw";
 export const CROSS_FOURSOME_66618_FORMAT_ID = "cross_foursome_6_6_6_18";
 export const CROSS_FOURSOME_66618_CONFIG_KEY = "crossFoursome66618";
@@ -434,7 +435,7 @@ export function calculateCrossFoursome66618PlayerPayouts(
     }
   }
 
-  return payouts;
+  return conservePayoutCents(payouts);
 }
 
 

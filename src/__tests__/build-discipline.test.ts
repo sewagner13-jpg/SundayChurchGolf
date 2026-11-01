@@ -107,39 +107,42 @@ test("control-feedback stops before a configured downstream command", async () =
   }
 });
 
-test("release configuration rejects database mutation before the quality gate", () => {
-  assert.deepEqual(
-    validateReleaseConfiguration({
-      scripts: {
-        "verify:netlify": "node scripts/verify-release.mjs --netlify",
-        "verify:release": "node scripts/verify-release.mjs",
-        "deploy:production": "node scripts/deploy-production.mjs",
-        lint: "eslint . --ignore-pattern '.worktrees/**'",
-      },
-      netlifyBuildCommand:
-        "npx prisma generate && npx prisma db push --skip-generate && npm run verify:netlify && npm run db:seed",
-      deployProductionSource: GATED_DEPLOY_SOURCE,
-    }),
-    ["Netlify must run verify:netlify before prisma db push."]
-  );
+const codeOnlyBuildCommand = "npx prisma generate && npm run verify:netlify";
+const codeOnlyBuildError = `Netlify build command must be exactly the code-only command: ${codeOnlyBuildCommand}.`;
+const validReleaseScripts = {
+  "verify:netlify": "node scripts/verify-release.mjs --netlify",
+  "verify:release": "node scripts/verify-release.mjs",
+  "deploy:production": "node scripts/deploy-production.mjs",
+  lint: "eslint . --ignore-pattern '.worktrees/**'",
+};
+
+test("release configuration accepts Prisma generation and verification without database writes", () => {
+  assert.deepEqual(validateReleaseConfiguration({
+    scripts: validReleaseScripts,
+    netlifyBuildCommand: codeOnlyBuildCommand,
+    deployProductionSource: GATED_DEPLOY_SOURCE,
+  }), []);
 });
 
-test("release configuration requires database seeding after schema sync", () => {
-  assert.deepEqual(
-    validateReleaseConfiguration({
-      scripts: {
-        "verify:netlify": "node scripts/verify-release.mjs --netlify",
-        "verify:release": "node scripts/verify-release.mjs",
-        "deploy:production": "node scripts/deploy-production.mjs",
-        lint: "eslint . --ignore-pattern '.worktrees/**'",
-      },
-      netlifyBuildCommand:
-        "npx prisma generate && npm run verify:netlify && npx prisma db push --skip-generate",
+for (const command of [
+  `${codeOnlyBuildCommand} && npx prisma db push --skip-generate && npm run db:seed`,
+  `npx prisma db push && ${codeOnlyBuildCommand}`,
+  `${codeOnlyBuildCommand} && npm run db:seed`,
+  `${codeOnlyBuildCommand} && npx prisma migrate deploy`,
+  `${codeOnlyBuildCommand} && npm run db:reset`,
+  `${codeOnlyBuildCommand}; node prisma/seed.ts`,
+  `${codeOnlyBuildCommand}\nnpm run db:seed`,
+  "npm run release-with-database",
+  "npx prisma generate",
+]) {
+  test(`release configuration rejects non-code-only build: ${command.replace(/\n/g, " ")}`, () => {
+    assert.deepEqual(validateReleaseConfiguration({
+      scripts: validReleaseScripts,
+      netlifyBuildCommand: command,
       deployProductionSource: GATED_DEPLOY_SOURCE,
-    }),
-    ["Netlify build command must run db:seed after prisma db push."]
-  );
-});
+    }), [codeOnlyBuildError]);
+  });
+}
 
 test("release configuration rejects linting linked worktrees", () => {
   assert.deepEqual(
@@ -151,7 +154,7 @@ test("release configuration rejects linting linked worktrees", () => {
         lint: "eslint .",
       },
       netlifyBuildCommand:
-        "npx prisma generate && npm run verify:netlify && npx prisma db push --skip-generate && npm run db:seed",
+        codeOnlyBuildCommand,
       deployProductionSource: GATED_DEPLOY_SOURCE,
     }),
     ["Lint script must exclude linked worktrees."]
@@ -175,7 +178,7 @@ test("release configuration requires an attended Netlify production build", () =
         lint: "eslint . --ignore-pattern '.worktrees/**'",
       },
       netlifyBuildCommand:
-        "npx prisma generate && npm run verify:netlify && npx prisma db push --skip-generate && npm run db:seed",
+        codeOnlyBuildCommand,
       deployProductionSource: "git push origin main",
     }),
     ["Production deploy gate must run the attended Netlify production build."]

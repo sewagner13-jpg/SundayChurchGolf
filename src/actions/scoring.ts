@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/db";
+import { claimRoundFinalization } from "@/lib/round-finalization";
 import { revalidatePath } from "next/cache";
 import { Decimal } from "@prisma/client/runtime/library";
 import { HoleEntryType, Prisma, RoundStatus } from "@prisma/client";
@@ -492,6 +493,7 @@ export async function finishRound(roundId: string) {
       const buyIn = round.buyInPerPlayer;
 
       await prisma.$transaction(async (tx) => {
+        await claimRoundFinalization(tx, roundId);
         await tx.team.updateMany({
           where: { roundId },
           data: {
@@ -641,6 +643,7 @@ export async function finishRound(roundId: string) {
       const buyIn = round.buyInPerPlayer;
 
       await prisma.$transaction(async (tx) => {
+        await claimRoundFinalization(tx, roundId);
         await tx.team.updateMany({
           where: { roundId },
           data: {
@@ -791,6 +794,7 @@ export async function finishRound(roundId: string) {
       const buyIn = round.buyInPerPlayer;
 
       await prisma.$transaction(async (tx) => {
+        await claimRoundFinalization(tx, roundId);
         await tx.team.updateMany({
           where: { roundId },
           data: {
@@ -886,6 +890,7 @@ export async function finishRound(roundId: string) {
     }
 
     await prisma.$transaction(async (tx) => {
+      await claimRoundFinalization(tx, roundId);
       await tx.team.updateMany({
         where: { roundId },
         data: {
@@ -1017,6 +1022,7 @@ export async function finishRound(roundId: string) {
 
   // Update database in transaction
   await prisma.$transaction(async (tx) => {
+    await claimRoundFinalization(tx, roundId);
     // Update hole results
     for (const result of holeResults) {
       await tx.holeResult.upsert({

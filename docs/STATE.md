@@ -41,8 +41,9 @@ New JavaScript, TypeScript, and TSX source files are capped at 500 lines. The ch
 - Release verification passes with 189 unit tests and 7 browser tests. Negative probes pass. Lint has 51 warnings and no errors.
 - Cross-Foursome engine types were extracted; the unchanged 500-line gate passes.
 - Production remains on deploy `6a81a14ea3bffef87ae12014`; read-only inspection confirmed automatic builds are stopped.
-- Deployment is blocked pending verified database mapping/recovery and an approved, tested code-only Netlify path. Current build and validator require DB push and seed; neither ran.
-- Details and browser coverage limits: `docs/tickets/SCG-004-phone-scoring.md`.
+- Production deployment is pending recovery verification and approval. The code-only build/validator change is prepared locally; 202 unit tests, 7 browser tests, negative probes and offline Netlify packaging pass. Four real localhost PostgreSQL persistence scenarios also pass. Nothing is pushed or deployed from this gate change.
+- Money finalization and cent-conservation fixes: `docs/tickets/SCG-006-money-safety.md`. No production topology changes are part of this release.
+- Phone coverage limits: `docs/tickets/SCG-004-phone-scoring.md`. Code-only release/recovery proposal: `docs/tickets/SCG-005-code-only-release.md`.
 
 ## Verification Evidence
 

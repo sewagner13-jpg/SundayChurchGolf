@@ -25,16 +25,10 @@ export function validateReleaseConfiguration({
     errors.push("Lint script must exclude linked worktrees.");
   }
 
-  const verificationIndex = netlifyBuildCommand.indexOf("npm run verify:netlify");
-  const mutationIndex = netlifyBuildCommand.indexOf("prisma db push");
-  const seedIndex = netlifyBuildCommand.indexOf("npm run db:seed");
-  if (verificationIndex === -1) errors.push("Netlify build command must run verify:netlify.");
-  if (mutationIndex === -1) errors.push("Netlify build command must run prisma db push.");
-  if (verificationIndex !== -1 && mutationIndex !== -1 && verificationIndex > mutationIndex) {
-    errors.push("Netlify must run verify:netlify before prisma db push.");
-  }
-  if (seedIndex === -1 || (mutationIndex !== -1 && seedIndex < mutationIndex)) {
-    errors.push("Netlify build command must run db:seed after prisma db push.");
+  // An exact allowlist rejects appended commands, aliases and shell substitutions.
+  const codeOnlyCommand = "npx prisma generate && npm run verify:netlify";
+  if (netlifyBuildCommand !== codeOnlyCommand) {
+    errors.push(`Netlify build command must be exactly the code-only command: ${codeOnlyCommand}.`);
   }
   return errors;
 }

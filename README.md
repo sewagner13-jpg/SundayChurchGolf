@@ -70,34 +70,25 @@ A mobile-first web application for running weekly golf scramble skins games and 
 
 ## Production Deployment (Netlify)
 
-### Database Setup
-
-1. Create a PostgreSQL database on [Neon](https://neon.tech) or [Supabase](https://supabase.com)
-2. Note your connection strings
-
-### Netlify Deployment
-
-1. Connect your GitHub repository to Netlify
-2. Add environment variables in Netlify dashboard:
-   - `DATABASE_URL` - Your PostgreSQL connection string
-   - `DIRECT_URL` - Same as DATABASE_URL for most providers
-3. Deploy - Netlify will automatically:
-   - Run migrations (`prisma migrate deploy`)
-   - Seed the database (idempotent)
-   - Build the Next.js application
-
-### Manual Deployment
+Production releases use the attended gate from a clean primary checkout on `main`:
 
 ```bash
-# Build for production
-npm run build
-
-# Run migrations
-npm run db:migrate:prod
-
-# Seed database
-npm run db:seed
+npm run deploy:production -- --confirm
 ```
+
+Run it only after explicit release approval and review of the verification report.
+Automatic Git builds must remain stopped. The gate verifies the exact release
+commit, runs the checks, packages Next.js with Netlify, and checks production HTTP
+responses. The build only generates Prisma Client and runs verification; it does
+not push schemas, run migrations, or seed data.
+
+Database changes require a separate reviewed plan and recovery evidence. Do not
+add them to the Netlify build. Production connection strings remain managed in
+Netlify, and must not be committed.
+
+See `docs/tickets/SCG-005-code-only-release.md` for the prepared gate change,
+packaging evidence, and recovery/deployment proposal. Keep the currently serving database and both preserved branches unchanged.
+Attended app deployment still requires explicit release authorization.
 
 ## Database Commands
 

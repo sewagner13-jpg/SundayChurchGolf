@@ -9,6 +9,7 @@
     "lint": "eslint . --no-warn-ignored --ignore-pattern '.next*/**' --ignore-pattern '.netlify/**' --ignore-pattern '.worktrees/**' --ignore-pattern 'node_modules/**'",
     "typecheck": "tsc --noEmit",
     "test": "node scripts/run-unit-tests.mjs",
+    "test:persistence": "node --import tsx --test scripts/tests/scoring-persistence.test.ts",
     "check:state": "node scripts/build-discipline/state.mjs",
     "check:line-caps": "node scripts/build-discipline/line-caps.mjs",
     "check:release-config": "node scripts/build-discipline/release-config.mjs",
