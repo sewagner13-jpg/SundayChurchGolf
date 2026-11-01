@@ -6,6 +6,8 @@ import { Button } from "@/components/button";
 import { SharedBurgerList } from "@/components/shared-burger-list";
 import { Card } from "@/components/card";
 import { CrossHolePanel } from "@/components/cross-hole-panel";
+import { BetScoringScreen } from "@/components/bet-scoring-screen";
+import { LiveHoleContest } from "@/components/live-hole-contest";
 import { CrossMatchStandings } from "@/components/cross-match-standings";
 import type { CrossMatchStanding } from "@/lib/cross-match-standings";
 import { useHoleScoreSnapshot } from "@/components/use-hole-score-snapshot";
@@ -360,6 +362,7 @@ export default function LiveScoringPage({
   const [showEditTeamsModal, setShowEditTeamsModal] = useState(false);
   const [showEditFormatModal, setShowEditFormatModal] = useState(false);
   const [showLiveLeaderboard, setShowLiveLeaderboard] = useState(false);
+  const [standingsError, setStandingsError] = useState<string | null>(null);
   const [unlockCode, setUnlockCode] = useState("");
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const [formatUnlockCode, setFormatUnlockCode] = useState("");
@@ -379,6 +382,8 @@ export default function LiveScoringPage({
   const [pendingImportantMessage, setPendingImportantMessage] =
     useState<PendingImportantMessage | null>(null);
   const [playerInputs, setPlayerInputs] = useState<PlayerHoleInputState[]>([]);
+  const [playerInputsKey, setPlayerInputsKey] = useState("");
+  const playerInputReadSequence = useRef(0);
   const [driveMinimumProgress, setDriveMinimumProgress] =
     useState<DriveMinimumProgress | null>(null);
   const [liveLeaderboard, setLiveLeaderboard] =
@@ -434,7 +439,7 @@ export default function LiveScoringPage({
   }, [round, myTeamId]);
 
   useEffect(() => {
-    if (!round || !showLiveLeaderboard) return;
+    if (!round || (!showLiveLeaderboard && ![CROSS_FOURSOME_66618_FORMAT_ID, CROSS_THREESOME_666_FORMAT_ID].includes(round.formatId))) return;
 
     const intervalId = window.setInterval(() => {
       loadLiveLeaderboard();
@@ -486,7 +491,7 @@ export default function LiveScoringPage({
       }
 
       if (data.status === "FINISHED") {
-        router.push(`/rounds/${id}/summary`);
+        router.push(`/rounds/${id}/final-payouts`);
         return;
       }
 
@@ -560,11 +565,13 @@ export default function LiveScoringPage({
     try {
       const leaderboard = await getLiveLeaderboard(id);
       setLiveLeaderboard(leaderboard as LiveLeaderboardData);
+      setStandingsError(null);
       if (isYellowBallRound) {
         const scoreboard = await getAllTeamsScorecard(id, myTeamId);
         setCombinedScoreboard(scoreboard as CombinedScoreboardData);
       }
     } catch {
+      setStandingsError("Could not refresh bet standings");
       setError("Failed to load live leaderboard");
     }
   }
@@ -624,6 +631,8 @@ export default function LiveScoringPage({
   }
 
   async function loadPlayerInputs() {
+    const sequence = ++playerInputReadSequence.current;
+    const inputKey = `${id}:${myTeamId}:${currentHole}`;
     if (!round || !myTeamId || (!usesIndividualScores && !usesDriveTracking)) {
       setPlayerInputs([]);
       return;
@@ -664,6 +673,7 @@ export default function LiveScoringPage({
         holeNumber: currentHole,
         teamId: myTeamId,
       });
+      if (sequence !== playerInputReadSequence.current) return;
 
       const storedDesignatedPlayerId =
         (holeData?.teamScores.find((score) => score.teamId === myTeamId)?.holeData
@@ -710,8 +720,11 @@ export default function LiveScoringPage({
           };
         })
       );
+      setPlayerInputsKey(inputKey);
+      return true;
     } catch (err) {
       setError("Failed to load player scores");
+      return false;
     }
   }
 
@@ -1197,6 +1210,8 @@ export default function LiveScoringPage({
       }
       setError(null);
       showNextSimonSaysPrompt();
+      setSaving(false);
+      return true;
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to save player scores"
@@ -1331,7 +1346,7 @@ export default function LiveScoringPage({
     setSaving(true);
     try {
       await finishRound(id);
-      router.push(`/rounds/${id}/summary`);
+      router.push(`/rounds/${id}/final-payouts`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to finish round");
       setSaving(false);
@@ -1782,6 +1797,27 @@ export default function LiveScoringPage({
     return <span className="text-gray-300">-</span>;
   };
 
+  if (isCrossGroupRound && myTeamId && holeInfo) {
+    if (playerInputsKey !== `${id}:${myTeamId}:${currentHole}`) return <div className="space-y-3 py-8 text-center"><p>Loading this hole’s saved scores…</p>{error && <><p role="alert">{error}</p><Button onClick={loadPlayerInputs}>Retry loading scores</Button></>}</div>;
+    const otherGroup = round.teams.find(team => team.id !== myTeamId);
+    return <BetScoringScreen roundId={id} holeNumber={currentHole} startingHole={round.startingHole} par={holeInfo.par} rank={holeInfo.handicapRank} courseName={round.course.name}
+      groupLabel={getTeamLabel(myTeamId)} otherGroupLabel={otherGroup ? getTeamLabel(otherGroup.id) : "Other group"}
+      otherPlayerIds={otherGroup?.roundPlayers.map(player=>player.playerId) ?? []}
+      names={Object.fromEntries(round.teams.flatMap(team=>team.roundPlayers.map(player=>[player.playerId,player.player.nickname || player.player.fullName])))}
+      inputs={playerInputs} games={crossFoursomePairingGames} matches={liveLeaderboard?.matches ?? []}
+      handicaps={lockedHandicapIndexes} handicapMode={isCrossFoursomeRound ? getCrossFoursome66618Config(round.formatConfig).handicapMode ?? "relative" : "relative"} netScoring={usesNetHandicapScoring}
+      saved={Object.fromEntries(crossHoleSnapshot.scores.map(score=>[score.playerId,score.grossScore]))} hidden={crossHoleSnapshot.hidden}
+      snapshotError={crossHoleSnapshot.error} standingsError={standingsError} saving={saving} blocked={scoreEntryBlocked} error={error}
+      canAdvance={canAdvance} first={isFirstHole} last={isLastHole} hasAll18={myTeamHasAll18} teamFinished={myTeamFinished} allFinished={allTeamsMarkedFinished && allTeamsComplete}
+      onInput={(playerId,grossScore)=>updatePlayerInput(playerId,{grossScore})} onSave={handleSavePlayerScores}
+      onRefresh={()=>{crossHoleSnapshot.refresh();void loadLiveLeaderboard();}}
+      onPrevious={handlePrevHole} onNext={handleNextHole} onChangeGroup={changeTeam} onDiscard={loadPlayerInputs}
+      onMarkDone={handleMarkTeamFinished} onFinish={handleFinish}
+      contest={<LiveHoleContest roundId={id} holeNumber={currentHole} disabled={saving || scoreEntryBlocked} />}
+      important={pendingImportantMessage && <aside className="rounded-xl border-2 border-amber-500 bg-amber-50 p-3"><h2 className="font-bold">Important group message</h2><p className="my-2 whitespace-pre-wrap">{pendingImportantMessage.body}</p>{pendingImportantMessage.imageDataUrl && <a href={pendingImportantMessage.imageDataUrl} target="_blank" rel="noreferrer" className="block min-h-11 underline">View attached photo</a>}<Button onClick={handleAcknowledgeImportant} disabled={saving}>Acknowledge message</Button></aside>}
+      tools={<div className="mt-4 space-y-4"><SharedBurgerList key={id} roundId={id}/><section><h3 className="font-bold">Group chat</h3>{chatMessages.slice(-5).map(message=><p key={message.id} className="mt-2 break-words text-sm"><strong>Group {message.senderTeamNumber}: </strong>{message.body}</p>)}<label className="mt-3 block text-sm">Message other group<textarea value={chatDraft} onChange={event=>setChatDraft(event.target.value.slice(0,280))} className="mt-1 min-h-12 w-full rounded-lg border p-2"/></label><Button onClick={handleSendChatMessage} disabled={chatSending || !chatDraft.trim()}>Send message</Button></section></div>}
+    />;
+  }
   return (
     <div className="flex flex-col min-h-[calc(100vh-56px)]">
       {/* Sticky Header */}
@@ -1942,6 +1978,7 @@ export default function LiveScoringPage({
           </div>
         )}
 
+        <LiveHoleContest roundId={id} holeNumber={currentHole} disabled={saving || scoreEntryBlocked} />
         <SharedBurgerList key={id} roundId={id} prompt={currentHole >= 15} />
 
         {pendingImportantMessage && (

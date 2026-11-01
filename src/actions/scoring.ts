@@ -1,8 +1,8 @@
 "use server";
-
 import { prisma } from "@/lib/db";
 import { buildCrossMatchStandings, type CrossMatchStanding } from "@/lib/cross-match-standings";
 import { claimRoundFinalization } from "@/lib/round-finalization";
+import { finalizeHoleContests } from "@/lib/finalize-hole-contests";
 import { revalidatePath } from "next/cache";
 import { Decimal } from "@prisma/client/runtime/library";
 import { HoleEntryType, Prisma, RoundStatus } from "@prisma/client";
@@ -47,7 +47,6 @@ import {
 } from "@/lib/cross-threesome-666";
 import { assertSundayChurchYellowBallDedicatedScoreAction } from "@/lib/sunday-church-yellow-ball-round";
 import { canRevealHoleOutcome, canRevealTeamScore } from "@/lib/score-visibility";
-
 export interface LiveLeaderboardEntry {
   teamId: string;
   teamNumber: number;
@@ -58,7 +57,6 @@ export interface LiveLeaderboardEntry {
   totalPayout: number;
   segmentsWon?: number;
 }
-
 export interface LiveLeaderboardSegment {
   label: string;
   formatName: string;
@@ -66,7 +64,6 @@ export interface LiveLeaderboardSegment {
   leaders: string[];
   payoutPerWinningTeam: number;
 }
-
 export interface LiveLeaderboardData {
   matches?: CrossMatchStanding[];
   matchesHidden?: boolean;
@@ -76,14 +73,12 @@ export interface LiveLeaderboardData {
   entries: LiveLeaderboardEntry[];
   segments?: LiveLeaderboardSegment[];
 }
-
 export interface AllTeamsScorecardTeam {
   teamId: string;
   teamNumber: number;
   label: string;
   players: string[];
 }
-
 export interface AllTeamsScorecardHole {
   holeNumber: number;
   par: number;
@@ -586,6 +581,7 @@ export async function finishRound(roundId: string) {
             imageName: null,
           },
         });
+        await finalizeHoleContests(tx, roundId);
       });
 
       revalidatePath("/");
@@ -736,6 +732,7 @@ export async function finishRound(roundId: string) {
             imageName: null,
           },
         });
+        await finalizeHoleContests(tx, roundId);
       });
 
       revalidatePath("/");
@@ -882,6 +879,7 @@ export async function finishRound(roundId: string) {
             imageName: null,
           },
         });
+        await finalizeHoleContests(tx, roundId);
       });
 
       revalidatePath("/");
@@ -932,6 +930,7 @@ export async function finishRound(roundId: string) {
           imageName: null,
         },
       });
+      await finalizeHoleContests(tx, roundId);
     });
 
     revalidatePath("/");
@@ -1137,6 +1136,7 @@ export async function finishRound(roundId: string) {
         });
       }
     }
+    await finalizeHoleContests(tx, roundId);
   });
 
   revalidatePath("/");

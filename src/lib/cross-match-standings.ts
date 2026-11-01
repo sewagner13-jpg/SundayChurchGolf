@@ -14,7 +14,7 @@ export interface CrossMatchStanding {
     holeNumber: number;
     result: string;
     complete: boolean;
-    pairs: {id: string; label: string; bestBall: number | null; gross: (number | null)[]; net: (number | null)[]; won: boolean}[];
+    pairs: {id: string; playerIds: string[]; label: string; bestBall: number | null; gross: (number | null)[]; net: (number | null)[]; won: boolean}[];
   }[];
 }
 
@@ -42,7 +42,7 @@ export function buildCrossMatchStandings(
       holes:game.holeOutcomes.map(hole => ({holeNumber:hole.holeNumber,complete:hole.isComplete,
         result:!hole.isComplete ? "Waiting for all players" : hole.isTie ? "Tied hole — no winner"
           : `${pairs.find(pair=>pair.id===hole.winningVirtualTeamId)?.label ?? "Pair"} wins`,
-        pairs:hole.pairScores.map(pair=>({id:pair.virtualTeamId,label:name(pair.playerIds),
+        pairs:hole.pairScores.map(pair=>({id:pair.virtualTeamId,playerIds:[...pair.playerIds],label:name(pair.playerIds),
           bestBall:pair.grossScores.every(score=>score!==null) ? pair.bestBallScore : null,
           gross:pair.grossScores,net:pair.netScores,won:hole.isComplete && hole.winningVirtualTeamId===pair.virtualTeamId})),
       })),

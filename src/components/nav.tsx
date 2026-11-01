@@ -14,6 +14,7 @@ const navItems = [
 
 export function Nav() {
   const pathname = usePathname();
+  const scoring = /^\/rounds\/[^/]+\/scoring$/.test(pathname);
 
   return (
     <nav className="bg-green-800 text-white sticky top-0 z-50">
@@ -23,7 +24,7 @@ export function Nav() {
             Sunday Church
           </Link>
           <div className="flex gap-1 overflow-x-auto">
-            {navItems.map((item) => (
+            {(scoring ? navItems.slice(0,1) : navItems).map((item) => (
               <Link
                 key={item.href}
                 href={item.href}

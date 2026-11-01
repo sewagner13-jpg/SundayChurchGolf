@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
+import { refreshHoleContestTopTeams, splitContestPayout } from "@/lib/finalize-hole-contests";
 import {
   getActivePar3Contests,
   getPar3ContestConfig,
@@ -192,10 +193,11 @@ export async function savePar3ContestResults(
     const members = teamMembers.get(teamId) ?? [];
     if (members.length === 0) return;
 
-    const split = delta.div(members.length);
+    const shares = splitContestPayout(delta, members.map((member) => ({ id: member.roundPlayerId })));
     for (const member of members) {
-      addToMap(roundPlayerDeltas, member.roundPlayerId, split);
-      addToMap(seasonStatDeltas, member.playerId, split);
+      const share = shares.get(member.roundPlayerId)!;
+      addToMap(roundPlayerDeltas, member.roundPlayerId, share);
+      addToMap(seasonStatDeltas, member.playerId, share);
     }
   }
 
@@ -261,37 +263,7 @@ export async function savePar3ContestResults(
       },
     });
 
-    const refreshedTeams = await tx.team.findMany({
-      where: { roundId },
-      orderBy: { totalPayout: "desc" },
-    });
-
-    const topTotal = refreshedTeams[0]?.totalPayout ?? new Decimal(0);
-    const topTeamIds = refreshedTeams
-      .filter((team) => team.totalPayout.eq(topTotal))
-      .map((team) => team.id);
-
-    await Promise.all(
-      refreshedTeams.map((team) =>
-        tx.team.update({
-          where: { id: team.id },
-          data: {
-            isTopPayingTeam: topTeamIds.includes(team.id) && topTotal.gt(0),
-          },
-        })
-      )
-    );
-
-    await Promise.all(
-      round.roundPlayers.map((roundPlayer) =>
-        tx.roundPlayer.update({
-          where: { id: roundPlayer.id },
-          data: {
-            wasOnTopPayingTeam: topTeamIds.includes(roundPlayer.teamId ?? "") && topTotal.gt(0),
-          },
-        })
-      )
-    );
+    await refreshHoleContestTopTeams(tx, roundId);
   });
 
   revalidatePath(`/rounds/${roundId}/summary`);

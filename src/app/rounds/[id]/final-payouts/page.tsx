@@ -4,199 +4,61 @@ import { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getRound } from "@/actions/rounds";
-import { Card, CardContent, CardHeader } from "@/components/card";
-import { Button } from "@/components/button";
-import {
-  getActivePar3Contests,
-  getPar3ContestConfig,
-  type Par3PayoutTarget,
-} from "@/lib/par3-contests";
-import { computeFinalPlayerPayoutRows } from "@/lib/payout-breakdown";
-import { getTeamDisplayLabel } from "@/lib/team-labels";
+import { getPlayerScores, type PlayerScoreRecord } from "@/actions/player-scores";
+import { PlayerWinningsList } from "@/components/player-winnings-list";
+import { buildPlayerWinnings, type WinningsRound } from "@/lib/player-winnings";
 
-interface RoundPlayer {
-  id: string;
-  playerId: string;
-  payoutAmount: number;
-  player: { fullName: string; nickname: string | null };
-  team: { id: string; teamNumber: number } | null;
-}
+type Round = WinningsRound & { status: string; course: WinningsRound["course"] & { name: string } };
 
-interface Team {
-  id: string;
-  teamNumber: number;
-  totalPayout: number;
-  roundPlayers: Array<{
-    id: string;
-    playerId: string;
-    player: { fullName: string; nickname: string | null };
-  }>;
-}
-
-interface Round {
-  id: string;
-  date: Date;
-  status: string;
-  formatConfig: Record<string, unknown> | null;
-  course: { name: string };
-  format: { name: string };
-  teams: Team[];
-  roundPlayers: RoundPlayer[];
-}
-
-export default function FinalPayoutsPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export default function FinalPayoutsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
   const [round, setRound] = useState<Round | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [scores, setScores] = useState<PlayerScoreRecord[]>([]);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
-    loadRound();
-  }, [id]);
-
-  async function loadRound() {
-    const data = await getRound(id);
-    if (!data) {
-      router.push("/");
-      return;
+    let active = true;
+    async function loadRound() {
+      try {
+        const data = await getRound(id);
+        if (!active) return;
+        if (!data) { router.push("/"); return; }
+        if (data.status !== "FINISHED") { router.push(`/rounds/${id}/summary`); return; }
+        const playerScores = await getPlayerScores(id);
+        if (!active) return;
+        setScores(playerScores);
+        setRound(data as Round);
+      } catch { if (active) setError(true); }
     }
+    void loadRound();
+    return () => { active = false; };
+  }, [id, router]);
 
-    if (data.status !== "FINISHED") {
-      router.push(`/rounds/${id}/summary`);
-      return;
-    }
+  if (error) return <p role="alert" className="py-8 text-center">Could not load winnings. Please refresh to try again.</p>;
+  if (!round) return <p className="py-8 text-center">Loading winnings...</p>;
 
-    setRound(data as Round);
-    setLoading(false);
-  }
-
-  if (loading || !round) {
-    return <p className="py-8 text-center">Loading final payouts...</p>;
-  }
-
-  const par3Config = getPar3ContestConfig(round.formatConfig);
-  const par3Results =
-    (par3Config?.results as
-      | Array<{
-          holeNumber: number;
-          winnerPlayerId: string | null;
-          payoutAmount?: number | null;
-          payoutTarget?: Par3PayoutTarget;
-        }>
-      | undefined) ?? [];
-  const par3ContestPayoutTargets = new Map(
-    getActivePar3Contests(par3Config).map((contest) => [
-      contest.holeNumber,
-      contest.payoutTarget,
-    ])
-  );
-  const payoutRows = computeFinalPlayerPayoutRows(
-    round.teams,
-    round.roundPlayers,
-    par3Results,
-    par3ContestPayoutTargets
-  );
-  const sortedPlayers = [...payoutRows].sort(
-    (a, b) => b.totalPayout - a.totalPayout
-  );
-  const isCrossFoursomeFormat = round.format.name === "Cross-Foursome 6-6-6-18";
-  const isCrossThreesomeFormat = round.format.name === "Cross-Threesome 6-6-6";
-  const isCrossGroupFormat = isCrossFoursomeFormat || isCrossThreesomeFormat;
-  const totalPaidOut = sortedPlayers.reduce(
-    (sum, roundPlayer) => sum + Math.max(0, roundPlayer.totalPayout),
-    0
-  );
+  const rows = buildPlayerWinnings(round, scores);
+  const totalCents = rows.reduce((sum, player) => sum + player.totalCents, 0);
+  const hasAdjustment = rows.some(player => player.items.some(item => item.kind === "adjustment"));
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Final Payout List</h1>
-          <p className="text-sm text-gray-600">
-            These are the final amounts to pay each player for the full day.
-          </p>
+    <div className="mx-auto max-w-2xl space-y-5">
+      <header className="space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-2xl font-bold">Money won</h1>
+          <Link href="/" className="text-sm font-semibold text-green-800 underline">Home</Link>
         </div>
-        <div className="flex gap-2">
-          <Link href={`/rounds/${id}/payouts`}>
-            <Button variant="secondary">See Payout Breakdown</Button>
-          </Link>
-          <Link href={`/rounds/${id}/summary`}>
-            <Button variant="secondary">See Round Numbers</Button>
-          </Link>
-          <Link href="/">
-            <Button variant="secondary">Home</Button>
-          </Link>
-        </div>
-      </div>
-
-      <Card>
-        <CardContent className="py-4 text-sm text-gray-700">
-          <div className="grid gap-2 md:grid-cols-4">
-            <p>
-              <span className="text-gray-500">Course:</span> {round.course.name}
-            </p>
-            <p>
-              <span className="text-gray-500">Format:</span> {round.format.name}
-            </p>
-            <p>
-              <span className="text-gray-500">Players paid:</span>{" "}
-              <strong>{sortedPlayers.length}</strong>
-            </p>
-            <p>
-              <span className="text-gray-500">Total paid out:</span>{" "}
-              <strong>${totalPaidOut.toFixed(2)}</strong>
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>Pay These Amounts</CardHeader>
-        <CardContent className="space-y-2">
-          {sortedPlayers.map((roundPlayer, index) => (
-            <div
-              key={roundPlayer.roundPlayerId}
-              className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-3"
-            >
-              <div>
-                <p className="font-semibold">
-                  #{index + 1} {roundPlayer.playerName}
-                </p>
-                <p className="text-xs text-gray-500">
-                  {roundPlayer.teamId
-                    ? isCrossGroupFormat
-                      ? round.teams.find((team) => team.id === roundPlayer.teamId)
-                          ?.teamNumber === 1
-                        ? isCrossThreesomeFormat
-                          ? "Threesome A"
-                          : "Foursome A"
-                        : isCrossThreesomeFormat
-                        ? "Threesome B"
-                        : "Foursome B"
-                      : getTeamDisplayLabel(
-                          round.teams.find((team) => team.id === roundPlayer.teamId)
-                            ?.roundPlayers ?? []
-                        )
-                    : "No team"}
-                </p>
-                <p className="text-xs text-gray-500">
-                  Main game ${roundPlayer.mainGamePayout.toFixed(2)}
-                  {roundPlayer.par3Payout > 0
-                    ? ` + Par 3 ${roundPlayer.par3Payout.toFixed(2)}`
-                    : ""}
-                </p>
-              </div>
-              <p className="text-xl font-bold text-green-700">
-                ${Math.max(0, roundPlayer.totalPayout).toFixed(2)}
-              </p>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
+        <p className="text-sm text-gray-600">{round.course.name} · Round complete</p>
+        <p className="text-sm text-gray-700">Each player’s bets and final amount to collect.</p>
+      </header>
+      <PlayerWinningsList rows={rows} />
+      <p className="flex justify-between border-t border-gray-200 pt-4 font-semibold text-gray-900"><span>Total won</span><span className="tabular-nums">${(totalCents / 100).toFixed(2)}</span></p>
+      {hasAdjustment && <p className="text-xs text-amber-800">Recorded payout adjustments reconcile the available bet details to the saved final amounts. Check round details before paying any adjusted amount.</p>}
+      <nav className="flex flex-wrap gap-x-5 gap-y-3 pb-4 text-sm font-semibold text-green-800" aria-label="Round details">
+        <Link href={`/rounds/${id}/summary`} className="underline">Round details &amp; contest corrections</Link>
+        <Link href={`/rounds/${id}/payouts`} className="underline">Detailed payout breakdown</Link>
+      </nav>
     </div>
   );
 }
