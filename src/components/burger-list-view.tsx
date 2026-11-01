@@ -24,12 +24,12 @@ export function BurgerListView({ players, selectedPlayerIds, expanded, saving, o
       <p className="mt-2 text-sm text-orange-950">Shared with everyone in this round. Marks save automatically.</p>
       <div aria-live="polite" className="mt-3">
         {marked.length ? <ul aria-label="Players ordering burgers" className="flex flex-wrap gap-2">
-          {marked.map((player) => <li key={player.playerId} className="max-w-full break-words rounded-full bg-orange-100 px-3 py-1 text-sm font-semibold text-orange-950">{player.playerName}</li>)}
+          {marked.map((player) => <li key={player.playerId} className="max-w-full break-words rounded-full bg-orange-100 px-3 py-1 text-sm font-semibold text-black">{player.playerName}</li>)}
         </ul> : <p>No burger orders selected yet.</p>}
       </div>
       {expanded && <div className="mt-3 max-h-80 space-y-1 overflow-y-auto rounded border border-orange-200 bg-white p-2">
         {players.map((player) => <label key={player.playerId} className={`flex min-h-12 items-center justify-between gap-3 rounded-lg px-3 py-3 ${selected.has(player.playerId) ? "bg-orange-50 text-orange-950" : "text-gray-900"}`}>
-          <span>{player.playerName}</span>
+          <span className="font-semibold text-black">{player.playerName}</span>
           <input type="checkbox" aria-label={`Burger for ${player.playerName}`} checked={selected.has(player.playerId)} disabled={saving}
             onChange={(event) => onChange(player.playerId, event.target.checked)} className="h-6 w-6 shrink-0 accent-orange-700" />
         </label>)}

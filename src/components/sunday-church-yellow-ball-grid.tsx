@@ -81,7 +81,7 @@ export function SundayChurchYellowBallGrid({
               <tr key={team.teamId}>
                 <th className="sticky left-0 z-10 w-36 min-w-36 border-b border-r border-gray-300 bg-white px-3 py-3 text-left align-top">
                   <span className="block font-bold text-gray-900">{team.label}</span>
-                  <span className="mt-1 block text-xs font-normal leading-4 text-gray-500">
+                  <span className="mt-1 block text-xs font-semibold leading-4 text-black">
                     {team.players.join(", ")}
                   </span>
                 </th>
@@ -108,7 +108,7 @@ export function SundayChurchYellowBallGrid({
                           <strong className="block text-lg text-gray-950">
                             {score.combinedScore}{score.handicapApplied ? "•" : ""}
                           </strong>
-                          <span className="mt-1 block truncate text-xs font-medium text-gray-700" title={score.designatedPlayerName}>
+                          <span className="mt-1 block truncate text-xs font-semibold text-black" title={score.designatedPlayerName}>
                             {score.designatedPlayerName}
                           </span>
                           <span className="block whitespace-nowrap text-xs text-gray-500">

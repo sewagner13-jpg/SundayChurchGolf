@@ -174,11 +174,11 @@ export default function PlayersPage() {
                   className="flex items-center justify-between py-2 border-b last:border-b-0"
                 >
                   <div className="flex-1" onClick={() => openEditModal(player)}>
-                    <p className="font-medium cursor-pointer hover:text-green-600">
+                    <p className="font-semibold text-black cursor-pointer hover:underline">
                       {player.nickname || player.fullName}
                     </p>
                     {player.nickname && (
-                      <p className="text-xs text-gray-500">{player.fullName}</p>
+                      <p className="text-xs font-medium text-black">{player.fullName}</p>
                     )}
                     <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
                       {player.ghinNumber && <span>GHIN #{player.ghinNumber}</span>}
@@ -226,10 +226,10 @@ export default function PlayersPage() {
               {inactivePlayers.map((player) => (
                 <div
                   key={player.id}
-                  className="flex items-center justify-between py-2 border-b last:border-b-0 opacity-60"
+                  className="flex items-center justify-between py-2 border-b last:border-b-0"
                 >
                   <div className="flex-1" onClick={() => openEditModal(player)}>
-                    <p className="font-medium cursor-pointer hover:text-green-600">
+                    <p className="font-semibold text-black cursor-pointer hover:underline">
                       {player.nickname || player.fullName}
                     </p>
                   </div>

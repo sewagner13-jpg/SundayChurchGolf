@@ -186,7 +186,7 @@ export function SundayChurchYellowBallScoring({
                     {index + 1}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium">{player?.name ?? playerId}</p>
+                    <p className="truncate font-semibold text-black">{player?.name ?? playerId}</p>
                     <p className="text-xs text-gray-500">
                       Holes {index + 1}, {index + 5}, {index + 9}, {index + 13}
                     </p>
@@ -248,10 +248,10 @@ export function SundayChurchYellowBallScoring({
                     type="button"
                     disabled={disabled || blocked}
                     onClick={() => setManualCarrierId(player.playerId)}
-                    className={`min-h-11 border px-3 py-2 text-sm font-medium disabled:bg-gray-100 disabled:text-gray-400 ${
+                    className={`min-h-11 border px-3 py-2 text-sm font-semibold disabled:bg-gray-100 disabled:text-black disabled:cursor-not-allowed ${
                       manualCarrierId === player.playerId
-                        ? "border-yellow-500 bg-yellow-300 text-gray-900"
-                        : "border-gray-300 bg-white text-gray-800"
+                        ? "border-yellow-500 bg-yellow-300 text-black"
+                        : "border-gray-300 bg-white text-black"
                     }`}
                   >
                     {player.name}
@@ -262,7 +262,7 @@ export function SundayChurchYellowBallScoring({
           </fieldset>
         ) : (
           <div className="border-l-4 border-yellow-400 bg-yellow-50 px-3 py-2 text-sm text-gray-900">
-            Yellow ball: <strong>{carrier?.name ?? "Order required"}</strong>
+            Yellow ball: <strong className="text-black">{carrier?.name ?? "Order required"}</strong>
           </div>
         )}
 

@@ -100,7 +100,7 @@ export function CombinedScoreboardModal({
                     {data.teams.map((team) => (
                       <th key={team.teamId} className="min-w-44 px-2 py-2 text-left font-semibold">
                         <span className="block">{team.label}</span>
-                        <span className="block text-xs font-normal text-gray-500">{team.players.join(", ")}</span>
+                        <span className="block text-xs font-semibold text-black">{team.players.join(", ")}</span>
                       </th>
                     ))}
                     <th className="min-w-40 px-2 py-2 text-left font-semibold">Winner</th>

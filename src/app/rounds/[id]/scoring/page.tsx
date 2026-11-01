@@ -1645,7 +1645,7 @@ export default function LiveScoringPage({
                         : "Foursome B"
                       : getTeamDisplayLabel(team.roundPlayers)}
                   </span>
-                  <p className="text-sm text-gray-600 mt-1">{playerNames}</p>
+                  <p className="text-sm font-semibold text-black mt-1">{playerNames}</p>
                 </button>
               );
             })}
@@ -1992,7 +1992,7 @@ export default function LiveScoringPage({
                     <span className="w-6 h-6 rounded-full bg-yellow-400 text-white text-xs font-bold flex items-center justify-center shrink-0">
                       {index + 1}
                     </span>
-                    <span className="flex-1 font-medium text-gray-800">{player.name}</span>
+                    <span className="flex-1 font-semibold text-black">{player.name}</span>
                     <div className="flex gap-1">
                       <button
                         type="button"
@@ -2120,10 +2120,10 @@ export default function LiveScoringPage({
                               handleDriveSelection(rp.playerId);
                             }
                           }}
-                          className={`rounded-lg border px-3 py-2 text-sm font-medium ${
+                          className={`rounded-lg border px-3 py-2 text-sm font-semibold ${
                             selectedManualDesignatedPlayerId === rp.playerId
-                              ? "border-amber-500 bg-amber-400 text-white"
-                              : "border-amber-200 bg-white text-gray-700"
+                              ? "border-amber-500 bg-amber-400 text-black"
+                              : "border-amber-200 bg-white text-black"
                           }`}
                         >
                           {rp.player.nickname || rp.player.fullName}
@@ -2209,7 +2209,7 @@ export default function LiveScoringPage({
                         key={player.playerId}
                         className="flex items-center justify-between rounded bg-white/70 px-2 py-1"
                       >
-                        <span>{player.playerName}</span>
+                        <span className="font-semibold text-black">{player.playerName}</span>
                         <span className="text-xs">
                           {player.driveCount}/{driveMinimumProgress.requiredDrives} used
                           {player.metMinimum
@@ -2292,7 +2292,7 @@ export default function LiveScoringPage({
                       >
                         <div className="flex items-start justify-between gap-4">
                           <div className="min-w-0 flex-1">
-                            <p className="break-words font-medium">{input.name}</p>
+                            <p className="break-words font-semibold text-black">{input.name}</p>
                             {usesNetHandicapScoring && (
                               <HandicapPlayerScoreDetails handicapMode={isCrossFoursomeRound ? getCrossFoursome66618Config(round.formatConfig).handicapMode : "relative"}
                                 playerId={input.playerId}
@@ -2457,7 +2457,7 @@ export default function LiveScoringPage({
                             onChange={() => handleDriveSelection(input.playerId)}
                             disabled={scoreEntryBlocked}
                           />
-                          <span>{input.name}</span>
+                          <span className="font-semibold text-black">{input.name}</span>
                         </label>
                       ))}
                     </div>
@@ -2633,7 +2633,7 @@ export default function LiveScoringPage({
                             {getTeamLabel(teamScore.teamId)}
                             {teamScore.teamId === myTeamId ? " (You)" : ""}
                           </p>
-                          <p className="text-xs text-gray-500">
+                          <p className="text-xs font-semibold text-black">
                             {teamScore.players.map((player) => player.name).join(", ")}
                           </p>
                         </div>
@@ -2678,7 +2678,7 @@ export default function LiveScoringPage({
                       <span className="font-medium text-sm">
                         {getTeamLabel(team.teamId)}
                       </span>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs font-semibold text-black">
                         {team.players.map((p) => p.name).join(", ")}
                       </p>
                     </div>
@@ -3301,7 +3301,7 @@ export default function LiveScoringPage({
                               }
                               className="h-4 w-4"
                             />
-                            <span>{player.name}</span>
+                            <span className="font-semibold text-black">{player.name}</span>
                           </label>
                         );
                       })}
@@ -3479,7 +3479,7 @@ export default function LiveScoringPage({
                         {progress?.holesScored ?? 0}/18
                       </span>
                     </div>
-                    <p className="text-sm text-gray-600">
+                    <p className="text-sm font-semibold text-black">
                       {progress?.players.map((p) => p.name).join(", ")}
                     </p>
                   </button>

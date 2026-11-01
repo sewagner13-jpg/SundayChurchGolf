@@ -102,7 +102,7 @@ export function HandicapStrokeCard({
             {players.map((player) => (
               <tr key={player.playerId}>
                 <th className="sticky left-0 z-10 border border-emerald-200 bg-white px-2 py-2 text-left font-medium">
-                  <span className="block">{player.name}</span>
+                  <span className="block font-semibold text-black">{player.name}</span>
                   <span className="block font-normal text-emerald-700">
                     HCP {playerHandicapIndexes[player.playerId] ?? "-"} / plays {relativeHandicaps[player.playerId] ?? "-"}
                   </span>
