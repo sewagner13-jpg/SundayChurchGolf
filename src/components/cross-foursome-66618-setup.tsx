@@ -1,5 +1,7 @@
 "use client";
 
+import { drawCrossFoursomePartners } from "@/lib/cross-foursome-partner-draw";
+
 import {
   CROSS_FOURSOME_66618_CONFIG_KEY,
   createDefaultCrossFoursome66618Config,
@@ -64,16 +66,11 @@ export function CrossFoursome66618Setup({
     slot: CrossFoursomeASlot | CrossFoursomeBSlot,
     playerId: string
   ) => {
-    onChange({
-      ...formatConfig,
-      [CROSS_FOURSOME_66618_CONFIG_KEY]: {
-        ...config,
-        [group]: {
-          ...config[group],
-          [slot]: playerId,
-        },
-      },
-    });
+    const nextConfig = {...config, [group]: {...config[group], [slot]: playerId}};
+    const ids = [...Object.values(nextConfig.foursomeA), ...Object.values(nextConfig.foursomeB)];
+    nextConfig.partnerOrder = ids.every(Boolean) && new Set(ids).size === 8
+      ? drawCrossFoursomePartners() : undefined;
+    onChange({...formatConfig, [CROSS_FOURSOME_66618_CONFIG_KEY]: nextConfig});
   };
 
   const renderSlot = (
@@ -125,10 +122,66 @@ export function CrossFoursome66618Setup({
           Cross-Foursome 6-6-6-18
         </p>
         <p className="mt-1 text-sm text-emerald-950">
-          Assign exactly four players to Foursome A and four players to Foursome B.
-          These are the physical groups only; scoring teams are generated below.
+          Assign four players to Red Cart (A) and four to Blue Cart (B).
+          You can prepare the draft now and assign carts after your draw. Partners are randomly drawn when all eight slots are filled; save assignments to keep the draw.
         </p>
       </div>
+
+      <label className="block text-sm font-semibold text-gray-800">
+        Scoring
+        <select
+          value={config.scoreMode}
+          disabled={disabled}
+          onChange={(event) => onChange({
+            ...formatConfig,
+            [CROSS_FOURSOME_66618_CONFIG_KEY]: {
+              ...config,
+              scoreMode: event.target.value === "best_net_ball" ? "best_net_ball" : "best_ball",
+            },
+          })}
+          className="mt-1 w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm"
+        >
+          <option value="best_ball">Gross best ball (no handicaps)</option>
+          <option value="best_net_ball">Net best ball (with handicaps)</option>
+        </select>
+      </label>
+      {config.scoreMode === "best_net_ball" && (
+        <label className="block text-sm font-semibold text-gray-800">
+          Handicap method
+          <select value={config.handicapModeConfirmed === false ? "" : (config.handicapMode ?? "relative")} disabled={disabled}
+            onChange={(event) => onChange({
+              ...formatConfig,
+              [CROSS_FOURSOME_66618_CONFIG_KEY]: {
+                ...config, handicapMode: event.target.value === "full" ? "full" : "relative", handicapModeConfirmed: true,
+              },
+            })}
+            className="mt-1 w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm">
+            <option value="" disabled>Choose handicap method</option>
+            <option value="relative">Lowest player plays off zero</option>
+            <option value="full">Full player handicaps</option>
+          </select>
+        </label>
+      )}
+      <p className="text-sm text-emerald-950">
+        Each pair counts one best {config.scoreMode === "best_net_ball" ? "net" : "gross"} score per hole.
+        Two tie, all tie: tied lowest scores award no hole win, with no carryovers.
+      </p>
+      <p className="text-sm text-emerald-950">
+        Lowest-player-zero uses 100% of the difference between rounded player handicaps;
+        the lowest of all eight players plays from zero. Full handicaps uses each
+        player’s entire rounded handicap without subtracting the lowest.
+        Shots follow the course hole handicap ranks; plus handicaps give shots back
+        starting at the easiest holes. No slope, tee, or percentage adjustment.
+        Player handicaps are locked when the round starts.
+      </p>
+      {config.scoreMode === "best_net_ball" && players.some(
+        (player) => player.handicapIndex == null || player.handicapIndex === "" ||
+          !Number.isFinite(Number(player.handicapIndex))
+      ) && (
+        <p role="alert" className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+          Every player needs a handicap before starting net best ball. Update missing handicaps in Players.
+        </p>
+      )}
 
       {players.length !== 8 && (
         <div className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -138,13 +191,13 @@ export function CrossFoursome66618Setup({
 
       <div className="grid gap-4 md:grid-cols-2">
         <div>
-          <p className="mb-2 font-semibold text-gray-800">Foursome A</p>
+          <p className="mb-2 font-semibold text-gray-800">Red Cart — Foursome A</p>
           <div className="grid gap-2 sm:grid-cols-2">
             {A_SLOTS.map((slot) => renderSlot("foursomeA", slot))}
           </div>
         </div>
         <div>
-          <p className="mb-2 font-semibold text-gray-800">Foursome B</p>
+          <p className="mb-2 font-semibold text-gray-800">Blue Cart — Foursome B</p>
           <div className="grid gap-2 sm:grid-cols-2">
             {B_SLOTS.map((slot) => renderSlot("foursomeB", slot))}
           </div>
@@ -158,6 +211,14 @@ export function CrossFoursome66618Setup({
       )}
 
       <div className="space-y-3">
+        <button type="button" disabled={disabled || errors.length > 0}
+          onClick={() => onChange({...formatConfig, [CROSS_FOURSOME_66618_CONFIG_KEY]: {
+            ...config, partnerOrder: drawCrossFoursomePartners(),
+          }})}
+          className="rounded bg-emerald-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">
+          Draw random partners
+        </button>
+        <p className="text-sm text-emerald-950">Each player partners with every opposite-cart player once across the four games. Overall 18 runs alongside the three six-hole games. Save assignments before starting; partners stay fixed once started.</p>
         <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
           Generated Scoring Pairings
         </p>

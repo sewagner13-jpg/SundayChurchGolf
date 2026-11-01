@@ -34,25 +34,20 @@ export default async function Dashboard() {
           </p>
         </div>
 
-        {/* Two Column Layout */}
-        <div className="grid md:grid-cols-2 gap-6 items-start">
-          {/* Left Column - Leaderboard */}
-          <div className="space-y-4">
-            <MastersLeaderboard entries={leaderboard} year={currentYear} />
-          </div>
-
-          {/* Right Column - Round Actions */}
+        {/* Game-day actions first within the app’s narrow shell */}
+        <div className="grid grid-cols-1 gap-6 items-start">
+          {/* Round actions */}
           <div className="space-y-4">
             {/* Active Round / New Round Card */}
             <ActiveRoundCard activeRound={activeRound as { id: string; name?: string | null; date: Date; status: string; course: { name: string } } | null} />
 
             {/* Quick Links */}
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 min-[420px]:grid-cols-3 gap-2">
               <Link href="/rounds">
                 <Card className="bg-white/90 hover:bg-white transition-colors cursor-pointer">
                   <CardContent className="p-3 text-center">
                     <div className="text-2xl mb-1">📅</div>
-                    <p className="text-xs font-medium text-gray-700">Rounds</p>
+                    <p className="break-words text-sm font-medium text-gray-700">Rounds</p>
                   </CardContent>
                 </Card>
               </Link>
@@ -60,7 +55,7 @@ export default async function Dashboard() {
                 <Card className="bg-white/90 hover:bg-white transition-colors cursor-pointer">
                   <CardContent className="p-3 text-center">
                     <div className="text-2xl mb-1">👥</div>
-                    <p className="text-xs font-medium text-gray-700">Players</p>
+                    <p className="break-words text-sm font-medium text-gray-700">Players</p>
                   </CardContent>
                 </Card>
               </Link>
@@ -68,7 +63,7 @@ export default async function Dashboard() {
                 <Card className="bg-white/90 hover:bg-white transition-colors cursor-pointer">
                   <CardContent className="p-3 text-center">
                     <div className="text-2xl mb-1">🏌️</div>
-                    <p className="text-xs font-medium text-gray-700">Courses</p>
+                    <p className="break-words text-sm font-medium text-gray-700">Courses</p>
                   </CardContent>
                 </Card>
               </Link>
@@ -76,7 +71,7 @@ export default async function Dashboard() {
                 <Card className="bg-white/90 hover:bg-white transition-colors cursor-pointer">
                   <CardContent className="p-3 text-center">
                     <div className="text-2xl mb-1">📊</div>
-                    <p className="text-xs font-medium text-gray-700">Stats</p>
+                    <p className="break-words text-sm font-medium text-gray-700">Stats</p>
                   </CardContent>
                 </Card>
               </Link>
@@ -84,7 +79,7 @@ export default async function Dashboard() {
                 <Card className="bg-white/90 hover:bg-white transition-colors cursor-pointer">
                   <CardContent className="p-3 text-center">
                     <div className="text-2xl mb-1">📋</div>
-                    <p className="text-xs font-medium text-gray-700">Formats</p>
+                    <p className="break-words text-sm font-medium text-gray-700">Formats</p>
                   </CardContent>
                 </Card>
               </Link>
@@ -92,7 +87,7 @@ export default async function Dashboard() {
                 <Card className="bg-white/90 hover:bg-white transition-colors cursor-pointer">
                   <CardContent className="p-3 text-center">
                     <div className="text-2xl mb-1">🏆</div>
-                    <p className="text-xs font-medium text-gray-700">Leaderboard</p>
+                    <p className="break-words text-sm font-medium text-gray-700">Leaderboard</p>
                   </CardContent>
                 </Card>
               </Link>
@@ -100,7 +95,7 @@ export default async function Dashboard() {
                 <Card className="bg-white/90 hover:bg-white transition-colors cursor-pointer">
                   <CardContent className="p-3 text-center">
                     <div className="text-2xl mb-1">💰</div>
-                    <p className="text-xs font-medium text-gray-700">Settlements</p>
+                    <p className="break-words text-sm font-medium text-gray-700">Settlements</p>
                   </CardContent>
                 </Card>
               </Link>
@@ -108,11 +103,14 @@ export default async function Dashboard() {
                 <Card className="bg-white/90 hover:bg-white transition-colors cursor-pointer">
                   <CardContent className="p-3 text-center">
                     <div className="text-2xl mb-1">📝</div>
-                    <p className="text-xs font-medium text-gray-700">Record Round</p>
+                    <p className="break-words text-sm font-medium text-gray-700">Record Round</p>
                   </CardContent>
                 </Card>
               </Link>
             </div>
+          </div>
+          <div className="min-w-0 space-y-4 overflow-x-auto">
+            <MastersLeaderboard entries={leaderboard} year={currentYear} />
           </div>
         </div>
       </div>

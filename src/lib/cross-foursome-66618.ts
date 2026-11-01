@@ -1,82 +1,24 @@
+import { readCrossFoursomePartnerOrder } from "@/lib/cross-foursome-partner-draw";
 export const CROSS_FOURSOME_66618_FORMAT_ID = "cross_foursome_6_6_6_18";
-
 export const CROSS_FOURSOME_66618_CONFIG_KEY = "crossFoursome66618";
-
 import {
   getNetScore,
-  getRelativePlayingHandicaps,
+  getPlayingHandicaps,
   getStrokesReceivedForHole,
 } from "@/lib/handicap-scoring";
-
-export type CrossFoursomeScoreMode = "best_ball" | "best_net_ball";
-export type CrossFoursomeASlot = "A1" | "A2" | "A3" | "A4";
-export type CrossFoursomeBSlot = "B1" | "B2" | "B3" | "B4";
-export type CrossFoursomeGameId =
-  | "first6"
-  | "second6"
-  | "third6"
-  | "overall18";
-
-export interface CrossFoursome66618Config {
-  scoreMode: CrossFoursomeScoreMode;
-  foursomeA: Record<CrossFoursomeASlot, string>;
-  foursomeB: Record<CrossFoursomeBSlot, string>;
-}
-
-export interface CrossFoursomePair {
-  virtualTeamId: string;
-  label: string;
-  slotLabels: [CrossFoursomeBSlot, CrossFoursomeASlot];
-  playerIds: [string, string];
-}
-
-export interface CrossFoursomeGamePairings {
-  id: CrossFoursomeGameId;
-  label: string;
-  holeNumbers: number[];
-  pairs: CrossFoursomePair[];
-}
-
-export interface CrossFoursomePlayerScoreLike {
-  playerId: string;
-  holeNumber: number;
-  grossScore: number | null;
-}
-
-export interface CrossFoursomePairHoleScore {
-  virtualTeamId: string;
-  label: string;
-  playerIds: [string, string];
-  grossScores: [number | null, number | null];
-  netScores: [number | null, number | null];
-  strokesReceived: [number | null, number | null];
-  bestBallScore: number | null;
-}
-
-export interface CrossFoursomeHoleOutcome {
-  holeNumber: number;
-  isComplete: boolean;
-  isTie: boolean;
-  winningVirtualTeamId: string | null;
-  pairScores: CrossFoursomePairHoleScore[];
-}
-
-export interface CrossFoursomePairSummary extends CrossFoursomePair {
-  holesWon: number;
-  payout: number;
-}
-
-export interface CrossFoursomeGameSummary {
-  id: CrossFoursomeGameId;
-  label: string;
-  holeNumbers: number[];
-  gamePot: number;
-  completedHoles: number;
-  pairs: CrossFoursomePairSummary[];
-  winningVirtualTeamIds: string[];
-  payoutPerWinningPair: number;
-  holeOutcomes: CrossFoursomeHoleOutcome[];
-}
+import type {
+  CrossFoursomeScoreMode,
+  CrossFoursomeASlot,
+  CrossFoursomeBSlot,
+  CrossFoursomeGameId,
+  CrossFoursome66618Config,
+  CrossFoursomePair,
+  CrossFoursomeGamePairings,
+  CrossFoursomePlayerScoreLike,
+  CrossFoursomeHoleOutcome,
+  CrossFoursomeGameSummary
+} from "@/lib/cross-foursome-types";
+export type * from "@/lib/cross-foursome-types";
 
 const A_SLOTS = ["A1", "A2", "A3", "A4"] as const;
 const B_SLOTS = ["B1", "B2", "B3", "B4"] as const;
@@ -185,6 +127,10 @@ export function getCrossFoursome66618Config(
 
   return {
     scoreMode,
+    ...(rawConfig.handicapModeConfirmed === false ? {handicapModeConfirmed: false} : {}),
+    ...(rawConfig.partnerDrawRequired === true ? {partnerDrawRequired: true} : {}),
+    ...(readCrossFoursomePartnerOrder(rawConfig.partnerOrder) ? {partnerOrder: readCrossFoursomePartnerOrder(rawConfig.partnerOrder)} : {}),
+    handicapMode: rawConfig.handicapMode === "full" ? "full" : "relative",
     foursomeA: {
       A1: slotValue(rawA, "A1"),
       A2: slotValue(rawA, "A2"),
@@ -220,6 +166,8 @@ export function validateCrossFoursome66618Config(
   ) {
     errors.push("Cross-Foursome 6-6-6-18 only supports gross or net best ball scoring.");
   }
+
+  if (rawConfig.partnerOrder !== undefined && !readCrossFoursomePartnerOrder(rawConfig.partnerOrder)) errors.push("Invalid cross-cart partner draw.");
 
   if (selectedPlayerIds && selectedPlayerIds.length !== 8) {
     errors.push("Cross-Foursome 6-6-6-18 requires exactly 8 selected players.");
@@ -265,6 +213,32 @@ export function validateCrossFoursome66618Config(
   return [...new Set(errors)];
 }
 
+export function getCrossFoursome66618StartConfig(
+  formatConfig: Record<string, unknown> | null | undefined,
+  handicaps: Array<number | null | undefined>
+): CrossFoursome66618Config {
+  const config = getCrossFoursome66618Config(formatConfig);
+  if (config.scoreMode === "best_net_ball" &&
+      handicaps.some((handicap) => handicap == null || !Number.isFinite(handicap))) {
+    throw new Error("Every Cross-Foursome player needs a valid handicap before starting net best ball");
+  }
+  if (config.scoreMode === "best_net_ball" && config.handicapModeConfirmed === false) throw new Error("Choose a handicap method before starting the round");
+  if (config.partnerDrawRequired && !config.partnerOrder) throw new Error("Draw cross-cart partners before starting the round");
+  return config;
+}
+
+export function assertCrossFoursome66618LiveConfigChange(
+  round: { formatId: string; formatConfig: unknown },
+  nextConfig: Record<string, unknown> | undefined
+) {
+  if (round.formatId !== CROSS_FOURSOME_66618_FORMAT_ID || nextConfig === undefined) return;
+  const current = getCrossFoursome66618Config(round.formatConfig as Record<string, unknown> | null);
+  const next = getCrossFoursome66618Config(nextConfig);
+  if (current.scoreMode !== next.scoreMode || current.handicapMode !== next.handicapMode || JSON.stringify([current.partnerOrder, current.foursomeA, current.foursomeB]) !== JSON.stringify([next.partnerOrder, next.foursomeA, next.foursomeB])) {
+    throw new Error("Choose Cross-Foursome scoring, handicap method, and partner draw before starting the round");
+  }
+}
+
 export function getCrossFoursome66618Pairings(
   formatConfig: Record<string, unknown> | null | undefined
 ): CrossFoursomeGamePairings[] {
@@ -274,12 +248,14 @@ export function getCrossFoursome66618Pairings(
     id: game.id,
     label: game.label,
     holeNumbers: [...game.holeNumbers],
-    pairs: game.rotation.map(([bSlot, aSlot]) => ({
+    pairs: game.rotation.map(([bSlot, originalASlot]) => {
+      const aSlot = config.partnerOrder?.[A_SLOTS.indexOf(originalASlot)] ?? originalASlot;
+      return ({
       virtualTeamId: `${game.id}-${bSlot}-${aSlot}`,
       label: `${bSlot}/${aSlot}`,
       slotLabels: [bSlot, aSlot],
       playerIds: [config.foursomeB[bSlot], config.foursomeA[aSlot]],
-    })),
+    }); }),
   }));
 }
 
@@ -339,7 +315,12 @@ function computeHoleOutcome(
     };
   });
 
-  const isComplete = pairScores.every((pairScore) => pairScore.bestBallScore !== null);
+  // A partial pair can show a provisional best ball, but the missing partner
+  // may still improve it. Never award a hole until both carts have scored.
+  const isComplete = pairScores.every((pairScore) =>
+    (scoreMode === "best_net_ball" ? pairScore.netScores : pairScore.grossScores)
+      .every((score) => score !== null && Number.isFinite(score))
+  );
   if (!isComplete) {
     return {
       holeNumber,
@@ -382,7 +363,7 @@ export function computeCrossFoursome66618GameSummaries({
   const config = getCrossFoursome66618Config(formatConfig);
   const pairings = getCrossFoursome66618Pairings(formatConfig);
   const scoresByPlayerAndHole = getScoreByPlayerAndHole(playerScores);
-  const relativePlayingHandicaps = getRelativePlayingHandicaps(playerHandicapIndexes);
+  const relativePlayingHandicaps = getPlayingHandicaps(playerHandicapIndexes, config.handicapMode);
   const gamePot = totalPot / GAME_DEFINITIONS.length;
 
   return pairings.map((game) => {
@@ -412,7 +393,7 @@ export function computeCrossFoursome66618GameSummaries({
     }
 
     const maxWins = Math.max(...game.pairs.map((pair) => holeWins.get(pair.virtualTeamId) ?? 0));
-    const winningVirtualTeamIds = game.pairs
+    const winningVirtualTeamIds = completedHoles === 0 ? [] : game.pairs
       .filter((pair) => (holeWins.get(pair.virtualTeamId) ?? 0) === maxWins)
       .map((pair) => pair.virtualTeamId);
     const payoutPerWinningPair =
@@ -454,4 +435,10 @@ export function calculateCrossFoursome66618PlayerPayouts(
   }
 
   return payouts;
+}
+
+
+export function createNewCrossFoursome66618Config() {
+  return {crossFoursome66618: {...createDefaultCrossFoursome66618Config().crossFoursome66618,
+    scoreMode: "best_net_ball" as const, handicapModeConfirmed: false, partnerDrawRequired: true}};
 }

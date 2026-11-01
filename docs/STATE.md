@@ -28,12 +28,21 @@ New JavaScript, TypeScript, and TSX source files are capped at 500 lines. The ch
 
 ## Operating Mode
 
-- Active ticket: none.
+- Active ticket: `SCG-004` — phone scoring validated locally; attended release pending.
 - Last completed ticket: `SCG-003` - Yellow Ball handicap map.
 - Outcome: teams can compare every player's relative handicap shots by hole while choosing and using the Yellow Ball order.
 - Branch of truth: `main`.
 - Deployment requires a new attended approval and must use the production gate.
 - Ticket record: `docs/tickets/SCG-003-yellow-ball-handicap-map.md`.
+
+## Phone Scoring Candidate
+
+- SCG-004 restores the combined phone scoring candidate against main `973a437`, adds 320px/390px browser coverage, and fixes incomplete-hole results in both cross-group formats.
+- Release verification passes with 189 unit tests and 7 browser tests. Negative probes pass. Lint has 51 warnings and no errors.
+- Cross-Foursome engine types were extracted; the unchanged 500-line gate passes.
+- Production remains on deploy `6a81a14ea3bffef87ae12014`; read-only inspection confirmed automatic builds are stopped.
+- Deployment is blocked pending verified database mapping/recovery and an approved, tested code-only Netlify path. Current build and validator require DB push and seed; neither ran.
+- Details and browser coverage limits: `docs/tickets/SCG-004-phone-scoring.md`.
 
 ## Verification Evidence
 

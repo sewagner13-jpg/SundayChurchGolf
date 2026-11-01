@@ -1,6 +1,6 @@
 import {
   getNetScore,
-  getRelativePlayingHandicaps,
+  getPlayingHandicaps,
   getStrokesReceivedForHole,
 } from "@/lib/handicap-scoring";
 
@@ -15,6 +15,7 @@ interface HandicapHole {
 }
 
 interface HandicapStrokeCardProps {
+  handicapMode?: "relative" | "full";
   players: HandicapStrokePlayer[];
   playerHandicapIndexes: Record<string, number | null | undefined>;
   holes: HandicapHole[];
@@ -52,8 +53,9 @@ export function HandicapStrokeCard({
   currentHole,
   strokeDisplay = "number",
   title = "Handicap Shots",
+  handicapMode = "relative",
 }: HandicapStrokeCardProps) {
-  const relativeHandicaps = getRelativePlayingHandicaps(playerHandicapIndexes);
+  const relativeHandicaps = getPlayingHandicaps(playerHandicapIndexes, handicapMode);
 
   return (
     <section className="mb-4 border-y border-emerald-200 bg-emerald-50 px-3 py-3">
@@ -61,7 +63,7 @@ export function HandicapStrokeCard({
         <div>
           <h2 className="font-semibold text-emerald-950">{title}</h2>
           <p className="text-xs text-emerald-800">
-            Lowest handicap plays from zero. No slope or tee adjustment.
+            {handicapMode === "full" ? "Full player handicaps." : "Lowest handicap plays from zero."} No slope or tee adjustment.
           </p>
         </div>
         <p className="text-sm text-emerald-950">
@@ -136,13 +138,15 @@ export function HandicapPlayerScoreDetails({
   grossScore,
   playerHandicapIndexes,
   handicapRank,
+  handicapMode = "relative",
 }: {
+  handicapMode?: "relative" | "full";
   playerId: string;
   grossScore: string;
   playerHandicapIndexes: Record<string, number | null | undefined>;
   handicapRank: number;
 }) {
-  const relativeHandicap = getRelativePlayingHandicaps(playerHandicapIndexes)[playerId];
+  const relativeHandicap = getPlayingHandicaps(playerHandicapIndexes, handicapMode)[playerId];
   const strokes = getStrokesReceivedForHole(relativeHandicap, handicapRank);
   const parsedGrossScore = Number.parseInt(grossScore, 10);
   const gross = Number.isFinite(parsedGrossScore) ? parsedGrossScore : null;

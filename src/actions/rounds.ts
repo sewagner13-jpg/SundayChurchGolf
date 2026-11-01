@@ -1,4 +1,6 @@
 "use server";
+
+import { preserveBurgerOrdersForFormatUpdate } from "@/lib/burger-orders";
 import { prisma } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { Decimal } from "@prisma/client/runtime/library";
@@ -19,7 +21,7 @@ import {
 } from "@/lib/sunday-church-simon-says";
 import {
   CROSS_FOURSOME_66618_FORMAT_ID,
-  getCrossFoursome66618Config,
+  getCrossFoursome66618StartConfig, assertCrossFoursome66618LiveConfigChange,
   validateCrossFoursome66618Config,
 } from "@/lib/cross-foursome-66618";
 import {
@@ -270,7 +272,7 @@ export async function updateLiveRoundFormat(
       round.teamSize
     );
     assertSundayChurchSimonSaysConfig(round.formatId, nextFormatConfig);
-    assertSundayChurchYellowBallLiveConfigChange(round, data.formatConfig);
+    assertSundayChurchYellowBallLiveConfigChange(round, data.formatConfig); assertCrossFoursome66618LiveConfigChange(round, data.formatConfig);
 
     return tx.round.update({
       where: { id },
@@ -278,8 +280,7 @@ export async function updateLiveRoundFormat(
         formatConfig:
           data.formatConfig === undefined
             ? undefined
-            : ((data.formatConfig as Prisma.InputJsonValue | undefined) ??
-              Prisma.JsonNull),
+            : (preserveBurgerOrdersForFormatUpdate(round.formatConfig, data.formatConfig) as Prisma.InputJsonObject),
       },
       include: {
         course: { include: { holes: true } },
@@ -297,53 +298,6 @@ export async function updateLiveRoundFormat(
   revalidatePath(`/rounds/${id}/scoring`);
   revalidatePath(`/rounds/${id}/summary`);
   return updated;
-}
-
-export async function updateRoundBurgerSelections(
-  id: string,
-  selectedPlayerIds: string[]
-) {
-  const round = await prisma.round.findUnique({
-    where: { id },
-    include: {
-      roundPlayers: {
-        select: {
-          playerId: true,
-        },
-      },
-    },
-  });
-
-  if (!round) throw new Error("Round not found");
-  if (!["LIVE", "FINISHED"].includes(round.status)) {
-    throw new Error("Burger selections can only be updated once the round has started");
-  }
-
-  const validPlayerIds = new Set(round.roundPlayers.map((roundPlayer) => roundPlayer.playerId));
-  const normalizedSelections = [...new Set(selectedPlayerIds)].filter((playerId) =>
-    validPlayerIds.has(playerId)
-  );
-
-  await prisma.round.update({
-    where: { id },
-    data: {
-      formatConfig: mergeRoundFormatConfig(round.formatConfig, {
-        burgerOrders: {
-          selectedPlayerIds: normalizedSelections,
-          updatedAt: new Date().toISOString(),
-        },
-      }),
-    },
-  });
-
-  revalidatePath(`/rounds/${id}`);
-  revalidatePath(`/rounds/${id}/scoring`);
-  revalidatePath(`/rounds/${id}/summary`);
-  revalidatePath(`/rounds/${id}/final-payouts`);
-
-  return {
-    selectedPlayerIds: normalizedSelections,
-  };
 }
 
 export async function deleteRound(id: string) {
@@ -646,9 +600,9 @@ export async function startRound(id: string, startingHole: 1 | 10) {
       );
     }
 
-    const config = getCrossFoursome66618Config(
-      (round.formatConfig as Record<string, unknown> | null) ?? null
-    );
+    const config = getCrossFoursome66618StartConfig(
+      (round.formatConfig as Record<string, unknown> | null) ?? null,
+      round.roundPlayers.map(({ player }) => player.handicapIndex === null ? null : Number(player.handicapIndex)));
     const [teamA, teamB] = [...round.teams].sort(
       (a, b) => a.teamNumber - b.teamNumber
     );
@@ -796,7 +750,7 @@ export async function startRound(id: string, startingHole: 1 | 10) {
       throw new Error("Can only start rounds in DRAFT status");
     }
     assertSundayChurchYellowBallRoundStart(current);
-
+    if (current.formatId === CROSS_FOURSOME_66618_FORMAT_ID) getCrossFoursome66618StartConfig(current.formatConfig as Record<string, unknown> | null, current.roundPlayers.map(({ player }) => player.handicapIndex === null ? null : Number(player.handicapIndex)));
     for (const roundPlayer of current.roundPlayers) {
       await tx.roundPlayer.update({
         where: { id: roundPlayer.id },

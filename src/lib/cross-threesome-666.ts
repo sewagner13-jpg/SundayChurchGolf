@@ -281,7 +281,9 @@ function computeHoleOutcome(
     };
   });
 
-  const isComplete = pairScores.every((pairScore) => pairScore.bestBallScore !== null);
+  const isComplete = pairScores.every((pairScore) =>
+    pairScore.netScores.every((score) => score !== null && Number.isFinite(score))
+  );
   if (!isComplete) {
     return { holeNumber, isComplete: false, isTie: false, winningVirtualTeamId: null, pairScores };
   }
@@ -338,10 +340,11 @@ export function computeCrossThreesome666GameSummaries({
     }
 
     const maxWins = Math.max(...game.pairs.map((pair) => holeWins.get(pair.virtualTeamId) ?? 0));
-    const winningVirtualTeamIds = game.pairs
+    const winningVirtualTeamIds = completedHoles === 0 ? [] : game.pairs
       .filter((pair) => (holeWins.get(pair.virtualTeamId) ?? 0) === maxWins)
       .map((pair) => pair.virtualTeamId);
-    const payoutPerWinningPair = gamePot / winningVirtualTeamIds.length;
+    const payoutPerWinningPair = winningVirtualTeamIds.length > 0
+      ? gamePot / winningVirtualTeamIds.length : 0;
 
     return {
       id: game.id,

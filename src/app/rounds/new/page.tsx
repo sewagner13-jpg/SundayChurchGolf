@@ -28,7 +28,7 @@ import {
 } from "@/lib/sunday-church-simon-says";
 import {
   CROSS_FOURSOME_66618_FORMAT_ID,
-  createDefaultCrossFoursome66618Config,
+  createNewCrossFoursome66618Config,
 } from "@/lib/cross-foursome-66618";
 import {
   CROSS_THREESOME_666_FORMAT_ID,
@@ -84,7 +84,7 @@ function buildDefaultConfig(
     Object.assign(config, createDefaultSundayChurchSimonSaysConfig());
   }
   if ((format.definitionId ?? format.id) === CROSS_FOURSOME_66618_FORMAT_ID) {
-    Object.assign(config, createDefaultCrossFoursome66618Config());
+    Object.assign(config, createNewCrossFoursome66618Config());
   }
   if ((format.definitionId ?? format.id) === CROSS_THREESOME_666_FORMAT_ID) {
     Object.assign(config, createDefaultCrossThreesome666Config());
@@ -703,17 +703,17 @@ function NewRoundForm() {
         </CardContent>
       </Card>
 
-      <div className="flex gap-2">
+      <div className="sticky bottom-0 z-10 flex flex-col gap-2 border-t border-gray-200 bg-white/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-lg backdrop-blur sm:flex-row">
+        <Button type="submit" className="min-h-12 flex-1" disabled={loading}>
+          {loading ? "Creating..." : "Create round & choose players"}
+        </Button>
         <Button
           type="button"
           variant="secondary"
-          className="flex-1"
+          className="min-h-12 sm:w-auto"
           onClick={() => router.push("/")}
         >
           Cancel
-        </Button>
-        <Button type="submit" className="flex-1" disabled={loading}>
-          {loading ? "Creating..." : "Continue to Player Selection"}
         </Button>
       </div>
     </form>

@@ -3,7 +3,10 @@
 import { useState, useEffect, use, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/button";
+import { SharedBurgerList } from "@/components/shared-burger-list";
 import { Card } from "@/components/card";
+import { CrossHolePanel } from "@/components/cross-hole-panel";
+import { useHoleScoreSnapshot } from "@/components/use-hole-score-snapshot";
 import { HandicapPlayerScoreDetails, HandicapStrokeCard } from "@/components/handicap-stroke-card";
 import { ConfirmModal, Modal } from "@/components/modal";
 import { SundayChurchHoleGamesGrid } from "@/components/sunday-church-hole-games-grid";
@@ -24,7 +27,6 @@ import {
   getRound,
   revertToDraft,
   setRoundLockCode,
-  updateRoundBurgerSelections,
   updateLiveRoundFormat,
 } from "@/actions/rounds";
 import {
@@ -270,19 +272,6 @@ interface DriveMinimumProgress {
   }>;
 }
 
-interface BurgerOrdersConfig {
-  selectedPlayerIds?: string[];
-  updatedAt?: string;
-}
-
-function getBurgerOrdersConfig(
-  formatConfig: Record<string, unknown> | null | undefined
-): BurgerOrdersConfig | null {
-  const config = formatConfig?.burgerOrders;
-  if (!config || typeof config !== "object") return null;
-  return config as BurgerOrdersConfig;
-}
-
 function buildLiveFormatConfig(
   formatDefinition: (typeof FORMAT_DEFINITIONS)[number] | null,
   formatConfig: Record<string, unknown> | null | undefined
@@ -367,7 +356,6 @@ export default function LiveScoringPage({
   const [showEditTeamsModal, setShowEditTeamsModal] = useState(false);
   const [showEditFormatModal, setShowEditFormatModal] = useState(false);
   const [showLiveLeaderboard, setShowLiveLeaderboard] = useState(false);
-  const [showBurgerModal, setShowBurgerModal] = useState(false);
   const [unlockCode, setUnlockCode] = useState("");
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const [formatUnlockCode, setFormatUnlockCode] = useState("");
@@ -391,9 +379,6 @@ export default function LiveScoringPage({
     useState<DriveMinimumProgress | null>(null);
   const [liveLeaderboard, setLiveLeaderboard] =
     useState<LiveLeaderboardData | null>(null);
-  const [burgerSelections, setBurgerSelections] = useState<Set<string>>(new Set());
-  const [burgerSaving, setBurgerSaving] = useState(false);
-  const [burgerPromptShown, setBurgerPromptShown] = useState(false);
   const [simonSaysPromptHole, setSimonSaysPromptHole] = useState<number | null>(null);
 
   // Lone Ranger order setup
@@ -433,18 +418,6 @@ export default function LiveScoringPage({
       }
     }
   }, [round, currentHole, myTeamId]);
-
-  useEffect(() => {
-    if (!round) return;
-    const burgerConfig = getBurgerOrdersConfig(round.formatConfig);
-    setBurgerSelections(new Set(burgerConfig?.selectedPlayerIds ?? []));
-  }, [round]);
-
-  useEffect(() => {
-    if (!round || burgerPromptShown || currentHole < 15) return;
-    setShowBurgerModal(true);
-    setBurgerPromptShown(true);
-  }, [round, currentHole, burgerPromptShown]);
 
   useEffect(() => {
     if (!round || !myTeamId) return;
@@ -922,29 +895,24 @@ export default function LiveScoringPage({
         }))
       )
     : [];
-  const livePlayerNameMap = new Map(
-    liveRoundPlayers.map((player) => [player.playerId, player.name] as const)
-  );
   const crossFoursomePairingGames =
     round && isCrossGroupRound
       ? isCrossThreesomeRound
         ? getCrossThreesome666Pairings(round.formatConfig)
         : getCrossFoursome66618Pairings(round.formatConfig)
       : [];
-  const currentCrossFoursomeGames = crossFoursomePairingGames.filter((game) =>
-    game.holeNumbers.includes(currentHole)
-  );
   const usesNetHandicapScoring =
     isCrossThreesomeRound ||
     (isCrossFoursomeRound &&
       getCrossFoursome66618Config(round?.formatConfig).scoreMode === "best_net_ball");
+  const crossHoleSnapshot = useHoleScoreSnapshot({
+    roundId: id,
+    holeNumber: currentHole,
+    visibility: round?.visibility,
+    enabled: isCrossGroupRound && Boolean(myTeamId),
+  });
   const lockedHandicapIndexes = Object.fromEntries(
     round?.roundPlayers.map((player) => [player.playerId, player.eventHandicapIndex]) ?? []
-  );
-  const crossFoursomeLeaderboardSegments = new Map(
-    liveLeaderboard?.mode === "cross_match"
-      ? (liveLeaderboard.segments ?? []).map((segment) => [segment.label, segment] as const)
-      : []
   );
   const livePar3DraftConfig = getPar3ContestConfig(
     liveFormatConfigDraft as Record<string, unknown>
@@ -1355,45 +1323,6 @@ export default function LiveScoringPage({
     setSaving(false);
   };
 
-  const toggleBurgerSelection = (playerId: string) => {
-    setBurgerSelections((current) => {
-      const next = new Set(current);
-      if (next.has(playerId)) {
-        next.delete(playerId);
-      } else {
-        next.add(playerId);
-      }
-      return next;
-    });
-  };
-
-  const handleSaveBurgerSelections = async () => {
-    setBurgerSaving(true);
-    setError(null);
-    try {
-      const selectedPlayerIds = [...burgerSelections];
-      await updateRoundBurgerSelections(id, selectedPlayerIds);
-      setRound((current) =>
-        current
-          ? {
-              ...current,
-              formatConfig: {
-                ...(current.formatConfig ?? {}),
-                burgerOrders: {
-                  selectedPlayerIds,
-                  updatedAt: new Date().toISOString(),
-                },
-              },
-            }
-          : current
-      );
-      setShowBurgerModal(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save burger list");
-    }
-    setBurgerSaving(false);
-  };
-
   const handleFinish = async () => {
     setSaving(true);
     try {
@@ -1688,8 +1617,9 @@ export default function LiveScoringPage({
   if (showTeamSelect) {
     return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-        <div className="bg-white rounded-lg p-6 m-4 max-w-sm w-full">
-          <h2 className="text-xl font-bold mb-4">Which team are you scoring for?</h2>
+        <div className="bg-white rounded-lg p-6 m-4 max-w-sm w-full max-h-[90vh] overflow-y-auto">
+          <SharedBurgerList key={id} roundId={id} />
+          <h2 className="text-xl font-bold my-4">Which team are you scoring for?</h2>
           <div className="space-y-2">
             {round.teams.map((team) => {
               const playerNames = team.roundPlayers
@@ -1793,20 +1723,10 @@ export default function LiveScoringPage({
 
   // Still loading hole data after team selection
   if (!holeData) {
-    return <p className="text-center py-8">Loading hole data...</p>;
+    return <><SharedBurgerList key={id} roundId={id} /><p className="text-center py-8">Loading hole data...</p></>;
   }
 
   const holeInfo = round.course.holes.find((h) => h.holeNumber === currentHole);
-  const burgerSelectionList = round.teams
-    .flatMap((team) =>
-      team.roundPlayers.map((roundPlayer) => ({
-        playerId: roundPlayer.playerId,
-        playerName:
-          roundPlayer.player.nickname || roundPlayer.player.fullName,
-      }))
-    )
-    .filter((player) => burgerSelections.has(player.playerId));
-  const canManageBurgers = currentHole >= 15 || burgerSelections.size > 0;
   const simonSaysPromptInstruction = simonSaysPromptHole
     ? getSundayChurchSimonSaysInstruction(round.formatConfig, simonSaysPromptHole)
     : "";
@@ -1878,14 +1798,6 @@ export default function LiveScoringPage({
               </p>
             </div>
             <div className="flex flex-wrap justify-end gap-2">
-              {canManageBurgers && (
-                <button
-                  onClick={() => setShowBurgerModal(true)}
-                  className="px-3 py-1 bg-orange-100 text-orange-800 rounded text-sm"
-                >
-                  Burgers {burgerSelections.size > 0 ? `(${burgerSelections.size})` : ""}
-                </button>
-              )}
               <button
                 onClick={openEditFormatModal}
                 className="px-3 py-1 bg-amber-100 text-amber-800 rounded text-sm"
@@ -1997,92 +1909,36 @@ export default function LiveScoringPage({
           </div>
         )}
 
-        {isCrossGroupRound && currentCrossFoursomeGames.length > 0 && (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">
-                  {isCrossThreesomeRound ? "Cross-Threesome" : "Cross-Foursome"} - Hole {currentHole}
-                </p>
-                <p className="mt-1 text-emerald-900">
-                  Enter scores for your physical {isCrossThreesomeRound ? "threesome" : "foursome"}.
-                  Virtual two-man {isCrossThreesomeRound ? "net " : ""}best-ball matches update once both groups are in.
-                </p>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  loadLiveLeaderboard();
-                  setShowLiveLeaderboard(true);
-                }}
-              >
-                Standings
-              </Button>
-            </div>
-            <div className="mt-3 grid gap-3 md:grid-cols-3">
-              {currentCrossFoursomeGames.map((game) => {
-                const segment = crossFoursomeLeaderboardSegments.get(game.label);
-                return (
-                  <div
-                    key={game.id}
-                    className="rounded border border-emerald-100 bg-white/90 p-3"
-                  >
-                    <div className="mb-2 flex items-center justify-between gap-3">
-                      <p className="font-semibold">{game.label}</p>
-                      <p className="text-xs text-gray-500">
-                        {segment?.formatName ?? "Waiting on scores"}
-                      </p>
-                    </div>
-                    <div className="space-y-1">
-                      {game.pairs.map((pair) => (
-                        <div
-                          key={pair.virtualTeamId}
-                          className="flex items-center justify-between gap-3 rounded bg-gray-50 px-2 py-1"
-                        >
-                          <span className="font-medium text-gray-600">
-                            {pair.label}
-                          </span>
-                          <span className="text-right">
-                            {pair.playerIds
-                              .map((playerId) => livePlayerNameMap.get(playerId) ?? playerId)
-                              .join(" / ")}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                    <p className="mt-2 text-xs text-emerald-800">
-                      {segment?.leaders && segment.leaders.length > 0
-                        ? `Leaders: ${segment.leaders.join(", ")}`
-                        : "No leader yet"}
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
+        {isCrossGroupRound && myTeamId && holeInfo && (
+          <div className="space-y-2">
+            <CrossHolePanel
+              holeNumber={currentHole}
+              par={holeInfo.par}
+              handicapRank={holeInfo.handicapRank}
+              netScoring={usesNetHandicapScoring}
+              handicapMode={isCrossFoursomeRound ? getCrossFoursome66618Config(round.formatConfig).handicapMode ?? "relative" : "relative"}
+              players={round.teams.flatMap(team => team.roundPlayers.map(player => ({
+                playerId: player.playerId,
+                name: player.player.nickname || player.player.fullName,
+                group: getTeamLabel(team.id),
+              })))}
+              ownPlayerIds={round.teams.find(team => team.id === myTeamId)?.roundPlayers.map(player => player.playerId) ?? []}
+              handicapIndexes={lockedHandicapIndexes}
+              grossScores={Object.fromEntries(crossHoleSnapshot.scores.map(score => [score.playerId, score.grossScore]))}
+              games={crossFoursomePairingGames}
+              hidden={crossHoleSnapshot.hidden}
+              loading={crossHoleSnapshot.loading}
+              error={crossHoleSnapshot.error}
+              lastUpdated={crossHoleSnapshot.lastUpdated}
+              onRefresh={crossHoleSnapshot.refresh}
+            />
+            <Button variant="ghost" onClick={() => { loadLiveLeaderboard(); setShowLiveLeaderboard(true); }}>
+              View all match standings
+            </Button>
           </div>
         )}
 
-        {canManageBurgers && (
-          <div className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-900">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="font-semibold">Burger List</p>
-                <p className="text-xs text-orange-800">
-                  Hole 15 and later. Use this to tell the first group in who wants burgers.
-                </p>
-              </div>
-              <Button variant="secondary" onClick={() => setShowBurgerModal(true)}>
-                Edit List
-              </Button>
-            </div>
-            <p className="mt-2">
-              {burgerSelectionList.length > 0
-                ? burgerSelectionList.map((player) => player.playerName).join(", ")
-                : "No burger orders selected yet."}
-            </p>
-          </div>
-        )}
+        <SharedBurgerList key={id} roundId={id} prompt={currentHole >= 15} />
 
         {pendingImportantMessage && (
           <div className="bg-amber-50 border-2 border-amber-400 text-amber-900 px-4 py-4 rounded-lg shadow-sm">
@@ -2220,13 +2076,15 @@ export default function LiveScoringPage({
               )}
             </div>
 
-            <div className="p-4">
+            <div id="current-hole-score-entry" tabIndex={-1} className="scroll-mt-20 p-4">
               <p className="text-sm text-gray-600 mb-4">
                 {myTeamScore.players.map((p) => p.name).join(", ")}
               </p>
 
               {usesNetHandicapScoring && myTeam && (
-                <HandicapStrokeCard
+                <details className="mb-4 rounded-lg border border-emerald-200">
+                  <summary className="min-h-12 cursor-pointer px-3 py-3 text-sm font-semibold text-emerald-900">Full stroke allocation (18 holes)</summary>
+                <HandicapStrokeCard handicapMode={isCrossFoursomeRound ? getCrossFoursome66618Config(round.formatConfig).handicapMode : "relative"}
                   players={myTeam.roundPlayers.map((player) => ({
                     playerId: player.playerId,
                     name: player.player.nickname || player.player.fullName,
@@ -2235,6 +2093,7 @@ export default function LiveScoringPage({
                   holes={round.course.holes}
                   currentHole={currentHole}
                 />
+                </details>
               )}
 
               {effectiveFormat && effectiveFormat.id !== formatDefinition?.id && (
@@ -2432,10 +2291,10 @@ export default function LiveScoringPage({
                         className="rounded-lg border border-gray-200 p-3"
                       >
                         <div className="flex items-start justify-between gap-4">
-                          <div>
-                            <p className="font-medium">{input.name}</p>
+                          <div className="min-w-0 flex-1">
+                            <p className="break-words font-medium">{input.name}</p>
                             {usesNetHandicapScoring && (
-                              <HandicapPlayerScoreDetails
+                              <HandicapPlayerScoreDetails handicapMode={isCrossFoursomeRound ? getCrossFoursome66618Config(round.formatConfig).handicapMode : "relative"}
                                 playerId={input.playerId}
                                 grossScore={input.grossScore}
                                 playerHandicapIndexes={lockedHandicapIndexes}
@@ -2470,7 +2329,7 @@ export default function LiveScoringPage({
                               }
                             }
                             disabled={scoreEntryBlocked}
-                            className="w-24 rounded-lg border border-gray-300 px-3 py-2 text-right text-lg"
+                            className="min-h-12 w-24 shrink-0 rounded-lg border border-gray-300 px-3 py-2 text-right text-xl"
                           />
                         </div>
                         <div className="mt-3 space-y-2">
@@ -3600,60 +3459,6 @@ export default function LiveScoringPage({
         </div>
       </Modal>
 
-      <Modal
-        isOpen={showBurgerModal}
-        onClose={() => {
-          if (!burgerSaving) {
-            setShowBurgerModal(false);
-          }
-        }}
-        title="Burger List"
-      >
-        <div className="space-y-4">
-          <p className="text-sm text-gray-600">
-            Check everyone who wants burgers. This list is shared across the round so
-            the first group in can read it and order for everyone.
-          </p>
-          <div className="space-y-2 max-h-80 overflow-y-auto rounded border border-gray-200 p-2">
-            {round.roundPlayers.map((roundPlayer) => (
-              <label
-                key={roundPlayer.id}
-                className="flex items-center justify-between rounded px-2 py-2 hover:bg-gray-50"
-              >
-                <span className="font-medium">
-                  {roundPlayer.player.nickname || roundPlayer.player.fullName}
-                </span>
-                <input
-                  type="checkbox"
-                  checked={burgerSelections.has(roundPlayer.playerId)}
-                  onChange={() => toggleBurgerSelection(roundPlayer.playerId)}
-                  className="h-4 w-4"
-                />
-              </label>
-            ))}
-          </div>
-          <div className="rounded bg-gray-50 px-3 py-2 text-sm text-gray-700">
-            {burgerSelectionList.length > 0
-              ? `Ordering for: ${burgerSelectionList
-                  .map((player) => player.playerName)
-                  .join(", ")}`
-              : "Nobody selected yet."}
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="secondary"
-              onClick={() => setShowBurgerModal(false)}
-              disabled={burgerSaving}
-            >
-              Close
-            </Button>
-            <Button onClick={handleSaveBurgerSelections} disabled={burgerSaving}>
-              {burgerSaving ? "Saving..." : "Save Burger List"}
-            </Button>
-          </div>
-        </div>
-      </Modal>
-
       {/* Team Selection Modal */}
       {showTeamSelect && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -3913,7 +3718,7 @@ export default function LiveScoringPage({
                             {segment.completed ? "Complete" : "In progress"}
                           </p>
                           <p className="text-gray-500">
-                            ${segment.payoutPerWinningTeam.toFixed(2)} each
+                            {!segment.completed ? "Projected: " : ""}${segment.payoutPerWinningTeam.toFixed(2)} each
                           </p>
                         </div>
                       </div>

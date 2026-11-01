@@ -55,7 +55,7 @@ import {
 } from "@/lib/sunday-church-simon-says";
 import {
   CROSS_FOURSOME_66618_FORMAT_ID,
-  createDefaultCrossFoursome66618Config,
+  createDefaultCrossFoursome66618Config, createNewCrossFoursome66618Config,
   validateCrossFoursome66618Config,
 } from "@/lib/cross-foursome-66618";
 import {
@@ -197,7 +197,7 @@ function buildDefaultFormatConfig(
     Object.assign(config, createDefaultSundayChurchSimonSaysConfig());
   }
   if ((format?.definitionId ?? format?.id) === CROSS_FOURSOME_66618_FORMAT_ID) {
-    Object.assign(config, createDefaultCrossFoursome66618Config());
+    Object.assign(config, createNewCrossFoursome66618Config());
   }
   return config;
 }

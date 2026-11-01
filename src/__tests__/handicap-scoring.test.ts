@@ -30,8 +30,8 @@ test("handicap scoring allocates extra strokes by the course handicap rank", () 
 });
 
 test("handicap scoring adds a stroke back for a plus handicap", () => {
-  assert.equal(getStrokesReceivedForHole(-2, 1), -1);
-  assert.equal(getNetScore({ grossScore: 4, handicapIndex: -2, handicapRank: 1 }), 5);
+  assert.equal(getStrokesReceivedForHole(-2, 18), -1);
+  assert.equal(getNetScore({ grossScore: 4, handicapIndex: -2, handicapRank: 18 }), 5);
   assert.equal(getNetScore({ grossScore: 4, handicapIndex: -2, handicapRank: 3 }), 4);
 });
 

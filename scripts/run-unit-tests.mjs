@@ -11,7 +11,7 @@ export async function findUnitTests(directory) {
     entries.map(async (entry) => {
       const path = resolve(directory, entry.name);
       if (entry.isDirectory()) return findUnitTests(path);
-      return entry.isFile() && entry.name.endsWith(".test.ts") ? [path] : [];
+      return entry.isFile() && /\.test\.tsx?$/.test(entry.name) ? [path] : [];
     })
   );
   return files.flat().sort();

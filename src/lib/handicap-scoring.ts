@@ -43,7 +43,9 @@ export function getStrokesReceivedForHole(
   const baseStrokes = Math.floor(absoluteHandicap / 18);
   const remainder = absoluteHandicap % 18;
 
-  return sign * (baseStrokes + (handicapRank <= remainder ? 1 : 0));
+  const allocationRank = sign < 0 ? 19 - handicapRank : handicapRank;
+  const strokes = baseStrokes + (allocationRank <= remainder ? 1 : 0);
+  return strokes === 0 ? 0 : sign * strokes;
 }
 
 export function getNetScore({
@@ -59,4 +61,11 @@ export function getNetScore({
 
   const strokesReceived = getStrokesReceivedForHole(handicapIndex, handicapRank);
   return strokesReceived === null ? null : grossScore - strokesReceived;
+}
+
+
+export function getPlayingHandicaps(indexes: Record<string, number | null | undefined>, mode: "relative" | "full" = "relative") {
+  return mode === "full"
+    ? Object.fromEntries(Object.entries(indexes).map(([id, index]) => [id, getPlayingHandicap(index)]))
+    : getRelativePlayingHandicaps(indexes);
 }

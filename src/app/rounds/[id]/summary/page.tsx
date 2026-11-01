@@ -1,5 +1,4 @@
 "use client";
-
 import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -9,6 +8,7 @@ import { getTopTeamHistory } from "@/actions/season-stats";
 import { getPlayerScores, type PlayerScoreRecord } from "@/actions/player-scores";
 import { Card, CardHeader, CardContent } from "@/components/card";
 import { Button } from "@/components/button";
+import { SharedBurgerList } from "@/components/shared-burger-list";
 import { ConfirmModal, Modal } from "@/components/modal";
 import { Select } from "@/components/select";
 import { SundayChurchYellowBallSummary } from "@/components/sunday-church-yellow-ball-summary";
@@ -693,7 +693,7 @@ export default function RoundSummaryPage({
           </Link>
         </div>
       </div>
-
+      <SharedBurgerList key={id} roundId={id} />
       {/* Round Info */}
       <Card>
         <CardContent>
