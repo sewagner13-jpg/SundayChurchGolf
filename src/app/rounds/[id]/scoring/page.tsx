@@ -6,6 +6,8 @@ import { Button } from "@/components/button";
 import { SharedBurgerList } from "@/components/shared-burger-list";
 import { Card } from "@/components/card";
 import { CrossHolePanel } from "@/components/cross-hole-panel";
+import { CrossMatchStandings } from "@/components/cross-match-standings";
+import type { CrossMatchStanding } from "@/lib/cross-match-standings";
 import { useHoleScoreSnapshot } from "@/components/use-hole-score-snapshot";
 import { HandicapPlayerScoreDetails, HandicapStrokeCard } from "@/components/handicap-stroke-card";
 import { ConfirmModal, Modal } from "@/components/modal";
@@ -250,6 +252,8 @@ interface LiveLeaderboardSegment {
 }
 
 interface LiveLeaderboardData {
+  matches?: CrossMatchStanding[];
+  matchesHidden?: boolean;
   mode: "skins" | "standard" | "irish_golf" | "nassau" | "cross_match";
   title: string;
   scoringLabel: string;
@@ -3645,7 +3649,8 @@ export default function LiveScoringPage({
               </div>
             )}
 
-            <div className="mt-4 space-y-2">
+            {liveLeaderboard.mode === "cross_match" && <CrossMatchStandings matches={liveLeaderboard.matches ?? []} currentHole={currentHole} hidden={liveLeaderboard.matchesHidden} netScoring={isCrossThreesomeRound || getCrossFoursome66618Config(round.formatConfig).scoreMode === "best_net_ball"} />}
+            {liveLeaderboard.mode !== "cross_match" && <div className="mt-4 space-y-2">
               {liveLeaderboard.entries.map((entry, index) => (
                 <div
                   key={entry.teamId}
@@ -3669,33 +3674,28 @@ export default function LiveScoringPage({
                       <p className="font-bold text-green-700">
                         {liveLeaderboard.mode === "skins" ||
                         liveLeaderboard.mode === "irish_golf" ||
-                        liveLeaderboard.mode === "nassau" ||
-                        liveLeaderboard.mode === "cross_match"
+                        liveLeaderboard.mode === "nassau"
                           ? `$${entry.totalPayout.toFixed(2)}`
                           : entry.metricLabel}
                       </p>
                       {(liveLeaderboard.mode === "skins" ||
                         liveLeaderboard.mode === "irish_golf" ||
-                        liveLeaderboard.mode === "nassau" ||
-                        liveLeaderboard.mode === "cross_match") && (
+                        liveLeaderboard.mode === "nassau") && (
                         <p className="text-xs text-gray-500">{entry.metricLabel}</p>
                       )}
                     </div>
                   </div>
                 </div>
               ))}
-            </div>
+            </div>}
 
             {(liveLeaderboard.mode === "irish_golf" ||
-              liveLeaderboard.mode === "nassau" ||
-              liveLeaderboard.mode === "cross_match") &&
+              liveLeaderboard.mode === "nassau") &&
               liveLeaderboard.segments &&
               liveLeaderboard.segments.length > 0 && (
                 <div className="mt-4 space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    {liveLeaderboard.mode === "cross_match"
-                      ? "Game Leaders"
-                      : "Segment Leaders"}
+                    Segment Leaders
                   </p>
                   {liveLeaderboard.segments.map((segment) => (
                     <div

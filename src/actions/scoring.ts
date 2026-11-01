@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/db";
+import { buildCrossMatchStandings, type CrossMatchStanding } from "@/lib/cross-match-standings";
 import { claimRoundFinalization } from "@/lib/round-finalization";
 import { revalidatePath } from "next/cache";
 import { Decimal } from "@prisma/client/runtime/library";
@@ -67,6 +68,8 @@ export interface LiveLeaderboardSegment {
 }
 
 export interface LiveLeaderboardData {
+  matches?: CrossMatchStanding[];
+  matchesHidden?: boolean;
   mode: "skins" | "standard" | "irish_golf" | "nassau" | "cross_match";
   title: string;
   scoringLabel: string;
@@ -1840,6 +1843,8 @@ export async function getLiveLeaderboard(
         ? "Net best-ball match play. Two tie, all tie."
         : "Best-ball match play. Two tie, all tie.",
       entries,
+      matches: buildCrossMatchStandings(summaries, Object.fromEntries(playerNameMap), round.visibility === "BLIND" && round.status === "LIVE"),
+      matchesHidden: round.visibility === "BLIND" && round.status === "LIVE",
       segments: summaries.map((summary) => ({
         label: summary.label,
         formatName: `${summary.completedHoles}/${summary.holeNumbers.length} holes complete`,

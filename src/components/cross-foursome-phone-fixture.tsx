@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { CrossHolePanel } from "@/components/cross-hole-panel";
+import { CrossMatchStandings } from "@/components/cross-match-standings";
+import { buildCrossMatchStandings } from "@/lib/cross-match-standings";
 import { computeCrossFoursome66618GameSummaries, getCrossFoursome66618Pairings } from "@/lib/cross-foursome-66618";
 
 const ids = ["a", "b", "c", "d", "e", "f", "g", "h"];
@@ -41,5 +43,6 @@ export function CrossFoursomePhoneFixture() {
       <button className="min-h-12 rounded border px-4" onClick={() => setHidden(!hidden)}>Toggle blind visibility</button>
       <button className="min-h-12 rounded border px-4" onClick={() => {setHoleNumber(7); setSaved({});}}>Next segment</button>
     </section>
+    <CrossMatchStandings matches={buildCrossMatchStandings(summaries,Object.fromEntries(ids.map((id,index)=>[id,names[index]])),hidden)} currentHole={holeNumber} hidden={hidden} />
   </main>;
 }
