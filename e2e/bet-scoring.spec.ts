@@ -7,6 +7,16 @@ for(const width of [320,390]) test(`bet-first scoring at ${width}px keeps partne
  const own=page.getByRole("region",{name:"Score for Alex"});
  await expect(own).toContainText("Partner: Eddie");
  await expect(own).toContainText("Partner net 3");
+ const inputBox=await page.getByLabel("Strokes for Alex").boundingBox();
+ expect(inputBox!.y).toBeLessThan(600);
+ const firstCard=await own.boundingBox();
+ const secondCard=await page.getByRole("region",{name:"Score for Bill"}).boundingBox();
+ expect(secondCard!.y-(firstCard!.y+firstCard!.height)).toBeGreaterThanOrEqual(16);
+ const standings=page.getByRole("group",{name:"Pair standings"});
+ await expect(standings).not.toHaveAttribute("open","");
+ await page.getByText("Pair standings",{exact:true}).click();
+ await expect(standings).toContainText("Eddie / Alex");
+ await page.getByText("Pair standings",{exact:true}).click();
  await page.getByLabel("Strokes for Alex").fill("5");
  await expect(own).toContainText("Your net 4");
  await expect(own).toContainText("Pair best net 3");
