@@ -51,6 +51,7 @@ export default function FinalPayoutsPage({ params }: { params: Promise<{ id: str
         </div>
         <p className="text-sm text-gray-600">{round.course.name} · Round complete</p>
         <p className="text-sm text-gray-700">Each player’s bets and final amount to collect.</p>
+        <Link href={`/rounds/${id}/scoreboard`} className="inline-flex min-h-11 items-center rounded-xl border border-green-200 bg-white px-4 text-sm font-semibold text-green-900">Full-day scoreboard</Link>
       </header>
       <PlayerWinningsList rows={rows} />
       <p className="flex justify-between border-t border-gray-200 pt-4 font-semibold text-gray-900"><span>Total won</span><span className="tabular-nums">${(totalCents / 100).toFixed(2)}</span></p>

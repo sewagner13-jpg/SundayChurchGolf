@@ -693,7 +693,7 @@ export default function RoundSummaryPage({
           </Link>
         </div>
       </div>
-      <SharedBurgerList key={id} roundId={id} />
+      <Link href={`/rounds/${id}/scoreboard`} className="inline-flex min-h-11 items-center rounded-xl border bg-white px-4 font-semibold text-green-900">Full-day scoreboard</Link><SharedBurgerList key={id} roundId={id} />
       {/* Round Info */}
       <Card>
         <CardContent>

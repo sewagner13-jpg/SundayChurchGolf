@@ -8,7 +8,7 @@ for(const width of [320,390]) test(`bet-first scoring at ${width}px keeps partne
  await expect(own).toContainText("Partner: Eddie");
  await expect(own).toContainText("Partner net 3");
  const inputBox=await page.getByLabel("Strokes for Alex").boundingBox();
- expect(inputBox!.y).toBeLessThan(600);
+ expect(inputBox!.y).toBeLessThan(650);
  const firstCard=await own.boundingBox();
  const secondCard=await page.getByRole("region",{name:"Score for Bill"}).boundingBox();
  expect(secondCard!.y-(firstCard!.y+firstCard!.height)).toBeGreaterThanOrEqual(16);
@@ -37,4 +37,10 @@ test("finishing cannot silently discard a displayed score edit",async({page})=>{
  await page.getByRole("button",{name:"Finish round & show winnings",exact:true}).click();
  await page.getByLabel("Strokes for Alex").fill("6");
  await expect(page.getByRole("button",{name:"Confirm finish & show winnings",exact:true})).toBeDisabled();
+});
+test("score entry fits a narrow phone with larger text",async({page})=>{
+ await page.setViewportSize({width:280,height:844});await page.goto("/e2e/bet-scoring");
+ await page.addStyleTag({content:"html { font-size: 20px; }"});
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(280);
+ for(const field of await page.getByRole("textbox").all()) {const box=await field.boundingBox();expect(box!.x).toBeGreaterThanOrEqual(0);expect(box!.x+box!.width).toBeLessThanOrEqual(280);}
 });

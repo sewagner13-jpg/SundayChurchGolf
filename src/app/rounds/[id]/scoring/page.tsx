@@ -2,11 +2,13 @@
 
 import { useState, useEffect, use, useRef } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Button } from "@/components/button";
 import { SharedBurgerList } from "@/components/shared-burger-list";
 import { Card } from "@/components/card";
 import { CrossHolePanel } from "@/components/cross-hole-panel";
 import { BetScoringScreen } from "@/components/bet-scoring-screen";
+import { RoundDayScoreboard } from "@/components/round-day-scoreboard";
 import { LiveHoleContest } from "@/components/live-hole-contest";
 import { CrossMatchStandings } from "@/components/cross-match-standings";
 import type { CrossMatchStanding } from "@/lib/cross-match-standings";
@@ -1813,6 +1815,7 @@ export default function LiveScoringPage({
       onRefresh={()=>{crossHoleSnapshot.refresh();void loadLiveLeaderboard();}}
       onPrevious={handlePrevHole} onNext={handleNextHole} onChangeGroup={changeTeam} onDiscard={loadPlayerInputs}
       onMarkDone={handleMarkTeamFinished} onFinish={handleFinish}
+      scoreboard={<RoundDayScoreboard roundId={id} embedded/>}
       contest={<LiveHoleContest roundId={id} holeNumber={currentHole} disabled={saving || scoreEntryBlocked} />}
       important={pendingImportantMessage && <aside className="rounded-xl border-2 border-amber-500 bg-amber-50 p-3"><h2 className="font-bold">Important group message</h2><p className="my-2 whitespace-pre-wrap">{pendingImportantMessage.body}</p>{pendingImportantMessage.imageDataUrl && <a href={pendingImportantMessage.imageDataUrl} target="_blank" rel="noreferrer" className="block min-h-11 underline">View attached photo</a>}<Button onClick={handleAcknowledgeImportant} disabled={saving}>Acknowledge message</Button></aside>}
       tools={<div className="mt-4 space-y-4"><SharedBurgerList key={id} roundId={id}/><section><h3 className="font-bold">Group chat</h3>{chatMessages.slice(-5).map(message=><p key={message.id} className="mt-2 break-words text-sm"><strong>Group {message.senderTeamNumber}: </strong>{message.body}</p>)}<label className="mt-3 block text-sm">Message other group<textarea value={chatDraft} onChange={event=>setChatDraft(event.target.value.slice(0,280))} className="mt-1 min-h-12 w-full rounded-lg border p-2"/></label><Button onClick={handleSendChatMessage} disabled={chatSending || !chatDraft.trim()}>Send message</Button></section></div>}
@@ -1844,6 +1847,7 @@ export default function LiveScoringPage({
               >
                 Edit Format
               </button>
+              <Link href={`/rounds/${id}/scoreboard`} target="_blank" rel="noreferrer" className="rounded border px-3 py-2 text-sm font-semibold text-green-900">Full-day scoreboard ↗</Link>
               <button
                 onClick={loadScorecard}
                 className="px-3 py-1 bg-blue-100 text-blue-700 rounded text-sm"

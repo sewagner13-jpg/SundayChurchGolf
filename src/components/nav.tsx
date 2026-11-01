@@ -14,7 +14,7 @@ const navItems = [
 
 export function Nav() {
   const pathname = usePathname();
-  const scoring = /^\/rounds\/[^/]+\/scoring$/.test(pathname);
+  const scoring = /^\/rounds\/[^/]+\/(scoring|scoreboard)$/.test(pathname);
 
   return (
     <nav className="bg-green-800 text-white sticky top-0 z-50">
